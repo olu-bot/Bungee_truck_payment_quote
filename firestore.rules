@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isGlobalAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    // Own profile: create as user only; updates cannot change role (promote admin in Firebase Console or Admin SDK)
+    match /users/{userId} {
+      allow get, list: if request.auth != null && (
+        request.auth.uid == userId || isGlobalAdmin()
+      );
+      allow create: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.role == "user";
+      allow update: if request.auth != null && request.auth.uid == userId
+        // Prevent clients from changing their own role.
+        && request.resource.data.role == resource.data.role;
+      allow delete: if false;
+    }
+
+    function userOwnsCompanyData(companyId) {
+      return request.auth != null && (
+        // Personal workspace: data under companies/{yourUid}/... (no separate "company" record needed)
+        companyId == request.auth.uid ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId
+        )
+      );
+    }
+
+    // companies/{id}/... — id may be shared company id or the signed-in user's uid
+    match /companies/{companyId}/{collection}/{docId} {
+      allow read: if userOwnsCompanyData(companyId) || isGlobalAdmin();
+      allow write: if userOwnsCompanyData(companyId);
+    }
+
+    match /companies/{companyId} {
+      allow create: if request.auth != null;
+      allow read: if userOwnsCompanyData(companyId) || isGlobalAdmin();
+      allow write: if userOwnsCompanyData(companyId);
+    }
+
+    // User-submitted feedback; admins read/reply; users read own + create
+    match /feedback/{feedbackId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == "open"
+        && request.resource.data.readByAdmin == false
+        && !request.resource.data.keys().hasAny([
+          "adminReply", "adminReplyAt", "adminReplyByUid", "replyEmailedAt"
+        ]);
+      allow read: if request.auth != null && (
+        resource.data.userId == request.auth.uid || isGlobalAdmin()
+      );
+      allow update: if isGlobalAdmin();
+      allow delete: if false;
+    }
+  }
+}

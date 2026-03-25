@@ -1,0 +1,15 @@
+node_modules
+dist
+client/dist
+repo.zip
+firebase-debug.log
+
+.git
+.github
+
+# Env files contain local secrets/keys. We pass required `VITE_*` values
+# to Docker builds via `--build-arg` instead of relying on local files.
+.env
+.env.local
+.env.*.local
+
