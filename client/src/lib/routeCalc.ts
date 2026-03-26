@@ -23,105 +23,112 @@ function getAllInHourly(p: CostProfile): number {
   return getFixedCostPerHour(p) + p.driverPayPerHour;
 }
 
+/**
+ * Deadhead = the **return** leg only (Delivery → Yard).
+ *
+ * Typical route:  Pickup → [Stops] → Delivery → Yard
+ *                 ^^^^^^^^ trip cost ^^^^^^^^^^   ^^^^ deadhead (return empty)
+ *
+ * Routes start at the pickup — the yard-to-pickup travel is not a leg.
+ * Only the final leg whose destination is a yard (the return) is deadhead.
+ */
+function isReturnDeadhead(
+  _from: RouteStop,
+  to: RouteStop,
+  isLastLeg: boolean,
+): boolean {
+  return isLastLeg && to.type === "yard";
+}
+
 export function calculateRouteCost(
   profile: CostProfile,
   stops: RouteStop[],
-  includeReturn: boolean,
+  includeDeadhead: boolean,
   fuelPricePerLitre: number,
-  returnDistanceKm?: number,
-  returnDriveMinutes?: number,
+  _returnDistanceKm?: number,
+  _returnDriveMinutes?: number,
 ) {
   const allInHourly = getAllInHourly(profile);
   const fuelPerKm = getFuelPerKm(profile.fuelConsumptionPer100km, fuelPricePerLitre);
 
-  let totalDriveMinutes = 0;
-  let totalDockMinutes = 0;
-  let totalDistanceKm = 0;
-  const legs: Array<Record<string, unknown>> = [];
+  const legs: Array<{
+    from: string;
+    to: string;
+    type: string;
+    isLocal: boolean;
+    isDeadhead: boolean;
+    distanceKm: number;
+    driveMinutes: number;
+    dockMinutes: number;
+    totalBillableHours: number;
+    laborCost: number;
+    fuelCost: number;
+    legCost: number;
+  }> = [];
 
   for (let i = 1; i < stops.length; i++) {
     const from = stops[i - 1]!;
     const to = stops[i]!;
+    const isLastLeg = i === stops.length - 1;
+    const deadhead = isReturnDeadhead(from, to, isLastLeg);
+
+    // Skip the deadhead leg entirely when the toggle is off
+    if (deadhead && !includeDeadhead) continue;
+
     const driveMin = to.driveMinutesFromPrev || 0;
     const distKm = to.distanceFromPrevKm || 0;
-    const dockMin = to.dockTimeMinutes || 0;
-
-    totalDriveMinutes += driveMin;
-    totalDockMinutes += dockMin;
-    totalDistanceKm += distKm;
+    // Deadhead legs have no dock/loading time
+    const dockMin = deadhead ? 0 : (to.dockTimeMinutes || 0);
 
     const driveHours = driveMin / 60;
     const dockHours = dockMin / 60;
-    const legTimeCost = (driveHours + dockHours) * allInHourly;
+    const billableHours = driveHours + dockHours;
+    const legTimeCost = billableHours * allInHourly;
     const legFuelCost = distKm * fuelPerKm;
     const isLocal = distKm < 100;
 
     legs.push({
       from: from.location,
       to: to.location,
-      type: to.type,
+      type: deadhead ? "deadhead" : (to.type || "delivery"),
       isLocal,
+      isDeadhead: deadhead,
       distanceKm: r2(distKm),
       driveMinutes: r2(driveMin),
       dockMinutes: r2(dockMin),
-      totalBillableHours: r2((driveMin + dockMin) / 60),
-      laborCost: r2(((driveMin + dockMin) / 60) * allInHourly),
+      totalBillableHours: r2(billableHours),
+      laborCost: r2(billableHours * allInHourly),
       fuelCost: r2(legFuelCost),
       legCost: r2(legTimeCost + legFuelCost),
     });
   }
 
-  let returnLeg: Record<string, unknown> | null = null;
-  if (includeReturn) {
-    const retKm =
-      returnDistanceKm ||
-      (stops.length > 1 ? stops[stops.length - 1]!.distanceFromPrevKm || 0 : 0);
-    const retMin =
-      returnDriveMinutes ||
-      (stops.length > 1 ? stops[stops.length - 1]!.driveMinutesFromPrev || 0 : 0);
-    totalDistanceKm += retKm;
-    totalDriveMinutes += retMin;
-
-    const driveHours = retMin / 60;
-    const legTimeCost = driveHours * allInHourly;
-    const legFuelCost = retKm * fuelPerKm;
-
-    returnLeg = {
-      from: stops[stops.length - 1]!.location,
-      to: stops[0]!.location,
-      type: "return",
-      isLocal: retKm < 100,
-      distanceKm: r2(retKm),
-      driveMinutes: r2(retMin),
-      dockMinutes: 0,
-      totalBillableHours: r2(retMin / 60),
-      laborCost: r2(driveHours * allInHourly),
-      fuelCost: r2(legFuelCost),
-      legCost: r2(legTimeCost + legFuelCost),
-    };
-    legs.push(returnLeg);
+  // Derive totals from the legs (single source of truth)
+  let totalDistanceKm = 0;
+  let totalDriveMinutes = 0;
+  let totalDockMinutes = 0;
+  for (const leg of legs) {
+    totalDistanceKm += leg.distanceKm;
+    totalDriveMinutes += leg.driveMinutes;
+    totalDockMinutes += leg.dockMinutes;
   }
 
-  const totalHours = (totalDriveMinutes + totalDockMinutes) / 60;
-  const timeCost = totalHours * allInHourly;
-  const fuelCost = totalDistanceKm * fuelPerKm;
-  const totalCost = timeCost + fuelCost;
-
-  const deliveryCost = legs.filter((l) => l.type !== "return").reduce((sum, l) => sum + (l.legCost as number), 0);
-  const deadheadCost = returnLeg ? (returnLeg.legCost as number) : 0;
+  const tripCost = r2(legs.filter((l) => !l.isDeadhead).reduce((s, l) => s + l.legCost, 0));
+  const deadheadCost = r2(legs.filter((l) => l.isDeadhead).reduce((s, l) => s + l.legCost, 0));
+  const fullTripCost = r2(tripCost + deadheadCost);
 
   return {
     legs,
     totalDistanceKm: r2(totalDistanceKm),
     totalDriveMinutes: r2(totalDriveMinutes),
     totalDockMinutes: r2(totalDockMinutes),
-    totalHours: r2(totalHours),
+    totalHours: r2((totalDriveMinutes + totalDockMinutes) / 60),
     allInHourlyRate: r2(allInHourly),
     fixedCostPerHour: r2(getFixedCostPerHour(profile)),
     fuelPerKm: r2(fuelPerKm),
-    deliveryCost: r2(deliveryCost),
-    deadheadCost: r2(deadheadCost),
-    fullTripCost: r2(totalCost),
+    tripCost,
+    deadheadCost,
+    fullTripCost,
   };
 }
 

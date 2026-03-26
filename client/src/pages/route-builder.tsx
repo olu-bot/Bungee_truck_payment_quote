@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
-import { geocodeLocation, getOSRMRoute } from "@/lib/geo";
+import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances } from "@/lib/geo";
 import { calculateRouteCost, getPricingAdvice } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +47,12 @@ import {
   formatCurrencyAmount,
   resolveWorkspaceCurrency,
 } from "@/lib/currency";
+import {
+  resolveMeasurementUnit,
+  displayDistance,
+  distanceLabel,
+  fuelConsumptionLabel,
+} from "@/lib/measurement";
 
 let stopIdCounter = 0;
 function nextStopId(): string {
@@ -88,6 +94,23 @@ async function getDistance(
   return getOSRMRoute(fromLat, fromLng, toLat, toLng);
 }
 
+/**
+ * Extract a city/region from a detailed address string.
+ * Given "123 Industrial Rd, Suite 5, Toronto, ON M5V 2T6"
+ * → tries "Toronto, ON M5V 2T6" then "Toronto, ON" etc.
+ * Falls back to the last comma-separated segment.
+ */
+function extractCityFromAddress(address: string): string | null {
+  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length <= 1) return null;
+  // Try progressively shorter suffixes (skipping street-level detail)
+  for (let i = 1; i < parts.length; i++) {
+    const candidate = parts.slice(i).join(", ");
+    if (candidate.length >= 3) return candidate;
+  }
+  return null;
+}
+
 // ── Types ──────────────────────────────────────────────────────────
 
 type LegBreakdown = {
@@ -114,7 +137,7 @@ type RouteCalculation = {
   allInHourlyRate: number;
   fixedCostPerHour: number;
   fuelPerKm: number;
-  deliveryCost: number;
+  tripCost: number;
   deadheadCost: number;
   fullTripCost: number;
 };
@@ -159,12 +182,12 @@ async function persistRouteBuilderQuote(
     totalKm: meta.calc.totalDistanceKm,
     totalMin: meta.calc.totalDriveMinutes,
     returnKm: meta.calc.legs
-      .filter((l) => l.type === "return")
+      .filter((l) => l.isDeadhead ?? l.type === "deadhead")
       .reduce((s, l) => s + l.distanceKm, 0),
     includeReturn: meta.includeReturn,
     fuelPricePerLitre: meta.fuelPricePerLitre,
     yardLabel: meta.yardLabel,
-    deliveryCost: meta.calc.deliveryCost,
+    deliveryCost: meta.calc.tripCost,
     deadheadCost: meta.calc.deadheadCost,
     fullTripCost: meta.calc.fullTripCost,
     allInHourlyRate: meta.calc.allInHourlyRate,
@@ -232,6 +255,9 @@ export default function RouteBuilder() {
   // ── Stops (computed from form) ────────────────────────────────
 
   const [stops, setStops] = useState<RouteStop[]>([]);
+  const stopsRef = useRef<RouteStop[]>([]);
+  // Keep ref in sync so debounced callbacks always see latest stops
+  stopsRef.current = stops;
 
   // ── Chat ──────────────────────────────────────────────────────
 
@@ -249,7 +275,7 @@ export default function RouteBuilder() {
 
   const [routeCalc, setRouteCalc] = useState<RouteCalculation | null>(null);
   const [pricingAdvice, setPricingAdvice] = useState<PricingAdvice | null>(null);
-  const [showBreakdown, setShowBreakdown] = useState(true);
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
   const [isCalculating, setIsCalculating] = useState(false);
   const [isGeocodingRoute, setIsGeocodingRoute] = useState(false);
@@ -266,6 +292,8 @@ export default function RouteBuilder() {
     (value: number) => formatCurrencyAmount(value, currency),
     [currency]
   );
+  const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
+  const dLabel = distanceLabel(measureUnit);
 
   const { data: profiles = [] } = useQuery<CostProfile[]>({
     queryKey: ["firebase", "profiles", scopeId ?? ""],
@@ -331,14 +359,16 @@ export default function RouteBuilder() {
     async (
       fStops: FormStop[],
       yard: Yard | null,
-      doReturn: boolean,
+      _doReturn: boolean, // ignored — return yard is always included; calc toggle controls cost
     ): Promise<RouteStop[]> => {
-      const locations: { name: string; type: RouteStop["type"]; dockMinutes: number }[] = [];
+      const locations: { name: string; type: RouteStop["type"]; dockMinutes: number; knownLat?: number; knownLng?: number }[] = [];
 
-      if (yard) {
-        locations.push({ name: yard.address || yard.name, type: "yard", dockMinutes: 0 });
-      }
+      // Use pre-stored yard lat/lng when available to avoid re-geocoding
+      const yardLat = yard?.lat ?? undefined;
+      const yardLng = yard?.lng ?? undefined;
 
+      // Routes start at the PICKUP, not the yard.
+      // Yard is only used for the return deadhead leg at the end.
       for (let i = 0; i < fStops.length; i++) {
         const s = fStops[i];
         if (!s.location.trim()) continue;
@@ -346,39 +376,76 @@ export default function RouteBuilder() {
         locations.push({ name: s.location.trim(), type, dockMinutes: s.dockMinutes });
       }
 
-      if (yard && doReturn) {
-        locations.push({ name: yard.address || yard.name, type: "yard", dockMinutes: 0 });
+      // Append return yard for deadhead calculation.
+      // The "Include deadhead" toggle controls whether this leg enters the cost.
+      if (yard) {
+        locations.push({ name: yard.address || yard.name, type: "yard", dockMinutes: 0, knownLat: yardLat, knownLng: yardLng });
       }
 
       if (locations.length < 2) return [];
 
-      // Geocode all
+      // Geocode all — use pre-stored coords when available, with city extraction fallback
       const geocoded = await Promise.all(
         locations.map(async (loc) => {
-          const coords = await geocodeViaBackend(loc.name);
+          // If we already have valid coordinates, skip geocoding
+          if (loc.knownLat != null && loc.knownLng != null && Number.isFinite(loc.knownLat) && Number.isFinite(loc.knownLng)) {
+            return { ...loc, lat: loc.knownLat, lng: loc.knownLng };
+          }
+          // Try geocoding the full address first
+          let coords = await geocodeViaBackend(loc.name);
+          // If full address fails, try extracting a city/region from it
+          if (!coords) {
+            const cityPart = extractCityFromAddress(loc.name);
+            if (cityPart && cityPart !== loc.name) {
+              coords = await geocodeViaBackend(cityPart);
+            }
+          }
           return { ...loc, lat: coords?.lat, lng: coords?.lng };
         }),
       );
 
-      // Get distances for consecutive pairs
+      // Build waypoints for multi-distance call (single OSRM request)
+      const validWaypoints: { lat: number; lng: number }[] = [];
+      const waypointIndices: number[] = []; // maps waypoint index → geocoded index
+      for (let i = 0; i < geocoded.length; i++) {
+        const g = geocoded[i];
+        if (g.lat != null && g.lng != null) {
+          validWaypoints.push({ lat: g.lat, lng: g.lng });
+          waypointIndices.push(i);
+        }
+      }
+
+      // Fetch all leg distances in one call
+      let legDistances: { distanceKm: number; durationMinutes: number }[] | null = null;
+      if (validWaypoints.length >= 2) {
+        legDistances = await getMultiWaypointDistances(validWaypoints);
+        console.log("[buildStops] Multi-waypoint distances:", legDistances);
+      }
+
+      // Build result, mapping multi-distances back to the correct legs
       const result: RouteStop[] = [];
+      let legIdx = 0; // index into legDistances
       for (let i = 0; i < geocoded.length; i++) {
         const g = geocoded[i];
         let distanceFromPrevKm = 0;
         let driveMinutesFromPrev = 0;
 
         if (i > 0) {
-          const prev = geocoded[i - 1];
-          if (
-            prev.lat != null &&
-            prev.lng != null &&
-            g.lat != null &&
-            g.lng != null
-          ) {
-            const dist = await getDistance(prev.lat, prev.lng, g.lat, g.lng);
-            if (dist) {
-              distanceFromPrevKm = dist.distanceKm;
-              driveMinutesFromPrev = dist.durationMinutes;
+          // Check if both this stop and the previous one were in the valid waypoints
+          const prevWpIdx = waypointIndices.indexOf(i - 1);
+          const curWpIdx = waypointIndices.indexOf(i);
+          if (prevWpIdx >= 0 && curWpIdx >= 0 && curWpIdx === prevWpIdx + 1 && legDistances && legDistances[prevWpIdx]) {
+            distanceFromPrevKm = legDistances[prevWpIdx].distanceKm;
+            driveMinutesFromPrev = legDistances[prevWpIdx].durationMinutes;
+          } else if (g.lat != null && g.lng != null) {
+            // Fallback to single-pair call if multi failed
+            const prev = geocoded[i - 1];
+            if (prev.lat != null && prev.lng != null) {
+              const dist = await getDistance(prev.lat, prev.lng, g.lat, g.lng);
+              if (dist) {
+                distanceFromPrevKm = dist.distanceKm;
+                driveMinutesFromPrev = dist.durationMinutes;
+              }
             }
           }
         }
@@ -437,12 +504,14 @@ export default function RouteBuilder() {
     }
   }
 
-  // Debounced recalc when fuel price, return toggle, or profile changes
+  // Debounced recalc when fuel price, return toggle, or profile changes.
+  // Uses stopsRef to always read the latest stops regardless of closure timing.
   useEffect(() => {
-    if (stops.length < 2 || !selectedProfileId) return;
+    const currentStops = stopsRef.current;
+    if (currentStops.length < 2 || !selectedProfileId) return;
     if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
     calcTimerRef.current = setTimeout(() => {
-      calculateRoute(stops);
+      calculateRoute(stopsRef.current);
     }, 600);
     return () => {
       if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
@@ -570,21 +639,49 @@ export default function RouteBuilder() {
           const hasDistances = parsed.some((s) => (s.distanceFromPrevKm ?? 0) > 0);
           if (hasDistances) {
             let allStops = [...parsed];
+            // Routes start at pickup, not yard. Only append yard at end for return deadhead.
             if (effectiveYard && !parsed.some((s) => s.type === "yard")) {
+              // Compute actual distance from last stop to yard
+              const lastStop = allStops[allStops.length - 1];
+              const yardLat = effectiveYard.lat ?? undefined;
+              const yardLng = effectiveYard.lng ?? undefined;
+              let deadheadDistKm = 0;
+              let deadheadDriveMin = 0;
+
+              if (
+                lastStop?.lat != null && lastStop?.lng != null &&
+                yardLat != null && yardLng != null &&
+                Number.isFinite(yardLat) && Number.isFinite(yardLng)
+              ) {
+                const dist = await getDistance(lastStop.lat, lastStop.lng, yardLat, yardLng);
+                if (dist) {
+                  deadheadDistKm = dist.distanceKm;
+                  deadheadDriveMin = dist.durationMinutes;
+                }
+              } else if (yardLat == null || yardLng == null) {
+                // Yard has no coords — try geocoding
+                const yardLocation = effectiveYard.address || effectiveYard.name;
+                const coords = await geocodeViaBackend(yardLocation);
+                if (coords && lastStop?.lat != null && lastStop?.lng != null) {
+                  const dist = await getDistance(lastStop.lat, lastStop.lng, coords.lat, coords.lng);
+                  if (dist) {
+                    deadheadDistKm = dist.distanceKm;
+                    deadheadDriveMin = dist.durationMinutes;
+                  }
+                }
+              }
+
               const yardStop: RouteStop = {
                 id: nextStopId(),
                 type: "yard",
                 location: effectiveYard.address || effectiveYard.name,
-                lat: effectiveYard.lat ?? undefined,
-                lng: effectiveYard.lng ?? undefined,
+                lat: yardLat,
+                lng: yardLng,
                 dockTimeMinutes: 0,
-                distanceFromPrevKm: 0,
-                driveMinutesFromPrev: 0,
+                distanceFromPrevKm: deadheadDistKm,
+                driveMinutesFromPrev: deadheadDriveMin,
               };
-              allStops = [yardStop, ...allStops];
-              if (includeReturn) {
-                allStops.push({ ...yardStop, id: nextStopId() });
-              }
+              allStops.push({ ...yardStop, id: nextStopId() });
             }
             let stopsForCalcAndMap = allStops;
             const hasMissingLatLng = allStops.some(
@@ -709,24 +806,28 @@ export default function RouteBuilder() {
 
   const routeSummaryText = useMemo(() => {
     if (stops.length < 2) return null;
-    const names = stops.map((s) => s.location).filter(Boolean);
+    // Hide the return yard from the summary when deadhead toggle is off
+    const displayStops = includeReturn
+      ? stops
+      : stops.filter((s, i) => !(i === stops.length - 1 && s.type === "yard"));
+    const names = displayStops.map((s) => s.location).filter(Boolean);
     return names.join(" \u2192 ");
-  }, [stops]);
+  }, [stops, includeReturn]);
 
   const routeSummaryStats = useMemo(() => {
     if (!routeCalc) return null;
     const totalKm = routeCalc.totalDistanceKm;
     const totalMin = routeCalc.totalDriveMinutes;
-    const returnKm =
+    const deadheadKm =
       routeCalc.legs
-        ?.filter((l) => l.type === "return")
+        ?.filter((l) => l.isDeadhead ?? l.type === "deadhead")
         .reduce((sum, l) => sum + l.distanceKm, 0) ?? 0;
-    return { totalKm, totalMin, returnKm };
+    return { totalKm, totalMin, deadheadKm };
   }, [routeCalc]);
 
   // ── Derived pricing values (client-side fallbacks) ────────────
 
-  const deliveryCost = routeCalc?.deliveryCost ?? 0;
+  const tripCost = routeCalc?.tripCost ?? 0;
   const deadheadCost = routeCalc?.deadheadCost ?? 0;
   const fullTripCost = routeCalc?.fullTripCost ?? 0;
 
@@ -734,537 +835,481 @@ export default function RouteBuilder() {
 
   return (
     <div className="space-y-4" data-testid="route-builder-page">
-      {/* ── Section 0: Controls Bar ────────────────────────────── */}
-      <div className="flex flex-wrap items-end gap-4">
-        <div className="space-y-1 min-w-[180px]">
-          <Label className="text-xs text-muted-foreground">Cost Profile</Label>
-          <Select
-            value={selectedProfileId}
-            onValueChange={setSelectedProfileId}
-          >
-            <SelectTrigger data-testid="select-profile" className="h-9">
-              <SelectValue placeholder="Select profile" />
-            </SelectTrigger>
-            <SelectContent>
-              {profiles.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 1: Route + Cost Card (sticky, always visible)
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="sticky top-14 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-4 pb-4 bg-background">
+        <Card className="border-border" data-testid="route-cost-section">
+          <CardContent className="p-4 space-y-3">
+            {/* Row 1: Route name + controls + Show breakdown */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-wrap flex-1">
+                {/* Route name */}
+                <span className="text-base font-semibold truncate">
+                  {routeSummaryText || effectiveYard?.name || user?.operatingCity || "New Route"}
+                </span>
 
-        <div className="space-y-1 min-w-[180px]">
-          <Label className="text-xs text-muted-foreground">Yard</Label>
-          <Select value={selectedYardId} onValueChange={setSelectedYardId}>
-            <SelectTrigger data-testid="select-yard" className="h-9">
-              <SelectValue placeholder={user?.operatingCity?.trim() || ""} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">{user?.operatingCity?.trim() || ""}</SelectItem>
-              {yards.map((y) => (
-                <SelectItem key={y.id} value={y.id}>
-                  {y.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+                {/* Inline controls */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+                    <SelectTrigger data-testid="select-profile" className="h-7 text-xs w-auto min-w-[100px] border-dashed">
+                      <SelectValue placeholder="Profile" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-        <div className="space-y-1 w-[120px]">
-          <Label className="text-xs text-muted-foreground">
-            <Fuel className="w-3 h-3 inline mr-1" />
-            Fuel {currencyPerLitreLabel(currency)}
-          </Label>
-          <Input
-            data-testid="input-fuel-price"
-            type="number"
-            step="0.05"
-            min="0"
-            className="h-9"
-            value={fuelPrice}
-            onChange={(e) => setFuelPrice(e.target.value)}
-          />
-        </div>
+                  <Select value={selectedYardId} onValueChange={setSelectedYardId}>
+                    <SelectTrigger data-testid="select-yard" className="h-7 text-xs w-auto min-w-[90px] border-dashed">
+                      <SelectValue placeholder={user?.operatingCity?.trim() || "Yard"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{user?.operatingCity?.trim() || "None"}</SelectItem>
+                      {yards.map((y) => (
+                        <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-        {effectiveYard && (
-          <div className="flex items-center gap-2 pb-0.5">
-            <Switch
-              data-testid="switch-include-return"
-              checked={includeReturn}
-              onCheckedChange={setIncludeReturn}
-            />
-            <Label className="text-sm cursor-pointer">Include return</Label>
-          </div>
-        )}
+                  <div className="flex items-center gap-1">
+                    <Fuel className="w-3 h-3 text-muted-foreground" />
+                    <Input
+                      data-testid="input-fuel-price"
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      className="h-7 text-xs w-[70px]"
+                      value={fuelPrice}
+                      onChange={(e) => setFuelPrice(e.target.value)}
+                    />
+                  </div>
 
-        {isGeocodingRoute && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground pb-1">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Calculating route...
-          </div>
-        )}
-      </div>
+                  {effectiveYard && (
+                    <div className="flex items-center gap-1.5">
+                      <Switch
+                        data-testid="switch-include-return"
+                        checked={includeReturn}
+                        onCheckedChange={setIncludeReturn}
+                        className="scale-75"
+                      />
+                      <span className="text-xs text-muted-foreground">Deadhead</span>
+                    </div>
+                  )}
 
-      {/* ── Section 1: Route Summary Bar ───────────────────────── */}
-      {routeSummaryText && routeCalc && (
-        <div
-          className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 px-4 py-2.5"
-          data-testid="route-summary-bar"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <Route className="w-4 h-4 text-primary shrink-0" />
-            <span className="text-sm font-semibold truncate">
-              {routeSummaryText}
-            </span>
-            {routeSummaryStats && (
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                {routeSummaryStats.totalKm.toFixed(0)} km &middot;{" "}
-                {routeSummaryStats.totalMin.toFixed(0)} min (est.)
-                {routeSummaryStats.returnKm > 0 &&
-                  ` + ${routeSummaryStats.returnKm.toFixed(0)} km return`}
-              </span>
-            )}
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs shrink-0"
-            data-testid="button-toggle-breakdown"
-            onClick={() => setShowBreakdown((p) => !p)}
-          >
-            {showBreakdown ? "Hide breakdown" : "Show breakdown"}
-          </Button>
-        </div>
-      )}
+                  {isGeocodingRoute && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Calculating...
+                    </div>
+                  )}
+                </div>
+              </div>
 
-      {/* ── Section 2: Pricing Row ─────────────────────────────── */}
-      {routeCalc && fullTripCost > 0 && (
-        <div
-          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
-          data-testid="pricing-row"
-        >
-          {/* DELIVERY */}
-          <div className="rounded-lg border border-border p-3 space-y-0.5">
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Delivery
-            </div>
-            <div
-              className="text-xl font-bold"
-              style={{ color: "#ea580c" }}
-              data-testid="pricing-delivery"
-            >
-              {formatCurrency(deliveryCost)}
-            </div>
-            <div className="text-[10px] text-muted-foreground">with fuel</div>
-          </div>
-
-          {/* FULL TRIP */}
-          <div className="rounded-lg border border-border p-3 space-y-0.5">
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Full Trip
-            </div>
-            <div
-              className="text-xl font-bold"
-              data-testid="pricing-full-trip"
-            >
-              {formatCurrency(fullTripCost)}
-            </div>
-            <div className="text-[10px] text-muted-foreground">
-              +{formatCurrency(deadheadCost)} deadhead
-            </div>
-          </div>
-
-          {/* Margin Tiers */}
-          {(pricingAdvice?.tiers || []).map((tier, i) => {
-            const tierColors = [
-              "#ea580c",
-              "#16a34a",
-              "#16a34a",
-            ];
-            return (
-              <div
-                key={tier.label}
-                className="rounded-lg border border-border p-3 space-y-0.5"
-                data-testid={`pricing-tier-${tier.label.toLowerCase().replace(/\s+/g, "-")}`}
+              {/* Show breakdown button */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground shrink-0"
+                data-testid="button-toggle-breakdown"
+                onClick={() => setShowBreakdown((p) => !p)}
               >
+                {showBreakdown ? "Hide breakdown" : "Show breakdown"}
+              </Button>
+            </div>
+
+            {/* Row 2: Pricing cards */}
+            <div
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2"
+              data-testid="pricing-row"
+            >
+              {/* DELIVERY cost */}
+              <div className="space-y-0.5">
                 <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  {tier.label}
+                  Delivery
                 </div>
                 <div
                   className="text-xl font-bold"
-                  style={{ color: tierColors[i] || "#16a34a" }}
+                  style={{ color: "#ea580c" }}
+                  data-testid="pricing-trip-cost"
                 >
-                  {formatCurrency(tier.price)}
+                  {formatCurrency(tripCost)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">with fuel</div>
+              </div>
+
+              {/* FULL TRIP cost */}
+              <div className="space-y-0.5">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Full Trip
+                </div>
+                <div className="text-xl font-bold">
+                  {formatCurrency(fullTripCost)}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
-                  +{formatCurrency(tier.price - fullTripCost)}
+                  {deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead` : "dest = base"}
                 </div>
               </div>
-            );
-          })}
 
-          {/* CUSTOM QUOTE */}
-          <div className="rounded-lg border border-border p-3 space-y-1">
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Custom Quote
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-sm text-muted-foreground">{currencySymbol(currency)}</span>
-              <Input
-                data-testid="input-custom-quote"
-                type="number"
-                step="1"
-                placeholder="0"
-                className="h-8 text-sm w-[80px]"
-                value={customQuoteAmount}
-                onChange={(e) => setCustomQuoteAmount(e.target.value)}
-              />
-            </div>
-            {pricingAdvice?.customQuote ? (
-              <div className="flex items-center gap-1.5">
-                <span className="text-lg font-bold">
-                  {pricingAdvice.customQuote.marginPercent.toFixed(1)}%
-                </span>
-                <span
-                  className={`text-xs ${marginQualityLabel(pricingAdvice.customQuote.marginPercent).color}`}
-                >
-                  {marginQualityLabel(pricingAdvice.customQuote.marginPercent).label}
-                </span>
-              </div>
-            ) : customQuoteAmount && fullTripCost > 0 ? (
-              (() => {
-                const amt = parseFloat(customQuoteAmount);
-                if (!isNaN(amt) && amt > 0) {
-                  const pct = ((amt - fullTripCost) / fullTripCost) * 100;
-                  const q = marginQualityLabel(pct);
-                  return (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-lg font-bold">
-                        {pct.toFixed(1)}%
-                      </span>
-                      <span className={`text-xs ${q.color}`}>{q.label}</span>
-                    </div>
-                  );
-                }
-                return null;
-              })()
-            ) : null}
-          </div>
-        </div>
-      )}
-
-      {/* ── Section 3: Leg Breakdown (collapsible) ─────────────── */}
-      {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
-        <div className="space-y-3" data-testid="leg-breakdown">
-          {routeCalc.legs
-            .filter((leg) => isAdmin || leg.type !== "return")
-            .map((leg, i) => {
-            const isLocal = leg.isLocal ?? leg.distanceKm < 100;
-            const isDeadhead = leg.type === "return";
-            const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
-            return (
-              <Card key={i} className="border-border" data-testid={`leg-card-${i}`}>
-                <CardContent className="py-3 px-4 space-y-2">
-                  {/* Leg header */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      {isDeadhead
-                        ? `Deadhead Return \u00B7 ${leg.from} \u2192 ${leg.to}`
-                        : `Leg ${i + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
-                    </span>
-                    {isLocal && (
-                      <Badge className="text-[10px] px-1.5 py-0 bg-blue-600 text-white border-0">
-                        LOCAL
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Details grid */}
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Drive time</span>
-                      <span>{leg.driveMinutes} min</span>
-                    </div>
-                    {!isDeadhead && leg.dockMinutes > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          Load + Unload
-                        </span>
-                        <span>{(leg.dockMinutes / 60).toFixed(0)} hrs</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between font-medium">
-                      <span>Total billable hrs</span>
-                      <span>{billableHrs.toFixed(2)} hrs</span>
-                    </div>
-
-                    <Separator className="my-1" />
-
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Labor (no fuel)
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {billableHrs.toFixed(2)} &times;{" "}
-                          {formatCurrency(routeCalc.allInHourlyRate)}
-                        </span>
-                        <span className="font-medium">
-                          {formatCurrency(leg.laborCost)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Fuel ({leg.distanceKm.toFixed(0)} km)
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {leg.distanceKm.toFixed(0)} km &times;{" "}
-                          {formatCurrency(routeCalc.fuelPerKm)}/km
-                        </span>
-                        <span className="font-medium">
-                          {formatCurrency(leg.fuelCost)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Total row */}
+              {/* Margin tiers */}
+              {(pricingAdvice?.tiers || []).map((tier, i) => {
+                const tierColors = ["#ea580c", "#16a34a", "#16a34a"];
+                return (
                   <div
-                    className="flex justify-between items-center rounded px-3 py-1.5 -mx-1"
-                    style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
+                    key={tier.label}
+                    className="space-y-0.5"
+                    data-testid={`pricing-tier-${tier.label.toLowerCase().replace(/\s+/g, "-")}`}
                   >
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      {tier.label}
+                    </div>
+                    {fullTripCost > 0 ? (
+                      <>
+                        <div className="text-xl font-bold" style={{ color: tierColors[i] || "#16a34a" }}>
+                          {formatCurrency(tier.price)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          +{formatCurrency(tier.price - fullTripCost)}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-sm text-muted-foreground">&mdash;</div>
+                        <div className="text-[10px] text-muted-foreground">set route</div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Show placeholders when no tiers yet */}
+              {(!pricingAdvice?.tiers || pricingAdvice.tiers.length === 0) && (
+                <>
+                  {["20% Margin", "30% Margin", "40% Margin"].map((label) => (
+                    <div key={label} className="space-y-0.5">
+                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{label}</div>
+                      <div className="text-sm text-muted-foreground">&mdash;</div>
+                      <div className="text-[10px] text-muted-foreground">set route</div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Custom Quote */}
+              <div className="space-y-0.5">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Custom Quote
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-muted-foreground">{currencySymbol(currency)}</span>
+                  <Input
+                    data-testid="input-custom-quote"
+                    type="number"
+                    step="1"
+                    placeholder="Your quote..."
+                    className="h-8 text-sm w-[90px]"
+                    value={customQuoteAmount}
+                    onChange={(e) => setCustomQuoteAmount(e.target.value)}
+                  />
+                </div>
+                {pricingAdvice?.customQuote ? (
+                  <div className="flex items-center gap-1">
                     <span className="text-sm font-bold">
-                      {isDeadhead ? "Deadhead Total w/ Fuel" : "Total w/ Fuel"}
+                      {pricingAdvice.customQuote.marginPercent.toFixed(1)}%
                     </span>
-                    <span
-                      className="text-sm font-bold"
-                      style={{ color: "#ea580c" }}
-                    >
-                      {formatCurrency(leg.legCost)}
+                    <span className={`text-[10px] ${marginQualityLabel(pricingAdvice.customQuote.marginPercent).color}`}>
+                      {marginQualityLabel(pricingAdvice.customQuote.marginPercent).label}
                     </span>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── Section 4: Bottom — Chat (left) + Map & Form (right) ─ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* ── Left: Route Chat ─────────────────────────────────── */}
-        <Card className="border-border" data-testid="chat-panel">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Route Chat
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {/* Chat messages */}
-            <div
-              className="space-y-2 min-h-[200px] max-h-[300px] overflow-y-auto"
-              data-testid="chat-messages"
-            >
-              {chatHistory.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`text-sm rounded-lg px-3 py-2 max-w-[90%] ${
-                    msg.role === "bot"
-                      ? "bg-muted text-foreground"
-                      : "bg-primary text-primary-foreground ml-auto"
-                  }`}
-                >
-                  {msg.text}
-                </div>
-              ))}
-              {chatRouteMutation.isPending && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground px-3">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Thinking...
-                </div>
-              )}
+                ) : customQuoteAmount && fullTripCost > 0 ? (
+                  (() => {
+                    const amt = parseFloat(customQuoteAmount);
+                    if (!isNaN(amt) && amt > 0) {
+                      const pct = ((amt - fullTripCost) / fullTripCost) * 100;
+                      const q = marginQualityLabel(pct);
+                      return (
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-bold">{pct.toFixed(1)}%</span>
+                          <span className={`text-[10px] ${q.color}`}>{q.label}</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()
+                ) : null}
+              </div>
             </div>
 
-            {/* Quick route chips */}
-            <div className="flex flex-wrap gap-1.5">
-              {quickRoutes.map((route) => (
-                <Button
-                  key={route}
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-7 px-2.5"
-                  data-testid={`chip-${route.replace(/\s+/g, "-").toLowerCase()}`}
-                  onClick={() => {
-                    setChatMessage(route);
-                    sendChat(route);
-                  }}
-                >
-                  {route}
-                </Button>
-              ))}
-            </div>
-
-            {/* Chat input */}
-            <div className="flex gap-2">
-              <Input
-                data-testid="chat-input"
-                placeholder='e.g. "Toronto to Hamilton, London, Windsor"'
-                className="text-sm"
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendChat(chatMessage);
-                  }
-                }}
-              />
-              <Button
-                data-testid="button-send-chat"
-                disabled={!chatMessage.trim() || chatRouteMutation.isPending}
-                onClick={() => sendChat(chatMessage)}
-                className="shrink-0"
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            </div>
+            {/* Collapsible breakdown */}
+            {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
+              <div className="space-y-3 pt-2 border-t border-border" data-testid="leg-breakdown">
+                {routeCalc.legs.map((leg, i) => {
+                  const isLocal = leg.isLocal ?? leg.distanceKm < 100;
+                  const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
+                  const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
+                  return (
+                    <Card key={i} className="border-border" data-testid={`leg-card-${i}`}>
+                      <CardContent className="py-3 px-4 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                            {isDeadhead
+                              ? `Deadhead \u00B7 ${leg.from} \u2192 ${leg.to}`
+                              : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
+                          </span>
+                          {isDeadhead && (
+                            <Badge className="text-[10px] px-1.5 py-0 bg-orange-600 text-white border-0">EMPTY</Badge>
+                          )}
+                          {isLocal && !isDeadhead && (
+                            <Badge className="text-[10px] px-1.5 py-0 bg-blue-600 text-white border-0">LOCAL</Badge>
+                          )}
+                        </div>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Drive time</span>
+                            <span>{leg.driveMinutes} min</span>
+                          </div>
+                          {!isDeadhead && leg.dockMinutes > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Load + Unload</span>
+                              <span>{(leg.dockMinutes / 60).toFixed(0)} hrs</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between font-medium">
+                            <span>Total billable hrs</span>
+                            <span>{billableHrs.toFixed(2)} hrs</span>
+                          </div>
+                          <Separator className="my-1" />
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Labor (no fuel)</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-muted-foreground">
+                                {billableHrs.toFixed(2)} &times; {formatCurrency(routeCalc.allInHourlyRate)}
+                              </span>
+                              <span className="font-medium">{formatCurrency(leg.laborCost)}</span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              Fuel ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
+                            </span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-muted-foreground">
+                                {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
+                                {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
+                              </span>
+                              <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className="flex justify-between items-center rounded px-3 py-1.5 -mx-1"
+                          style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
+                        >
+                          <span className="text-sm font-bold">{isDeadhead ? "Deadhead w/ Fuel" : "Total w/ Fuel"}</span>
+                          <span className="text-sm font-bold" style={{ color: "#ea580c" }}>
+                            {formatCurrency(leg.legCost)}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
+      </div>
 
-        {/* ── Right: Map + Build Route Form ────────────────────── */}
-        <div className="space-y-4">
-          {/* Map */}
-          <Card className="border-border overflow-hidden">
-            <CardHeader className="pb-1">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                Route Map
-                <span className="text-[10px] font-normal text-blue-500">
-                  via Google Maps
-                </span>
+      {/* ═══════════════════════════════════════════════════════════
+          SECTION 2 + 3: Chatbot (left) + Map & Build Route (right)
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* ── Left: Route Chat ─────────────────────────────────── */}
+          <Card className="border-border flex flex-col" data-testid="chat-panel">
+            <CardHeader className="pb-2 shrink-0">
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Route Chat
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-1">
-              <RouteMapGoogle
-                stops={stops}
-                fallbackCenter={effectiveYard?.address || effectiveYard?.name || user?.operatingCity}
-              />
+            <CardContent className="flex flex-col flex-1 min-h-0 space-y-3">
+              {/* Chat messages — fills available space */}
+              <div
+                className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
+                data-testid="chat-messages"
+              >
+                {chatHistory.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`text-sm rounded-lg px-3 py-2 max-w-[90%] ${
+                      msg.role === "bot"
+                        ? "bg-muted text-foreground"
+                        : "bg-primary text-primary-foreground ml-auto"
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                ))}
+                {chatRouteMutation.isPending && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground px-3">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Thinking...
+                  </div>
+                )}
+              </div>
+
+              {/* Quick route chips */}
+              <div className="flex flex-wrap gap-1.5 shrink-0">
+                {quickRoutes.map((route) => (
+                  <Button
+                    key={route}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7 px-2.5"
+                    data-testid={`chip-${route.replace(/\s+/g, "-").toLowerCase()}`}
+                    onClick={() => {
+                      setChatMessage(route);
+                      sendChat(route);
+                    }}
+                  >
+                    {route}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Chat input */}
+              <div className="flex gap-2 shrink-0">
+                <Input
+                  data-testid="chat-input"
+                  placeholder='e.g. "Toronto to Hamilton, London, Windsor"'
+                  className="text-sm"
+                  value={chatMessage}
+                  onChange={(e) => setChatMessage(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendChat(chatMessage);
+                    }
+                  }}
+                />
+                <Button
+                  data-testid="button-send-chat"
+                  disabled={!chatMessage.trim() || chatRouteMutation.isPending}
+                  onClick={() => sendChat(chatMessage)}
+                  className="shrink-0"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
-          {/* Build Route Form */}
-          <Card className="border-border">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                Build Route
-                <span className="text-[10px] font-normal text-muted-foreground">
-                  &mdash; or use chat above
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* Unified stops list with drag-and-drop */}
-              {formStops.map((stop, idx) => {
-                const isFirst = idx === 0;
-                const isLast = idx === formStops.length - 1;
-                const stopLabel = isFirst
-                  ? "Origin"
-                  : isLast
-                    ? "Destination"
-                    : `Stop ${idx}`;
-                const isDragging = dragIdx === idx;
-                const isDragOver = dragOverIdx === idx;
+          {/* ── Right: Map + Build Route Form ────────────────────── */}
+          <div className="space-y-4 flex flex-col">
+            {/* Map */}
+            <Card className="border-border overflow-hidden flex-1">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                  Route Map
+                  <span className="text-[10px] font-normal text-blue-500">
+                    via Google Maps
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-1">
+                <RouteMapGoogle
+                  stops={stops}
+                  fallbackCenter={effectiveYard?.address || effectiveYard?.name || user?.operatingCity}
+                />
+              </CardContent>
+            </Card>
 
-                return (
-                  <div
-                    key={stop.id}
-                    className={`space-y-1 rounded-md transition-all ${
-                      isDragging ? "opacity-40" : ""
-                    } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
-                    draggable
-                    onDragStart={(e) => {
-                      setDragIdx(idx);
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDragOverIdx(idx);
-                    }}
-                    onDragLeave={() => setDragOverIdx(null)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragIdx != null && dragIdx !== idx) {
-                        setFormStops((prev) => {
-                          const copy = [...prev];
-                          const [moved] = copy.splice(dragIdx, 1);
-                          copy.splice(idx, 0, moved);
-                          return copy;
-                        });
-                      }
-                      setDragIdx(null);
-                      setDragOverIdx(null);
-                    }}
-                    onDragEnd={() => {
-                      setDragIdx(null);
-                      setDragOverIdx(null);
-                    }}
-                  >
-                    <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      {stopLabel}
-                    </Label>
-                    <div className="flex items-center gap-1.5">
-                      {/* Drag handle */}
-                      <div
-                        className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5"
-                        data-testid={`drag-handle-${idx}`}
-                      >
-                        <GripVertical className="w-4 h-4" />
-                      </div>
+            {/* Build Route Form */}
+            <Card className="border-border shrink-0">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                  Build Route
+                  <span className="text-[10px] font-normal text-muted-foreground">
+                    &mdash; or use chat
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {/* Unified stops list with drag-and-drop */}
+                {formStops.map((stop, idx) => {
+                  const isFirst = idx === 0;
+                  const isLast = idx === formStops.length - 1;
+                  const stopLabel = isFirst
+                    ? "Origin"
+                    : isLast
+                      ? "Destination"
+                      : `Stop ${idx}`;
+                  const isDragging = dragIdx === idx;
+                  const isDragOver = dragOverIdx === idx;
 
-                      {/* Location input */}
-                      <Input
-                        data-testid={`input-stop-${idx}`}
-                        placeholder={
-                          isFirst
-                            ? "e.g. Mississauga"
-                            : isLast
-                              ? "e.g. Scarborough"
-                              : "Location"
+                  return (
+                    <div
+                      key={stop.id}
+                      className={`space-y-1 rounded-md transition-all ${
+                        isDragging ? "opacity-40" : ""
+                      } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragIdx(idx);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDragOverIdx(idx);
+                      }}
+                      onDragLeave={() => setDragOverIdx(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (dragIdx != null && dragIdx !== idx) {
+                          setFormStops((prev) => {
+                            const copy = [...prev];
+                            const [moved] = copy.splice(dragIdx, 1);
+                            copy.splice(idx, 0, moved);
+                            return copy;
+                          });
                         }
-                        className="text-sm flex-1"
-                        value={stop.location}
-                        onChange={(e) => {
-                          setFormStops((prev) =>
-                            prev.map((s, i) =>
-                              i === idx ? { ...s, location: e.target.value } : s,
-                            ),
-                          );
-                        }}
-                        onBlur={() => {
-                          const filled = formStops.filter((s) => s.location.trim());
-                          if (filled.length >= 2) triggerRouteBuild();
-                        }}
-                      />
+                        setDragIdx(null);
+                        setDragOverIdx(null);
+                      }}
+                      onDragEnd={() => {
+                        setDragIdx(null);
+                        setDragOverIdx(null);
+                      }}
+                    >
+                      <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {stopLabel}
+                      </Label>
+                      <div className="flex items-center gap-1.5">
+                        {/* Drag handle */}
+                        <div
+                          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5"
+                          data-testid={`drag-handle-${idx}`}
+                        >
+                          <GripVertical className="w-4 h-4" />
+                        </div>
 
-                      {/* Dock time */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <Clock className="w-3 h-3 text-muted-foreground" />
+                        {/* Location input */}
                         <Input
-                          data-testid={`input-dock-${idx}`}
-                          type="number"
-                          min="0"
-                          step="5"
-                          className="text-sm h-9 w-[60px] text-center"
-                          value={stop.dockMinutes}
+                          data-testid={`input-stop-${idx}`}
+                          placeholder={
+                            isFirst
+                              ? "e.g. Mississauga"
+                              : isLast
+                                ? "e.g. Scarborough"
+                                : "Location"
+                          }
+                          className="text-sm flex-1"
+                          value={stop.location}
                           onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0;
                             setFormStops((prev) =>
                               prev.map((s, i) =>
-                                i === idx ? { ...s, dockMinutes: val } : s,
+                                i === idx ? { ...s, location: e.target.value } : s,
                               ),
                             );
                           }}
@@ -1273,85 +1318,109 @@ export default function RouteBuilder() {
                             if (filled.length >= 2) triggerRouteBuild();
                           }}
                         />
-                        <span className="text-[10px] text-muted-foreground">min</span>
+
+                        {/* Dock time */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Clock className="w-3 h-3 text-muted-foreground" />
+                          <Input
+                            data-testid={`input-dock-${idx}`}
+                            type="number"
+                            min="0"
+                            step="5"
+                            className="text-sm h-9 w-[60px] text-center"
+                            value={stop.dockMinutes}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setFormStops((prev) =>
+                                prev.map((s, i) =>
+                                  i === idx ? { ...s, dockMinutes: val } : s,
+                                ),
+                              );
+                            }}
+                            onBlur={() => {
+                              const filled = formStops.filter((s) => s.location.trim());
+                              if (filled.length >= 2) triggerRouteBuild();
+                            }}
+                          />
+                          <span className="text-[10px] text-muted-foreground">min</span>
+                        </div>
+
+                        {/* Swap button (only on first row) */}
+                        {isFirst && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 h-9 w-9 p-0"
+                            data-testid="button-swap"
+                            onClick={swapOriginDest}
+                          >
+                            <ArrowUpDown className="w-4 h-4" />
+                          </Button>
+                        )}
+
+                        {/* Remove button (only for middle stops, and only if more than 2 stops) */}
+                        {!isFirst && !isLast && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                            data-testid={`button-remove-stop-${idx}`}
+                            onClick={() => {
+                              setFormStops((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              );
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
-
-                      {/* Swap button (only on first row) */}
-                      {isFirst && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="shrink-0 h-9 w-9 p-0"
-                          data-testid="button-swap"
-                          onClick={swapOriginDest}
-                        >
-                          <ArrowUpDown className="w-4 h-4" />
-                        </Button>
-                      )}
-
-                      {/* Remove button (only for middle stops, and only if more than 2 stops) */}
-                      {!isFirst && !isLast && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                          data-testid={`button-remove-stop-${idx}`}
-                          onClick={() => {
-                            setFormStops((prev) =>
-                              prev.filter((_, i) => i !== idx),
-                            );
-                          }}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
 
-              {/* Add Stop — inserts before the last (destination) stop */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs"
-                data-testid="button-add-stop"
-                onClick={() => {
-                  setFormStops((prev) => {
-                    const copy = [...prev];
-                    copy.splice(prev.length - 1, 0, {
-                      id: nextStopId(),
-                      location: "",
-                      dockMinutes: 30,
-                    });
-                    return copy;
-                  });
-                }}
-              >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Add Stop
-              </Button>
-
-              {/* Manual Build button */}
-              {formStops.filter((s) => s.location.trim()).length >= 2 && (
+                {/* Add Stop — inserts before the last (destination) stop */}
                 <Button
-                  className="w-full"
-                  data-testid="button-build-route"
-                  disabled={isGeocodingRoute || isCalculating}
-                  onClick={() => void triggerRouteBuild(undefined, true)}
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  data-testid="button-add-stop"
+                  onClick={() => {
+                    setFormStops((prev) => {
+                      const copy = [...prev];
+                      copy.splice(prev.length - 1, 0, {
+                        id: nextStopId(),
+                        location: "",
+                        dockMinutes: 30,
+                      });
+                      return copy;
+                    });
+                  }}
                 >
-                  {isGeocodingRoute || isCalculating ? (
-                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  ) : (
-                    <Route className="w-4 h-4 mr-1.5" />
-                  )}
-                  Build Route
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  Add Stop
                 </Button>
-              )}
-            </CardContent>
-          </Card>
+
+                {/* Manual Build button */}
+                {formStops.filter((s) => s.location.trim()).length >= 2 && (
+                  <Button
+                    className="w-full"
+                    data-testid="button-build-route"
+                    disabled={isGeocodingRoute || isCalculating}
+                    onClick={() => void triggerRouteBuild(undefined, true)}
+                  >
+                    {isGeocodingRoute || isCalculating ? (
+                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <Route className="w-4 h-4 mr-1.5" />
+                    )}
+                    Build Route
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
-    </div>
   );
 }

@@ -3,6 +3,7 @@ export type SnapshotLeg = {
   to: string;
   type?: string;
   isLocal?: boolean;
+  isDeadhead?: boolean;
   distanceKm: number;
   driveMinutes: number;
   dockMinutes: number;

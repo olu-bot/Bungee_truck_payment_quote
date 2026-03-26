@@ -48,16 +48,25 @@ export function currencyFromOperatingCountryLabels(
 export type WorkspaceCurrencyFields = {
   operatingCountryCode?: string;
   operatingCountries?: string[];
+  preferredCurrency?: string;
 };
 
 export function resolveWorkspaceCurrency(
   fields: WorkspaceCurrencyFields | null | undefined
 ): SupportedCurrency {
   if (!fields) return "CAD";
+  // Preferred currency takes priority (user-chosen in Company Profile)
+  if (fields.preferredCurrency && isSupportedCurrency(fields.preferredCurrency)) {
+    return fields.preferredCurrency;
+  }
   if (fields.operatingCountryCode) {
     return currencyForCountryCode(fields.operatingCountryCode);
   }
   return currencyFromOperatingCountryLabels(fields.operatingCountries);
+}
+
+function isSupportedCurrency(c: string): c is SupportedCurrency {
+  return c === "CAD" || c === "USD" || c === "MXN";
 }
 
 export function formatCurrencyAmount(value: number, currency: SupportedCurrency): string {

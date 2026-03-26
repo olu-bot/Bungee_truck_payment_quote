@@ -404,6 +404,7 @@ export default function Landing() {
           await queryClient.invalidateQueries({ queryKey: ["firebase", "yards", companyId] });
         }
         setSignupStep(3);
+        window.scrollTo(0, 0);
         toast({ title: "Company profile saved", description: "Set up your cost profile next." });
         return;
       }
@@ -427,6 +428,7 @@ export default function Landing() {
         measurementUnit,
       });
       setSignupStep(3);
+      window.scrollTo(0, 0);
       toast({ title: "Account created", description: "Set up your cost profile next." });
     } catch (err: unknown) {
       setOnboardingActive(false);
@@ -539,8 +541,7 @@ export default function Landing() {
         aria-hidden={view !== "onboarding"}
       >
         <div className="onboarding" id="app">
-          <div className="top-bar">
-            <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div className="top-bar" style={{ position: "relative" }}>
               <button
                 type="button"
                 className="onboarding-back"
@@ -558,10 +559,9 @@ export default function Landing() {
               >
                 ← Back to site
               </button>
-              <div className="logo">
-                <img src="/lottie/logo.jpg" alt="Bungee Connect" className="logo-img" />
+              <div className="logo" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
+                <img src="/lottie/BungeeConnect-logo.png" alt="Bungee Connect" className="logo-img" />
               </div>
-            </div>
             <div className="step-indicator">
               {authMode === "login"
                 ? "Log in"
@@ -835,11 +835,29 @@ export default function Landing() {
                 <div className="form-helper">At least 6 characters (Firebase). Use a strong password in production.</div>
               </div>
 
-              <div className="card-actions" style={{ borderTop: "none", marginTop: 24, paddingTop: 0 }}>
-                <span />
+              <div className="card-actions center" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16 }}>
                 <button type="submit" className="btn btn-primary btn-lg">
                   Continue
                 </button>
+                <p className="form-helper" style={{ margin: 0, textAlign: "center" }}>
+                  Already have an account?{" "}
+                  <button
+                    type="button"
+                    onClick={() => showOnboarding("login")}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      font: "inherit",
+                      color: "var(--orange)",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Log in
+                  </button>
+                </p>
               </div>
             </form>
           )}
@@ -1005,6 +1023,7 @@ export default function Landing() {
               </p>
               <CostProfileWizard
                 currency={currencyForCountryCode(countryCode || user?.operatingCountryCode)}
+                measurementUnit={(measurementUnit || user?.measurementUnit || "metric") as MeasurementUnit}
                 onSave={(data) => handleSaveCostProfile(data)}
                 saveLabel="Save & continue"
                 defaultValues={ONBOARDING_COST_DEFAULTS}

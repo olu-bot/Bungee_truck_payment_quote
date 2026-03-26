@@ -55,7 +55,7 @@
   .nav { position: fixed; top: 0; left: 0; right: 0; height: var(--nav-height); background: rgba(255,255,255,0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--gray-200); z-index: 100; display: flex; align-items: center; justify-content: center; }
   .nav-inner { max-width: var(--container); width: 100%; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; }
   .nav-logo { display: flex; align-items: center; gap: 10px; }
-  .nav-logo-img { width: 104px; height: 104px; object-fit: contain; border-radius: var(--radius-sm); }
+  .nav-logo-img { height: 36px; width: auto; object-fit: contain; }
   .nav-logo-text { font-size: 18px; font-weight: 800; color: var(--charcoal); letter-spacing: -0.5px; }
   .nav-logo-text span { display: block; font-size: 9px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--gray-500); line-height: 1; margin-top: -1px; }
   .nav-links { display: flex; align-items: center; gap: 32px; }
@@ -231,7 +231,7 @@
   #onboarding-view .onboarding{ flex: 1; display: flex; flex-direction: column; align-items: center; padding: 32px 24px; }
   #onboarding-view .top-bar{ width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
   #onboarding-view .logo{ display: flex; align-items: center; gap: 10px; }
-  #onboarding-view .logo-img{ width: 88px; height: 88px; object-fit: contain; border-radius: var(--radius-sm); }
+  #onboarding-view .logo-img{ height: 28px; width: auto; object-fit: contain; }
   #onboarding-view .logo-text{ font-size: 16px; font-weight: 800; color: var(--charcoal); }
   #onboarding-view .logo-text span{ display: block; font-size: 8px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--gray-500); line-height: 1; margin-top: -1px; }
   #onboarding-view .step-indicator{ font-size: 13px; color: var(--gray-400); font-weight: 500; }
@@ -339,9 +339,26 @@
     min-height: 100vh;
     background: #F7F7F7;
     box-sizing: border-box;
+    position: relative;
+    z-index: 10;
+    isolation: isolate;
   }
   #onboarding-view.is-active {
     display: flex;
+  }
+  /* Ensure step-3 wizard content is always interactive */
+  #onboarding-view #step3 {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
+  }
+  #onboarding-view #step3 * {
+    pointer-events: auto;
+  }
+  /* Override .landing-root button reset for shadcn/ui buttons inside the wizard */
+  #onboarding-view #step3 button {
+    cursor: pointer;
+    pointer-events: auto;
   }
   #landing-view.is-hidden {
     display: none;

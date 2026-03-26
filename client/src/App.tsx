@@ -5,19 +5,21 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
-import Landing from "@/pages/landing";
 import { isOnboardingActive } from "@/lib/onboarding";
 import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-auth";
-import RouteBuilder from "@/pages/route-builder";
-import CostProfiles from "@/pages/cost-profiles";
-import TeamManagement from "@/pages/team-management";
-import QuoteHistory from "@/pages/quote-history";
-import AdminAllUsers from "@/pages/admin-all-users";
-import AdminFeedback from "@/pages/admin-feedback";
-import NotFound from "@/pages/not-found";
 import { FeedbackSheet } from "@/components/FeedbackSheet";
 import { db, firebaseConfigured } from "@/lib/firebase";
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
+
+// ── Lazy-loaded page components (code-split per route) ──────────
+const Landing = lazy(() => import("@/pages/landing"));
+const RouteBuilder = lazy(() => import("@/pages/route-builder"));
+const CostProfiles = lazy(() => import("@/pages/cost-profiles"));
+const QuoteHistory = lazy(() => import("@/pages/quote-history"));
+const TeamManagement = lazy(() => import("@/pages/team-management"));
+const AdminAllUsers = lazy(() => import("@/pages/admin-all-users"));
+const AdminFeedback = lazy(() => import("@/pages/admin-feedback"));
+const NotFound = lazy(() => import("@/pages/not-found"));
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
   Route as RouteIcon,
@@ -46,6 +48,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+/** Lightweight loading placeholder shown while lazy chunks download */
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
 
 function ThemeToggle() {
   const [dark, setDark] = useState(() => {
@@ -98,7 +109,7 @@ function TeamRoute() {
 
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: RouteIcon, requiresAdmin: false },
-  { path: "/profiles", label: "Cost Profiles", icon: Settings, requiresAdmin: false },
+  { path: "/profiles", label: "Company Profile", icon: Settings, requiresAdmin: false },
   { path: "/history", label: "History", icon: History, requiresAdmin: false },
   { path: "/team", label: "Team", icon: Users, requiresAdmin: true },
   { path: "/admin/users", label: "View all users", icon: ContactRound, requiresAdmin: true },
@@ -158,7 +169,7 @@ function AppLayout() {
 
   const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
     "/": { title: "Home", subtitle: "Build routes, calculate costs, and get pricing advice." },
-    "/profiles": { title: "Cost Profiles", subtitle: "Configure your truck operating costs." },
+    "/profiles": { title: "Company Profile", subtitle: "Manage your company info, home base, and truck cost profiles." },
     "/history": { title: "Quote History", subtitle: "View and manage your saved quotes." },
     "/team": { title: "Team Management", subtitle: "Manage team members and access roles." },
     "/admin/users": {
@@ -175,18 +186,18 @@ function AppLayout() {
 
   // Definitely signed out — only after Firebase has finished restoring the session.
   if (!authLoading && !user) {
-    if (location === "/signup") return <Landing />;
+    if (location === "/signup") return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
     return <Redirect to="/signup" />;
   }
 
   // Session still restoring: keep current app URL (e.g. Home) instead of redirecting to signup.
   if (sessionPending && location === "/signup") {
-    return <Landing />;
+    return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
   }
 
   // Signed in on /signup: onboarding vs home.
   if (user && location === "/signup") {
-    if (isOnboardingActive()) return <Landing />;
+    if (isOnboardingActive()) return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
     return <Redirect to="/" />;
   }
 
@@ -212,9 +223,9 @@ function AppLayout() {
             }
           >
             <img
-              src="/lottie/logo.jpg"
+              src="/lottie/BungeeConnect-logo.png"
               alt="Bungee Connect"
-              className="h-16 w-16 shrink-0 rounded-md object-contain"
+              className="h-8 shrink-0 object-contain"
             />
           </Link>
 
@@ -356,19 +367,21 @@ function AppLayout() {
         </div>
 
         {/* Keep RouteBuilder mounted while signed in so form/route state survives nav away from Home */}
-        <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
-          <RouteBuilder key={routeBuilderKey} />
-        </div>
-        {!isHome && (
-          <Switch>
-            <Route path="/profiles" component={CostProfiles} />
-            <Route path="/history" component={QuoteHistory} />
-            <Route path="/team" component={TeamRoute} />
-            <Route path="/admin/users" component={AdminAllUsers} />
-            <Route path="/admin/feedback" component={AdminFeedback} />
-            <Route component={NotFound} />
-          </Switch>
-        )}
+        <Suspense fallback={<PageLoader />}>
+          <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
+            <RouteBuilder key={routeBuilderKey} />
+          </div>
+          {!isHome && (
+            <Switch>
+              <Route path="/profiles" component={CostProfiles} />
+              <Route path="/history" component={QuoteHistory} />
+              <Route path="/team" component={TeamRoute} />
+              <Route path="/admin/users" component={AdminAllUsers} />
+              <Route path="/admin/feedback" component={AdminFeedback} />
+              <Route component={NotFound} />
+            </Switch>
+          )}
+        </Suspense>
       </main>
 
       {/* Logout confirmation dialog */}
@@ -388,9 +401,9 @@ function AppLayout() {
       </AlertDialog>
 
       {/* Footer */}
-      <footer className="border-t border-border py-4 mt-auto">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between">
-          <PerplexityAttribution />
+      <footer className="border-t border-border py-3 mt-auto">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-center">
+          <span className="text-xs text-muted-foreground">&copy; {new Date().getFullYear()} Bungee Supply Chain Ltd.</span>
         </div>
       </footer>
     </div>

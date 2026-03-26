@@ -19,6 +19,31 @@ export default defineConfig({
   build: {
     outDir: path.resolve(rootDir, "dist", "public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          /* Core React runtime — cached across all routes */
+          "vendor-react": ["react", "react-dom", "react/jsx-runtime", "wouter"],
+          /* Firebase SDK — heavy but only needed after auth check */
+          "vendor-firebase": ["firebase/app", "firebase/auth", "firebase/firestore"],
+          /* Data-fetching & UI primitives */
+          "vendor-ui": ["@tanstack/react-query", "@radix-ui/react-dialog", "@radix-ui/react-select", "@radix-ui/react-tooltip"],
+        },
+      },
+    },
+  },
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "wouter",
+      "firebase/app",
+      "firebase/auth",
+      "firebase/firestore",
+      "@tanstack/react-query",
+      "lucide-react",
+    ],
   },
   server: {
     fs: {

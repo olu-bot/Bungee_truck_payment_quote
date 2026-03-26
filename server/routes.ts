@@ -57,10 +57,40 @@ async function getOSRMRoute(
   return null;
 }
 
-async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
+/**
+ * Multi-waypoint OSRM request — one API call returns per-leg distances.
+ * Avoids rate-limiting that occurs with sequential single-pair calls.
+ */
+async function getOSRMMultiRoute(
+  waypoints: { lat: number; lng: number }[],
+): Promise<{ distanceKm: number; durationMinutes: number }[] | null> {
+  if (waypoints.length < 2) return null;
+  try {
+    const coords = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false&steps=false`;
+    console.log("[OSRM multi] URL:", url);
+    const res = await fetch(url, {
+      headers: { "User-Agent": "BungeeConnect/3.0" },
+    });
+    const data = await res.json();
+    if (data.code === "Ok" && data.routes && data.routes.length > 0) {
+      const legs = data.routes[0].legs;
+      return legs.map((leg: { distance: number; duration: number }) => ({
+        distanceKm: r2(leg.distance / 1000),
+        durationMinutes: r2(leg.duration / 60),
+      }));
+    }
+    console.log("[OSRM multi] Non-Ok response:", data.code);
+  } catch (err) {
+    console.error("[OSRM multi] Error:", err);
+  }
+  return null;
+}
+
+async function geocodeRaw(query: string): Promise<{ lat: number; lng: number } | null> {
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
       { headers: { "User-Agent": "BungeeConnect/3.0" } },
     );
     const data = await res.json();
@@ -70,6 +100,31 @@ async function geocodeLocation(location: string): Promise<{ lat: number; lng: nu
   } catch {
     // Silently fail
   }
+  return null;
+}
+
+/**
+ * Geocode with city extraction fallback.
+ * If the full address fails, try progressively shorter comma-separated
+ * suffixes to find a city/region match.
+ * e.g. "123 Industrial Rd, Suite 5, Toronto, ON" →
+ *      try "Suite 5, Toronto, ON" → "Toronto, ON" → "ON"
+ */
+async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
+  // Try full address first
+  const full = await geocodeRaw(location);
+  if (full) return full;
+
+  // Fallback: try progressively shorter suffixes
+  const parts = location.split(",").map((p) => p.trim()).filter(Boolean);
+  for (let i = 1; i < parts.length; i++) {
+    const candidate = parts.slice(i).join(", ");
+    if (candidate.length >= 3) {
+      const result = await geocodeRaw(candidate);
+      if (result) return result;
+    }
+  }
+
   return null;
 }
 
@@ -388,6 +443,22 @@ export async function registerRoutes(
     const result = await getOSRMRoute(fromLat, fromLng, toLat, toLng);
     if (!result) return res.status(500).json({ error: "Routing failed" });
     res.json(result);
+  });
+
+  // === MULTI-WAYPOINT DISTANCE (single OSRM call, avoids rate-limits) ===
+  app.post("/api/distances", async (req, res) => {
+    const { waypoints } = req.body as { waypoints: { lat: number; lng: number }[] };
+    if (!Array.isArray(waypoints) || waypoints.length < 2) {
+      return res.status(400).json({ error: "Need at least 2 waypoints" });
+    }
+    for (const wp of waypoints) {
+      if (typeof wp.lat !== "number" || typeof wp.lng !== "number" || isNaN(wp.lat) || isNaN(wp.lng)) {
+        return res.status(400).json({ error: "Invalid waypoint coordinates" });
+      }
+    }
+    const legs = await getOSRMMultiRoute(waypoints);
+    if (!legs) return res.status(500).json({ error: "Routing failed" });
+    res.json({ legs });
   });
 
   // === ROUTE CALCULATION ===

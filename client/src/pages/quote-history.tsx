@@ -42,6 +42,12 @@ import {
   type SupportedCurrency,
   resolveWorkspaceCurrency,
 } from "@/lib/currency";
+import {
+  type MeasurementUnit,
+  resolveMeasurementUnit,
+  displayDistance,
+  distanceLabel,
+} from "@/lib/measurement";
 
 const TRUCK_ICONS: Record<string, typeof Package> = {
   dry_van: Package,
@@ -68,15 +74,18 @@ function formatDate(iso: string): string {
 function RouteBuilderSnapshotView({
   snap,
   currency,
+  measureUnit,
 }: {
   snap: RouteBuilderSnapshot;
   currency: SupportedCurrency;
+  measureUnit: MeasurementUnit;
 }) {
   const formatCurrency = useCallback(
     (value: number) => formatCurrencyAmount(value, currency),
     [currency]
   );
   const sym = currencySymbol(currency);
+  const dLabel = distanceLabel(measureUnit);
   return (
     <div className="space-y-4 text-sm max-h-[70vh] overflow-y-auto pr-1">
       {snap.chatUserMessage ? (
@@ -88,8 +97,8 @@ function RouteBuilderSnapshotView({
       <div>
         <p className="font-semibold">{snap.routeSummary}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          {snap.totalKm.toFixed(0)} km · {snap.totalMin.toFixed(0)} min (est.)
-          {snap.returnKm > 0 ? ` + ${snap.returnKm.toFixed(0)} km return` : ""}
+          {displayDistance(snap.totalKm, measureUnit).toFixed(0)} {dLabel} · {snap.totalMin.toFixed(0)} min (est.)
+          {snap.returnKm > 0 ? ` + ${displayDistance(snap.returnKm, measureUnit).toFixed(0)} ${dLabel} return` : ""}
         </p>
         <p className="text-xs text-muted-foreground">
           Fuel {formatCurrencyAmount(snap.fuelPricePerLitre, currency)}/L
@@ -138,16 +147,20 @@ function RouteBuilderSnapshotView({
         {(() => {
           let legNum = 0;
           return snap.legs.map((leg, i) => {
-            const isDeadhead = leg.type === "return";
+            const isDeadhead = leg.isDeadhead ?? (leg.type === "return" || leg.type === "deadhead");
             if (!isDeadhead) legNum += 1;
             const billableHrs = leg.totalBillableHours;
             return (
             <div key={i} className="rounded border border-border p-3 space-y-2 text-xs">
               <div className="font-medium">
                 {isDeadhead
-                  ? `Deadhead return · ${leg.from} → ${leg.to}`
+                  ? `Deadhead · ${leg.from} → ${leg.to}`
                   : `Leg ${legNum} · ${leg.from} → ${leg.to} (est.)`}
-                {leg.isLocal ? (
+                {isDeadhead ? (
+                  <Badge className="ml-2 text-[10px] bg-orange-600 text-white border-0">
+                    EMPTY
+                  </Badge>
+                ) : leg.isLocal ? (
                   <Badge variant="secondary" className="ml-2 text-[10px]">
                     LOCAL
                   </Badge>
@@ -176,9 +189,9 @@ function RouteBuilderSnapshotView({
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Fuel ({leg.distanceKm.toFixed(0)} km)</span>
+                <span className="text-muted-foreground">Fuel ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})</span>
                 <span>
-                  {leg.distanceKm.toFixed(0)} km × {formatCurrency(snap.fuelPerKm)}/km ={" "}
+                  {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} × {formatCurrency(measureUnit === "imperial" ? snap.fuelPerKm * 1.609344 : snap.fuelPerKm)}/{dLabel} ={" "}
                   {formatCurrency(leg.fuelCost)}
                 </span>
               </div>
@@ -201,6 +214,7 @@ export default function QuoteHistory() {
   const { user } = useFirebaseAuth();
   const scopeId = workspaceFirestoreId(user);
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
+  const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
   const formatCurrency = useCallback(
     (value: number) => formatCurrencyAmount(value, currency),
     [currency]
@@ -359,7 +373,7 @@ export default function QuoteHistory() {
                   <TableHead>Route</TableHead>
                   <TableHead className="w-[90px]">Type</TableHead>
                   <TableHead className="text-right w-[100px]">
-                    Miles
+                    {measureUnit === "imperial" ? "Miles" : "KM"}
                   </TableHead>
                   <TableHead className="text-right w-[120px]">
                     Carrier Cost
@@ -407,7 +421,7 @@ export default function QuoteHistory() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right text-sm">
-                        {q.distance.toFixed(0)}
+                        {(measureUnit === "imperial" ? q.distance : q.distance * 1.609344).toFixed(0)}
                       </TableCell>
                       <TableCell className="text-right text-sm font-medium">
                         {formatCurrency(q.totalCarrierCost)}
@@ -475,7 +489,7 @@ export default function QuoteHistory() {
           ) : null}
         </DialogHeader>
         {detailSnap ? (
-          <RouteBuilderSnapshotView snap={detailSnap} currency={currency} />
+          <RouteBuilderSnapshotView snap={detailSnap} currency={currency} measureUnit={measureUnit} />
         ) : (
           <p className="text-sm text-muted-foreground py-4">
             Details are not available for this entry.
