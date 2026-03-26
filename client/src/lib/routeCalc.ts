@@ -1,5 +1,7 @@
 import type { CostProfile, RouteStop } from "@shared/schema";
 
+export type PayMode = "perHour" | "perMile";
+
 function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -40,6 +42,22 @@ function isReturnDeadhead(
   return isLastLeg && to.type === "yard";
 }
 
+export type LegBreakdown = {
+  from: string;
+  to: string;
+  type: string;
+  isLocal: boolean;
+  isDeadhead: boolean;
+  distanceKm: number;
+  driveMinutes: number;
+  dockMinutes: number;
+  totalBillableHours: number;
+  fixedCost: number;
+  driverCost: number;
+  fuelCost: number;
+  legCost: number;
+};
+
 export function calculateRouteCost(
   profile: CostProfile,
   stops: RouteStop[],
@@ -47,24 +65,19 @@ export function calculateRouteCost(
   fuelPricePerLitre: number,
   _returnDistanceKm?: number,
   _returnDriveMinutes?: number,
+  payMode: PayMode = "perHour",
 ) {
+  const fixedCostPerHour = getFixedCostPerHour(profile);
   const allInHourly = getAllInHourly(profile);
   const fuelPerKm = getFuelPerKm(profile.fuelConsumptionPer100km, fuelPricePerLitre);
+  const driverPayPerMile = profile.driverPayPerMile || 0;
+  const deadheadPayPercent = profile.deadheadPayPercent ?? 100;
 
-  const legs: Array<{
-    from: string;
-    to: string;
-    type: string;
-    isLocal: boolean;
-    isDeadhead: boolean;
-    distanceKm: number;
-    driveMinutes: number;
-    dockMinutes: number;
-    totalBillableHours: number;
-    laborCost: number;
-    fuelCost: number;
-    legCost: number;
-  }> = [];
+  // If per-mile was requested but no per-mile rate is set, fall back to per-hour
+  const effectivePayMode: PayMode =
+    payMode === "perMile" && driverPayPerMile <= 0 ? "perHour" : payMode;
+
+  const legs: LegBreakdown[] = [];
 
   for (let i = 1; i < stops.length; i++) {
     const from = stops[i - 1]!;
@@ -83,9 +96,29 @@ export function calculateRouteCost(
     const driveHours = driveMin / 60;
     const dockHours = dockMin / 60;
     const billableHours = driveHours + dockHours;
-    const legTimeCost = billableHours * allInHourly;
-    const legFuelCost = distKm * fuelPerKm;
     const isLocal = distKm < 100;
+
+    // Fixed cost is always time-based (truck overhead per hour × billable hours)
+    const legFixedCost = billableHours * fixedCostPerHour;
+
+    // Driver cost depends on pay mode
+    let legDriverCost: number;
+    if (effectivePayMode === "perMile" && driverPayPerMile > 0) {
+      // Per-mile: distance × rate. driverPayPerMile is stored per-km internally
+      // when imperial, it's stored as $/mi so convert distance to miles
+      const distMiles = distKm / 1.609344;
+      const baseDriverCost = distMiles * driverPayPerMile;
+      // Apply deadhead reduced rate
+      legDriverCost = deadhead ? baseDriverCost * (deadheadPayPercent / 100) : baseDriverCost;
+    } else {
+      // Per-hour: billable hours × hourly driver pay
+      const baseDriverCost = billableHours * profile.driverPayPerHour;
+      // Apply deadhead reduced rate
+      legDriverCost = deadhead ? baseDriverCost * (deadheadPayPercent / 100) : baseDriverCost;
+    }
+
+    const legFuelCost = distKm * fuelPerKm;
+    const legTotal = legFixedCost + legDriverCost + legFuelCost;
 
     legs.push({
       from: from.location,
@@ -97,9 +130,10 @@ export function calculateRouteCost(
       driveMinutes: r2(driveMin),
       dockMinutes: r2(dockMin),
       totalBillableHours: r2(billableHours),
-      laborCost: r2(billableHours * allInHourly),
+      fixedCost: r2(legFixedCost),
+      driverCost: r2(legDriverCost),
       fuelCost: r2(legFuelCost),
-      legCost: r2(legTimeCost + legFuelCost),
+      legCost: r2(legTotal),
     });
   }
 
@@ -124,8 +158,11 @@ export function calculateRouteCost(
     totalDockMinutes: r2(totalDockMinutes),
     totalHours: r2((totalDriveMinutes + totalDockMinutes) / 60),
     allInHourlyRate: r2(allInHourly),
-    fixedCostPerHour: r2(getFixedCostPerHour(profile)),
+    fixedCostPerHour: r2(fixedCostPerHour),
     fuelPerKm: r2(fuelPerKm),
+    payMode: effectivePayMode,
+    driverPayPerMile: r2(driverPayPerMile),
+    deadheadPayPercent,
     tripCost,
     deadheadCost,
     fullTripCost,

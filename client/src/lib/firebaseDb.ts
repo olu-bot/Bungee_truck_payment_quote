@@ -337,6 +337,16 @@ export async function createQuote(
   return quote;
 }
 
+export async function updateQuote(
+  companyId: string | undefined,
+  quoteId: string,
+  data: Partial<Pick<Quote, "customerNote" | "status" | "wonRate" | "statusNote" | "customerPrice" | "grossProfit" | "profitMarginPercent" | "marginValue" | "marginAmount">>
+): Promise<void> {
+  requireSignedInScope(companyId);
+  const ref = doc(db, "companies", companyId, "quotes", quoteId);
+  await updateDoc(ref, data as Record<string, unknown>);
+}
+
 export async function deleteQuote(
   companyId: string | undefined,
   quoteId: string

@@ -8,7 +8,8 @@ export type SnapshotLeg = {
   driveMinutes: number;
   dockMinutes: number;
   totalBillableHours: number;
-  laborCost: number;
+  fixedCost: number;
+  driverCost: number;
   fuelCost: number;
   legCost: number;
 };
@@ -36,6 +37,7 @@ export type RouteBuilderSnapshot = {
   };
   legs: SnapshotLeg[];
   chatUserMessage?: string;
+  customerNote?: string;
 };
 
 export function parseRouteBuilderSnapshot(

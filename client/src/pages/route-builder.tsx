@@ -4,7 +4,7 @@ import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
 import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances } from "@/lib/geo";
-import { calculateRouteCost, getPricingAdvice } from "@/lib/routeCalc";
+import { calculateRouteCost, getPricingAdvice, type PayMode } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,15 +28,16 @@ import {
   Route,
   MessageSquare,
   DollarSign,
-  Clock,
   Fuel,
   Send,
   Loader2,
   ArrowRight,
   ChevronDown,
   ChevronUp,
-  ArrowUpDown,
   GripVertical,
+  AlertTriangle,
+  Save,
+  FileText,
 } from "lucide-react";
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
 import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
@@ -46,6 +47,9 @@ import {
   currencySymbol,
   formatCurrencyAmount,
   resolveWorkspaceCurrency,
+  convertCurrency,
+  convertCostProfileCurrency,
+  type SupportedCurrency,
 } from "@/lib/currency";
 import {
   resolveMeasurementUnit,
@@ -122,7 +126,8 @@ type LegBreakdown = {
   driveMinutes: number;
   dockMinutes: number;
   totalBillableHours: number;
-  laborCost: number;
+  fixedCost: number;
+  driverCost: number;
   fuelCost: number;
   legCost: number;
   isDeadhead?: boolean;
@@ -137,6 +142,9 @@ type RouteCalculation = {
   allInHourlyRate: number;
   fixedCostPerHour: number;
   fuelPerKm: number;
+  payMode: PayMode;
+  driverPayPerMile: number;
+  deadheadPayPercent: number;
   tripCost: number;
   deadheadCost: number;
   fullTripCost: number;
@@ -166,6 +174,7 @@ async function persistRouteBuilderQuote(
     calc: RouteCalculation;
     pricing: PricingAdvice;
     customQuoteInput: string;
+    customerNote?: string;
     chatUserMessage?: string;
   },
 ): Promise<Quote> {
@@ -173,10 +182,18 @@ async function persistRouteBuilderQuote(
   const origin = nonYard[0]?.location ?? stops[0]?.location ?? "";
   const destination =
     nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
-  const laborSum = meta.calc.legs.reduce((s, l) => s + l.laborCost, 0);
+  const laborSum = meta.calc.legs.reduce((s, l) => s + (l.fixedCost + l.driverCost), 0);
   const fuelSum = meta.calc.legs.reduce((s, l) => s + l.fuelCost, 0);
   const distMi = meta.calc.totalDistanceKm * 0.621371;
   const tier20 = meta.pricing.tiers[0];
+
+  // If user entered a custom quote, use that as the customer price
+  const customAmt = parseFloat(meta.customQuoteInput);
+  const hasCustomQuote = !isNaN(customAmt) && customAmt > 0;
+  const customerPrice = hasCustomQuote ? customAmt : (tier20?.price ?? meta.calc.fullTripCost);
+  const grossProfit = customerPrice - meta.calc.fullTripCost;
+  const profitMarginPercent = meta.calc.fullTripCost > 0 ? (grossProfit / meta.calc.fullTripCost) * 100 : 0;
+
   const snapshot: RouteBuilderSnapshot = {
     routeSummary: stops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
     totalKm: meta.calc.totalDistanceKm,
@@ -202,6 +219,7 @@ async function persistRouteBuilderQuote(
     customQuote: meta.pricing.customQuote ?? undefined,
     legs: meta.calc.legs,
     chatUserMessage: meta.chatUserMessage,
+    customerNote: meta.customerNote || undefined,
   };
 
   return firebaseDb.createQuote(scopeId, {
@@ -216,13 +234,15 @@ async function persistRouteBuilderQuote(
     fuelSurcharge: fuelSum,
     totalCarrierCost: meta.calc.fullTripCost,
     marginType: "percentage",
-    marginValue: tier20?.percent ?? 20,
-    marginAmount: tier20?.marginAmount ?? 0,
-    customerPrice: tier20?.price ?? meta.calc.fullTripCost,
-    grossProfit: tier20?.marginAmount ?? 0,
-    profitMarginPercent: tier20?.percent ?? 0,
+    marginValue: profitMarginPercent,
+    marginAmount: grossProfit,
+    customerPrice,
+    grossProfit,
+    profitMarginPercent,
     quoteSource: "route_builder",
     routeSnapshotJson: JSON.stringify(snapshot),
+    customerNote: meta.customerNote || undefined,
+    status: "pending",
   });
 }
 
@@ -237,13 +257,17 @@ export default function RouteBuilder() {
   const [selectedYardId, setSelectedYardId] = useState("none");
   const [includeReturn, setIncludeReturn] = useState(true);
   const [fuelPrice, setFuelPrice] = useState("1.65");
+  const [defaultDockMinutes, setDefaultDockMinutes] = useState(30);
+  const [payMode, setPayMode] = useState<PayMode>("perHour");
+  const [payModeManualOverride, setPayModeManualOverride] = useState(false);
+  const [showLocalAlert, setShowLocalAlert] = useState(false);
 
   // ── Build Route form ──────────────────────────────────────────
 
   type FormStop = { id: string; location: string; dockMinutes: number };
   const [formStops, setFormStops] = useState<FormStop[]>([
-    { id: nextStopId(), location: "", dockMinutes: 30 },
-    { id: nextStopId(), location: "", dockMinutes: 30 },
+    { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
+    { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
   ]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
@@ -267,7 +291,7 @@ export default function RouteBuilder() {
   >([
     {
       role: "bot",
-      text: 'Hi! Type a route below \u2014 e.g. "Mississauga to Kingston" \u2014 and I\'ll update the map, dropdowns, and cost estimate automatically.',
+      text: 'Hi! Type a route below \u2014 e.g. "Toronto to Montreal" \u2014 and I\'ll update the map, dropdowns, and cost estimate automatically.',
     },
   ]);
 
@@ -277,6 +301,8 @@ export default function RouteBuilder() {
   const [pricingAdvice, setPricingAdvice] = useState<PricingAdvice | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
+  const [customerNote, setCustomerNote] = useState("");
+  const [isSavingQuote, setIsSavingQuote] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isGeocodingRoute, setIsGeocodingRoute] = useState(false);
 
@@ -312,10 +338,12 @@ export default function RouteBuilder() {
     [yards, selectedYardId],
   );
 
-  // If the user didn't pick a yard yet (selectedYardId === "none"),
-  // use the city from onboarding signup as a lightweight "yard" source.
+  // If the user didn't pick a yard yet (selectedYardId === "none") AND
+  // has no real yards defined, use the operating city as a lightweight fallback.
+  // When real yards exist, "None" means no yard — don't use operating city.
   const cityYard = useMemo(() => {
     if (selectedYardId !== "none") return null;
+    if (yards.length > 0) return null; // User has real yards; "None" means no yard
     const city = user?.operatingCity?.trim();
     if (!city) return null;
     return {
@@ -324,7 +352,7 @@ export default function RouteBuilder() {
       address: city,
       isDefault: true,
     } as Yard;
-  }, [selectedYardId, user?.operatingCity]);
+  }, [selectedYardId, user?.operatingCity, yards.length]);
 
   const effectiveYard = selectedYard ?? cityYard;
 
@@ -516,7 +544,29 @@ export default function RouteBuilder() {
     return () => {
       if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
     };
-  }, [selectedProfileId, fuelPrice, includeReturn]);
+  }, [selectedProfileId, fuelPrice, includeReturn, defaultDockMinutes, payMode]);
+
+  // When default dock time changes, update all existing form stops and built stops so recalc uses the new value
+  useEffect(() => {
+    setFormStops((prev) =>
+      prev.map((s) => ({ ...s, dockMinutes: defaultDockMinutes }))
+    );
+    // Also update the built RouteStop[] so the debounced recalc picks up the new dock time
+    setStops((prev) =>
+      prev.map((s) =>
+        s.type === "yard" ? s : { ...s, dockTimeMinutes: defaultDockMinutes }
+      )
+    );
+  }, [defaultDockMinutes]);
+
+  // ── Auto-detect pay mode based on total distance ─────────────
+  // >300 mi (~483 km) → per-mile, 50-300 mi → per-hour, <50 mi → per-hour
+  // User can manually override via toggle; override resets when new route is built
+  const autoDetectPayMode = useCallback((totalDistanceKm: number): PayMode => {
+    const totalMiles = totalDistanceKm / 1.609344;
+    if (totalMiles > 300) return "perMile";
+    return "perHour";
+  }, []);
 
   // ── Calculate route ───────────────────────────────────────────
 
@@ -531,8 +581,26 @@ export default function RouteBuilder() {
 
     setIsCalculating(true);
     try {
-      const profile = await firebaseDb.getProfile(scopeId, selectedProfileId);
-      if (!profile) throw new Error("Cost profile not found");
+      const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      if (!rawProfile) throw new Error("Cost profile not found");
+
+      // Convert profile costs to the user's display currency
+      const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
+      const profile = convertCostProfileCurrency(rawProfile, profileCurrency, currency) as typeof rawProfile;
+
+      // First pass: compute distances to determine pay mode
+      const preCalc = calculateRouteCost(profile, routeStops, includeReturn, fp, returnDistance?.distanceKm, returnDistance?.durationMinutes, "perHour");
+      // Auto-detect pay mode unless user manually overrode
+      let effectivePayMode = payMode;
+      if (!payModeManualOverride) {
+        // Only auto-detect on the non-deadhead distance (trip distance)
+        const tripDistKm = preCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0);
+        effectivePayMode = autoDetectPayMode(tripDistKm);
+        if (effectivePayMode !== payMode) setPayMode(effectivePayMode);
+        // Show local alert when trip < 50 miles
+        const tripMiles = tripDistKm / 1.609344;
+        setShowLocalAlert(tripMiles < 50 && tripMiles > 0);
+      }
 
       const data = calculateRouteCost(
         profile,
@@ -541,6 +609,7 @@ export default function RouteBuilder() {
         fp,
         returnDistance?.distanceKm,
         returnDistance?.durationMinutes,
+        effectivePayMode,
       ) as RouteCalculation;
       setRouteCalc(data);
       const customAmt = parseFloat(customQuoteAmount);
@@ -560,6 +629,7 @@ export default function RouteBuilder() {
             calc: data,
             pricing,
             customQuoteInput: customQuoteAmount,
+            customerNote,
             chatUserMessage: options.chatUserMessage,
           });
           queryClient.invalidateQueries({
@@ -611,13 +681,55 @@ export default function RouteBuilder() {
     return () => clearTimeout(timer);
   }, [customQuoteAmount]);
 
+  // ── Manual Save Quote ────────────────────────────────────────
+
+  async function handleSaveQuote() {
+    if (!routeCalc || !pricingAdvice || !scopeId || !selectedProfileId) return;
+    const fp = parseFloat(fuelPrice);
+    if (isNaN(fp) || fp <= 0) return;
+
+    setIsSavingQuote(true);
+    try {
+      const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      if (!rawProfile) throw new Error("Cost profile not found");
+      const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
+      const profile = convertCostProfileCurrency(rawProfile, profileCurrency, currency) as typeof rawProfile;
+
+      const quote = await persistRouteBuilderQuote(scopeId, profile, stops, {
+        includeReturn,
+        fuelPricePerLitre: fp,
+        yardLabel: effectiveYard?.name ?? undefined,
+        calc: routeCalc,
+        pricing: pricingAdvice,
+        customQuoteInput: customQuoteAmount,
+        customerNote,
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["firebase", "quotes", scopeId ?? ""],
+      });
+      setCustomerNote("");
+      toast({
+        title: "Quote saved",
+        description: `${quote.quoteNumber} · ${quote.origin} → ${quote.destination}`,
+      });
+    } catch (err: unknown) {
+      toast({
+        title: "Could not save quote",
+        description: err instanceof Error ? err.message : "Sign in to save quotes.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingQuote(false);
+    }
+  }
+
   // ── Chat route mutation ───────────────────────────────────────
 
   function populateFormFromLocations(locations: string[]) {
     const newStops: FormStop[] = locations.map((loc) => ({
       id: nextStopId(),
       location: loc,
-      dockMinutes: 30,
+      dockMinutes: defaultDockMinutes,
     }));
     setFormStops(newStops);
     return newStops;
@@ -726,7 +838,7 @@ export default function RouteBuilder() {
             const newStops = nonYard.map((s) => ({
               id: nextStopId(),
               location: s.location,
-              dockMinutes: s.dockTimeMinutes ?? 30,
+              dockMinutes: s.dockTimeMinutes ?? defaultDockMinutes,
             }));
             await triggerRouteBuild(newStops, true, userMessage);
           }
@@ -780,14 +892,18 @@ export default function RouteBuilder() {
     });
   }
 
-  // ── Quick route chips ─────────────────────────────────────────
+  // ── Quick route chips (based on user base location) ──────────
 
-  const quickRoutes = [
-    "Mississauga to Toronto",
-    "Brampton to Kingston",
-    "Toronto to Hamilton, London",
-    "Ottawa to Sudbury, Thunder Bay",
-  ];
+  const quickRoutes = useMemo(() => {
+    const base = effectiveYard?.name || user?.operatingCity?.trim();
+    if (!base) return [];
+    // Suggest 3 common route patterns from user's base
+    return [
+      `${base} to Toronto`,
+      `${base} to Montreal`,
+      `${base} to Vancouver`,
+    ];
+  }, [effectiveYard?.name, user?.operatingCity]);
 
   // ── Swap origin/destination ───────────────────────────────────
 
@@ -834,14 +950,161 @@ export default function RouteBuilder() {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4" data-testid="route-builder-page">
+    <div className="space-y-3" data-testid="route-builder-page">
+      {/* ═══════════════════════════════════════════════════════════
+          Route Controls: Profile, Yard, Fuel, Deadhead (top of page)
+          ═══════════════════════════════════════════════════════════ */}
+      <div className="flex items-center gap-3 flex-wrap" data-testid="route-controls">
+        <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+          <SelectTrigger data-testid="select-profile" className="h-8 text-xs w-auto min-w-[110px]">
+            <SelectValue placeholder="Profile" />
+          </SelectTrigger>
+          <SelectContent>
+            {profiles.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={selectedYardId} onValueChange={setSelectedYardId}>
+          <SelectTrigger data-testid="select-yard" className="h-8 text-xs w-auto min-w-[100px]">
+            <SelectValue placeholder="Yard" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            {yards.map((y) => (
+              <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="flex items-center gap-1">
+          <Fuel className="w-3.5 h-3.5 text-muted-foreground" />
+          <Input
+            data-testid="input-fuel-price"
+            type="number"
+            step="0.05"
+            min="0"
+            className="h-8 text-xs w-[70px]"
+            value={fuelPrice}
+            onChange={(e) => setFuelPrice(e.target.value)}
+          />
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+            /{measureUnit === "imperial" ? "gal" : "L"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">Load/Unload</span>
+          <Input
+            data-testid="input-dock-time"
+            type="number"
+            step="0.5"
+            min="0"
+            className="h-8 text-xs w-[70px]"
+            value={defaultDockMinutes / 60}
+            onChange={(e) => {
+              const hrs = parseFloat(e.target.value);
+              if (!isNaN(hrs) && hrs >= 0) setDefaultDockMinutes(Math.round(hrs * 60));
+            }}
+          />
+          <span className="text-[10px] text-muted-foreground whitespace-nowrap">hrs</span>
+        </div>
+
+        {effectiveYard && (
+          <div className="flex items-center gap-1.5">
+            <Switch
+              data-testid="switch-include-return"
+              checked={includeReturn}
+              onCheckedChange={setIncludeReturn}
+              className="scale-75"
+            />
+            <span className="text-xs text-muted-foreground">Deadhead</span>
+          </div>
+        )}
+
+        {/* Pay mode segmented toggle */}
+        <div
+          data-testid="switch-pay-mode"
+          className="inline-flex rounded-md border border-border overflow-hidden h-7 text-xs font-medium select-none"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setPayModeManualOverride(true);
+              setPayMode("perHour");
+              setShowLocalAlert(false);
+            }}
+            className={`px-3 flex items-center justify-center transition-colors ${
+              payMode === "perHour"
+                ? "bg-green-100 text-green-700 border-r border-green-400 dark:bg-green-900/40 dark:text-green-300 dark:border-green-600"
+                : "bg-background text-muted-foreground border-r border-border hover:bg-muted"
+            }`}
+          >
+            Per Hour
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setPayModeManualOverride(true);
+              setPayMode("perMile");
+              if (routeCalc) {
+                const tripDistKm = routeCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0);
+                setShowLocalAlert(tripDistKm / 1.609344 < 50 && tripDistKm > 0);
+              }
+            }}
+            className={`px-3 flex items-center justify-center transition-colors ${
+              payMode === "perMile"
+                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                : "bg-background text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            Per {dLabel === "mi" ? "Mile" : "KM"}
+          </button>
+        </div>
+      </div>
+
+      {/* Quick Start Profile reminder */}
+      {profiles.find((p) => p.id === selectedProfileId)?.name === "Quick Start Profile" && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <p className="text-xs text-amber-800">
+            You're using the <strong>Quick Start Profile</strong> with industry-average values. For accurate quotes,{" "}
+            <a href="/#/profiles" className="underline font-semibold text-amber-900 hover:text-amber-700">
+              create your own profile
+            </a>{" "}
+            with your real costs.
+          </p>
+        </div>
+      )}
+
+      {/* Local load alert: shown when per-mile is active on a < 50mi trip */}
+      {showLocalAlert && payMode === "perMile" && (
+        <div className="flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-blue-600 shrink-0" />
+          <p className="text-xs text-blue-800">
+            <strong>Local load detected.</strong> This route is under 50 miles. Trucks spend more time at the dock on short trips, so hourly billing is usually more accurate for local loads.{" "}
+            <button
+              className="underline font-semibold text-blue-900 hover:text-blue-700"
+              onClick={() => {
+                setPayModeManualOverride(true);
+                setPayMode("perHour");
+                setShowLocalAlert(false);
+              }}
+            >
+              Switch to hourly
+            </button>
+          </p>
+        </div>
+      )}
+
       {/* ═══════════════════════════════════════════════════════════
           SECTION 1: Route + Cost Card (sticky, always visible)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="sticky top-14 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-4 pb-4 bg-background">
+      <div className="sticky top-14 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-2 pb-2 bg-background">
         <Card className="border-border" data-testid="route-cost-section">
-          <CardContent className="p-4 space-y-3">
-            {/* Row 1: Route name + controls + Show breakdown */}
+          <CardContent className="p-3 space-y-2">
+            {/* Row 1: Route name + Show breakdown */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0 flex-wrap flex-1">
                 {/* Route name */}
@@ -849,63 +1112,12 @@ export default function RouteBuilder() {
                   {routeSummaryText || effectiveYard?.name || user?.operatingCity || "New Route"}
                 </span>
 
-                {/* Inline controls */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
-                    <SelectTrigger data-testid="select-profile" className="h-7 text-xs w-auto min-w-[100px] border-dashed">
-                      <SelectValue placeholder="Profile" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {profiles.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={selectedYardId} onValueChange={setSelectedYardId}>
-                    <SelectTrigger data-testid="select-yard" className="h-7 text-xs w-auto min-w-[90px] border-dashed">
-                      <SelectValue placeholder={user?.operatingCity?.trim() || "Yard"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">{user?.operatingCity?.trim() || "None"}</SelectItem>
-                      {yards.map((y) => (
-                        <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <div className="flex items-center gap-1">
-                    <Fuel className="w-3 h-3 text-muted-foreground" />
-                    <Input
-                      data-testid="input-fuel-price"
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      className="h-7 text-xs w-[70px]"
-                      value={fuelPrice}
-                      onChange={(e) => setFuelPrice(e.target.value)}
-                    />
+                {isGeocodingRoute && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Calculating...
                   </div>
-
-                  {effectiveYard && (
-                    <div className="flex items-center gap-1.5">
-                      <Switch
-                        data-testid="switch-include-return"
-                        checked={includeReturn}
-                        onCheckedChange={setIncludeReturn}
-                        className="scale-75"
-                      />
-                      <span className="text-xs text-muted-foreground">Deadhead</span>
-                    </div>
-                  )}
-
-                  {isGeocodingRoute && (
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Calculating...
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
 
               {/* Show breakdown button */}
@@ -922,34 +1134,23 @@ export default function RouteBuilder() {
 
             {/* Row 2: Pricing cards */}
             <div
-              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2"
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2"
               data-testid="pricing-row"
             >
-              {/* DELIVERY cost */}
+              {/* TOTAL COST — shows fullTripCost (incl deadhead) when toggle on, tripCost when off */}
               <div className="space-y-0.5">
                 <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Delivery
+                  Total Cost
                 </div>
                 <div
                   className="text-xl font-bold"
                   style={{ color: "#ea580c" }}
                   data-testid="pricing-trip-cost"
                 >
-                  {formatCurrency(tripCost)}
-                </div>
-                <div className="text-[10px] text-muted-foreground">with fuel</div>
-              </div>
-
-              {/* FULL TRIP cost */}
-              <div className="space-y-0.5">
-                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Full Trip
-                </div>
-                <div className="text-xl font-bold">
-                  {formatCurrency(fullTripCost)}
+                  {formatCurrency(includeReturn ? fullTripCost : tripCost)}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
-                  {deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead` : "dest = base"}
+                  {includeReturn && deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead` : "with fuel"}
                 </div>
               </div>
 
@@ -1008,7 +1209,7 @@ export default function RouteBuilder() {
                     type="number"
                     step="1"
                     placeholder="Your quote..."
-                    className="h-8 text-sm w-[90px]"
+                    className="h-8 text-sm w-[110px]"
                     value={customQuoteAmount}
                     onChange={(e) => setCustomQuoteAmount(e.target.value)}
                   />
@@ -1041,85 +1242,143 @@ export default function RouteBuilder() {
               </div>
             </div>
 
-            {/* Collapsible breakdown */}
-            {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
-              <div className="space-y-3 pt-2 border-t border-border" data-testid="leg-breakdown">
-                {routeCalc.legs.map((leg, i) => {
-                  const isLocal = leg.isLocal ?? leg.distanceKm < 100;
-                  const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
-                  const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
-                  return (
-                    <Card key={i} className="border-border" data-testid={`leg-card-${i}`}>
-                      <CardContent className="py-3 px-4 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                            {isDeadhead
-                              ? `Deadhead \u00B7 ${leg.from} \u2192 ${leg.to}`
-                              : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
-                          </span>
-                          {isDeadhead && (
-                            <Badge className="text-[10px] px-1.5 py-0 bg-orange-600 text-white border-0">EMPTY</Badge>
-                          )}
-                          {isLocal && !isDeadhead && (
-                            <Badge className="text-[10px] px-1.5 py-0 bg-blue-600 text-white border-0">LOCAL</Badge>
-                          )}
-                        </div>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Drive time</span>
-                            <span>{leg.driveMinutes} min</span>
-                          </div>
-                          {!isDeadhead && leg.dockMinutes > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Load + Unload</span>
-                              <span>{(leg.dockMinutes / 60).toFixed(0)} hrs</span>
-                            </div>
-                          )}
-                          <div className="flex justify-between font-medium">
-                            <span>Total billable hrs</span>
-                            <span>{billableHrs.toFixed(2)} hrs</span>
-                          </div>
-                          <Separator className="my-1" />
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Labor (no fuel)</span>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs text-muted-foreground">
-                                {billableHrs.toFixed(2)} &times; {formatCurrency(routeCalc.allInHourlyRate)}
-                              </span>
-                              <span className="font-medium">{formatCurrency(leg.laborCost)}</span>
-                            </div>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">
-                              Fuel ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
-                            </span>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs text-muted-foreground">
-                                {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
-                                {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
-                              </span>
-                              <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div
-                          className="flex justify-between items-center rounded px-3 py-1.5 -mx-1"
-                          style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
-                        >
-                          <span className="text-sm font-bold">{isDeadhead ? "Deadhead w/ Fuel" : "Total w/ Fuel"}</span>
-                          <span className="text-sm font-bold" style={{ color: "#ea580c" }}>
-                            {formatCurrency(leg.legCost)}
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+            {/* Row 3: Note + Save Quote */}
+            {routeCalc && routeCalc.fullTripCost > 0 && (
+              <div className="flex items-center gap-2 pt-1">
+                <div className="relative flex-1">
+                  <FileText className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    data-testid="input-customer-note"
+                    placeholder="Note \u2014 RFQ#, customer, lane memo..."
+                    className="h-8 text-sm pl-8"
+                    value={customerNote}
+                    onChange={(e) => setCustomerNote(e.target.value)}
+                  />
+                </div>
+                <Button
+                  data-testid="button-save-quote"
+                  size="sm"
+                  className="h-8 bg-orange-500 hover:bg-orange-600 text-white gap-1.5 shrink-0"
+                  disabled={isSavingQuote || !routeCalc || routeCalc.fullTripCost <= 0}
+                  onClick={handleSaveQuote}
+                >
+                  {isSavingQuote ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  Save Quote
+                </Button>
               </div>
             )}
+
           </CardContent>
         </Card>
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════
+          BREAKDOWN: Outside sticky so it flows normally, no overlap
+          ═══════════════════════════════════════════════════════════ */}
+      {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
+        <div className="space-y-3 pt-2" data-testid="leg-breakdown">
+          {routeCalc.legs.map((leg, i) => {
+            const isLocal = leg.isLocal ?? leg.distanceKm < 100;
+            const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
+            const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
+            return (
+              <Card key={i} className="border-border" data-testid={`leg-card-${i}`}>
+                <CardContent className="py-3 px-4 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      {isDeadhead
+                        ? `Deadhead \u00B7 ${leg.from} \u2192 ${leg.to}`
+                        : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
+                    </span>
+                    {isDeadhead && (
+                      <Badge className="text-[10px] px-1.5 py-0 bg-orange-600 text-white border-0">EMPTY</Badge>
+                    )}
+                    {isLocal && !isDeadhead && (
+                      <Badge className="text-[10px] px-1.5 py-0 bg-blue-600 text-white border-0">LOCAL</Badge>
+                    )}
+                  </div>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Drive time</span>
+                      <span>{`${Math.floor(leg.driveMinutes / 60)}h ${String(Math.round(leg.driveMinutes % 60)).padStart(2, "0")}m`}</span>
+                    </div>
+                    {!isDeadhead && leg.dockMinutes > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Load + Unload</span>
+                        <span>{(leg.dockMinutes / 60) % 1 === 0 ? (leg.dockMinutes / 60).toFixed(0) : (leg.dockMinutes / 60).toFixed(1)} hrs</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-medium">
+                      <span>Total billable hrs</span>
+                      <span>{billableHrs.toFixed(2)} hrs</span>
+                    </div>
+                    <Separator className="my-1" />
+                    {/* Fixed cost */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Fixed Cost</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
+                        </span>
+                        <span className="font-medium">{formatCurrency(leg.fixedCost)}</span>
+                      </div>
+                    </div>
+                    {/* Driver cost — per-mile or per-hour */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Driver Cost{routeCalc.payMode === "perMile" ? " (per mile)" : " (per hour)"}
+                        {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          {routeCalc.payMode === "perMile" ? (
+                            <>
+                              {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(routeCalc.driverPayPerMile)}/{dLabel === "mi" ? "mi" : "km"}
+                              {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
+                            </>
+                          ) : (
+                            <>
+                              {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.allInHourlyRate - routeCalc.fixedCostPerHour)}/hr
+                              {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
+                            </>
+                          )}
+                        </span>
+                        <span className="font-medium">{formatCurrency(leg.driverCost)}</span>
+                      </div>
+                    </div>
+                    {/* Fuel cost */}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
+                          {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
+                        </span>
+                        <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    className="flex justify-between items-center rounded px-3 py-1.5 -mx-1"
+                    style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
+                  >
+                    <span className="text-sm font-bold">{isDeadhead ? "Deadhead w/ Fuel" : "Total w/ Fuel"}</span>
+                    <span className="text-sm font-bold" style={{ color: "#ea580c" }}>
+                      {formatCurrency(leg.legCost)}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           SECTION 2 + 3: Chatbot (left) + Map & Build Route (right)
@@ -1205,7 +1464,7 @@ export default function RouteBuilder() {
           </Card>
 
           {/* ── Right: Map + Build Route Form ────────────────────── */}
-          <div className="space-y-4 flex flex-col">
+          <div className="space-y-3 flex flex-col">
             {/* Map */}
             <Card className="border-border overflow-hidden flex-1">
               <CardHeader className="pb-1">
@@ -1319,45 +1578,6 @@ export default function RouteBuilder() {
                           }}
                         />
 
-                        {/* Dock time */}
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Clock className="w-3 h-3 text-muted-foreground" />
-                          <Input
-                            data-testid={`input-dock-${idx}`}
-                            type="number"
-                            min="0"
-                            step="5"
-                            className="text-sm h-9 w-[60px] text-center"
-                            value={stop.dockMinutes}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 0;
-                              setFormStops((prev) =>
-                                prev.map((s, i) =>
-                                  i === idx ? { ...s, dockMinutes: val } : s,
-                                ),
-                              );
-                            }}
-                            onBlur={() => {
-                              const filled = formStops.filter((s) => s.location.trim());
-                              if (filled.length >= 2) triggerRouteBuild();
-                            }}
-                          />
-                          <span className="text-[10px] text-muted-foreground">min</span>
-                        </div>
-
-                        {/* Swap button (only on first row) */}
-                        {isFirst && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="shrink-0 h-9 w-9 p-0"
-                            data-testid="button-swap"
-                            onClick={swapOriginDest}
-                          >
-                            <ArrowUpDown className="w-4 h-4" />
-                          </Button>
-                        )}
-
                         {/* Remove button (only for middle stops, and only if more than 2 stops) */}
                         {!isFirst && !isLast && (
                           <Button
@@ -1379,22 +1599,21 @@ export default function RouteBuilder() {
                   );
                 })}
 
-                {/* Add Stop — inserts before the last (destination) stop */}
+                {/* Add Stop — inserts after the last (destination) stop */}
                 <Button
                   variant="outline"
                   size="sm"
                   className="w-full text-xs"
                   data-testid="button-add-stop"
                   onClick={() => {
-                    setFormStops((prev) => {
-                      const copy = [...prev];
-                      copy.splice(prev.length - 1, 0, {
+                    setFormStops((prev) => [
+                      ...prev,
+                      {
                         id: nextStopId(),
                         location: "",
-                        dockMinutes: 30,
-                      });
-                      return copy;
-                    });
+                        dockMinutes: defaultDockMinutes,
+                      },
+                    ]);
                   }}
                 >
                   <Plus className="w-3.5 h-3.5 mr-1" />

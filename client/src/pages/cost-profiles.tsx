@@ -59,12 +59,15 @@ import {
   MapPin,
   Globe,
   Ruler,
+  Container,
 } from "lucide-react";
 import type { CostProfile, Yard } from "@shared/schema";
 import {
   formatCurrencyAmount,
   localizeMoneySuffix,
   resolveWorkspaceCurrency,
+  convertCostProfileCurrency,
+  type SupportedCurrency,
 } from "@/lib/currency";
 import {
   resolveMeasurementUnit,
@@ -73,6 +76,7 @@ import {
   displayDistance,
   distanceLabel,
   inputToLPer100km,
+  type MeasurementUnit,
 } from "@/lib/measurement";
 import { apiRequest } from "@/lib/queryClient";
 import { geocodeLocation } from "@/lib/geo";
@@ -86,12 +90,16 @@ const TRUCK_LABELS: Record<string, string> = {
   dry_van: "Dry Van",
   reefer: "Reefer",
   flatbed: "Flatbed",
+  step_deck: "Step Deck",
+  tanker: "Tanker",
 };
 
 const TRUCK_ICONS: Record<string, typeof Package> = {
   dry_van: Package,
   reefer: Snowflake,
   flatbed: Layers,
+  step_deck: Layers,
+  tanker: Container,
 };
 
 function computeDerived(p: CostProfile) {
@@ -118,7 +126,7 @@ type EditableField = {
   group: string;
 };
 
-function getEditableFields(fuelLabel: string, fuelSuffix: string): EditableField[] {
+function getEditableFields(fuelLabel: string, fuelSuffix: string, measureUnit: MeasurementUnit = "imperial"): EditableField[] {
   return [
     { key: "monthlyTruckPayment", label: "Monthly Truck Payment", suffix: "$", step: "100", icon: Truck, group: "Vehicle" },
     { key: "monthlyInsurance", label: "Monthly Insurance", suffix: "$", step: "50", icon: Shield, group: "Insurance & Overhead" },
@@ -128,6 +136,8 @@ function getEditableFields(fuelLabel: string, fuelSuffix: string): EditableField
     { key: "workingDaysPerMonth", label: "Working Days/Month", suffix: "days", step: "1", icon: Calendar, group: "Operations" },
     { key: "workingHoursPerDay", label: "Working Hours/Day", suffix: "hrs", step: "1", icon: Clock, group: "Operations" },
     { key: "driverPayPerHour", label: "Driver Pay/Hour", suffix: "$/hr", step: "1", icon: User, group: "Driver" },
+    { key: "driverPayPerMile", label: "Driver Per-Mile Rate", suffix: measureUnit === "imperial" ? "$/mi" : "$/km", step: "0.05", icon: User, group: "Driver" },
+    { key: "deadheadPayPercent", label: "Deadhead Rate %", suffix: "%", step: "5", icon: User, group: "Driver" },
     { key: "fuelConsumptionPer100km", label: `Consumption (${fuelLabel})`, suffix: fuelSuffix, step: "1", icon: Fuel, group: "Fuel Consumption" },
     { key: "defaultDockTimeMinutes", label: "Default Dock Time", suffix: "min", step: "15", icon: Timer, group: "Dock & Detention" },
     { key: "detentionRatePerHour", label: "Detention Rate/Hr", suffix: "$/hr", step: "5", icon: Timer, group: "Dock & Detention" },
@@ -159,6 +169,7 @@ function CompanyInfoSection() {
   const [measurementUnit, setMeasurementUnit] = useState("metric");
   const [preferredCurrency, setPreferredCurrency] = useState("CAD");
   const [saving, setSaving] = useState(false);
+  const [reloading, setReloading] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -191,7 +202,8 @@ function CompanyInfoSection() {
       });
       toast({ title: "Company info updated" });
       setIsEditing(false);
-      // Reload to pick up changes
+      // Show full-screen loading overlay, then reload to pick up changes
+      setReloading(true);
       window.location.reload();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to save";
@@ -208,6 +220,16 @@ function CompanyInfoSection() {
     { value: "21-50", label: "21–50 trucks" },
     { value: "51+", label: "51+ trucks" },
   ];
+
+  if (reloading) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-lg font-medium text-foreground">Applying changes...</p>
+        <p className="text-sm text-muted-foreground mt-1">Updating your preferences</p>
+      </div>
+    );
+  }
 
   return (
     <Card className="border-border">
@@ -537,7 +559,7 @@ export default function CostProfiles() {
     [currency]
   );
   const EDITABLE_FIELDS = useMemo(
-    () => getEditableFields(fuelConsumptionLabel(measureUnit), measureUnit === "imperial" ? "MPG" : "L"),
+    () => getEditableFields(fuelConsumptionLabel(measureUnit), measureUnit === "imperial" ? "MPG" : "L", measureUnit),
     [measureUnit]
   );
 
@@ -631,7 +653,8 @@ export default function CostProfiles() {
         const displayVal = displayFuelConsumption(profile[f.key] as number, measureUnit);
         vals[f.key] = String(Math.round(displayVal * 10) / 10);
       } else {
-        vals[f.key] = String(profile[f.key]);
+        const val = profile[f.key];
+        vals[f.key] = val != null ? String(val) : "";
       }
     }
     setEditValues(vals);
@@ -736,7 +759,7 @@ export default function CostProfiles() {
             <SectionHeading
               icon={Truck}
               title="Cost Profiles"
-              subtitle="Each profile represents a truck type with its operating costs. These are used when calculating route quotes."
+              subtitle="Each profile represents an equipment type with its operating costs. These are used when calculating route quotes."
             />
             <Button
               size="sm"
@@ -772,7 +795,10 @@ export default function CostProfiles() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {profiles.map((profile) => {
                 const Icon = TRUCK_ICONS[profile.truckType] || Package;
-                const derived = computeDerived(profile);
+                // Convert money fields to the user's display currency
+                const profileCurrency = (profile.currency as SupportedCurrency) || "USD";
+                const displayProfile = convertCostProfileCurrency(profile, profileCurrency, currency) as CostProfile;
+                const derived = computeDerived(displayProfile);
 
                 return (
                   <Card
@@ -874,7 +900,10 @@ export default function CostProfiles() {
     }
 
     const Icon = TRUCK_ICONS[selectedProfile.truckType] || Package;
-    const derived = computeDerived(selectedProfile);
+    // Convert money fields to the user's display currency
+    const profileCurrency = (selectedProfile.currency as SupportedCurrency) || "USD";
+    const displayProfile = convertCostProfileCurrency(selectedProfile, profileCurrency, currency) as CostProfile;
+    const derived = computeDerived(displayProfile);
 
     // Group fields for display
     const groups: Record<string, EditableField[]> = {};
@@ -989,15 +1018,21 @@ export default function CostProfiles() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {fields.map((f) => {
                   const FieldIcon = f.icon;
-                  let rawValue = selectedProfile[f.key] as number;
+                  // Use currency-converted profile for money fields
+                  let rawValue = displayProfile[f.key] as number | undefined;
                   // Convert fuel consumption to display unit
-                  if (f.key === "fuelConsumptionPer100km") {
+                  if (f.key === "fuelConsumptionPer100km" && rawValue != null) {
                     rawValue = Math.round(displayFuelConsumption(rawValue, measureUnit) * 10) / 10;
                   }
+                  // Handle undefined/null for optional fields (e.g. old profiles missing driverPayPerMile)
+                  const isMoneyField = f.suffix === "$" || f.suffix === "$/hr" || f.suffix === "$/L"
+                    || f.suffix === "$/mi" || f.suffix === "$/km";
                   const displayValue =
-                    f.suffix === "$" || f.suffix === "$/hr" || f.suffix === "$/L"
-                      ? formatCurrency(rawValue as number)
-                      : `${rawValue} ${f.suffix}`;
+                    rawValue == null || rawValue === undefined
+                      ? "—"
+                      : isMoneyField
+                        ? formatCurrency(rawValue as number)
+                        : `${rawValue} ${f.suffix}`;
 
                   return (
                     <div

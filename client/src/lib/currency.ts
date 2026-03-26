@@ -104,6 +104,59 @@ export function currencyPerLitreLabel(currency: SupportedCurrency): string {
   return `${currencySymbol(currency)}/L`;
 }
 
+// ── Exchange rates (base: USD) ─────────────────────────────────────
+// These are approximate rates; in production you'd fetch live rates.
+// Last updated: March 2026
+const EXCHANGE_RATES_TO_USD: Record<SupportedCurrency, number> = {
+  USD: 1.0,
+  CAD: 0.72,   // 1 CAD = 0.72 USD
+  MXN: 0.058,  // 1 MXN = 0.058 USD
+};
+
+/**
+ * Convert a monetary value from one currency to another.
+ * e.g. convertCurrency(4800, "USD", "CAD") → ~6666.67
+ */
+export function convertCurrency(
+  amount: number,
+  from: SupportedCurrency,
+  to: SupportedCurrency,
+): number {
+  if (from === to) return amount;
+  // Convert to USD first, then to target
+  const inUsd = amount * EXCHANGE_RATES_TO_USD[from];
+  return inUsd / EXCHANGE_RATES_TO_USD[to];
+}
+
+/**
+ * Convert all monetary fields in a cost profile from one currency to another.
+ * Non-monetary fields (days, hours, consumption) are left untouched.
+ */
+export function convertCostProfileCurrency<
+  T extends Record<string, unknown>,
+>(profile: T, from: SupportedCurrency, to: SupportedCurrency): T {
+  if (from === to) return profile;
+  const moneyFields = [
+    "monthlyTruckPayment",
+    "monthlyInsurance",
+    "monthlyMaintenance",
+    "monthlyPermitsPlates",
+    "monthlyOther",
+    "driverPayPerHour",
+    "driverPayPerMile",
+    "detentionRatePerHour",
+  ];
+  const converted = { ...profile };
+  for (const field of moneyFields) {
+    if (typeof converted[field] === "number") {
+      (converted as Record<string, unknown>)[field] = Math.round(
+        convertCurrency(converted[field] as number, from, to) * 100,
+      ) / 100;
+    }
+  }
+  return converted;
+}
+
 /** Maps wizard/field suffixes that assumed "$" to the user's currency symbol. */
 export function localizeMoneySuffix(
   suffix: string | undefined,
@@ -114,5 +167,7 @@ export function localizeMoneySuffix(
   if (suffix === "$") return sym;
   if (suffix === "$/hr") return `${sym}/hr`;
   if (suffix === "$/L") return `${sym}/L`;
+  if (suffix === "$/mi") return `${sym}/mi`;
+  if (suffix === "$/km") return `${sym}/km`;
   return suffix;
 }

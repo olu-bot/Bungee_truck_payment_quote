@@ -19,7 +19,11 @@ import {
   Timer,
   DollarSign,
   Calendar,
+  Zap,
+  Container,
+  AlertTriangle,
 } from "lucide-react";
+// Alert is inline — no separate component needed
 import type { CostProfile } from "@shared/schema";
 import {
   formatCurrencyAmount,
@@ -80,6 +84,10 @@ function getWizardSteps(unit: MeasurementUnit): WizardStep[] {
       icon: User,
       fields: [
         { key: "driverPayPerHour", label: "Driver hourly wage", presets: [22, 25, 28], suffix: "$/hr", step: "any" },
+        isImperial
+          ? { key: "driverPayPerMile", label: "Driver per-mile rate (long haul)", presets: [0.55, 0.65, 0.75], suffix: "$/mi", step: "any" }
+          : { key: "driverPayPerMile", label: "Driver per-km rate (long haul)", presets: [0.34, 0.40, 0.47], suffix: "$/km", step: "any" },
+        { key: "deadheadPayPercent", label: "Deadhead rate (% of loaded)", presets: [70, 80, 100], suffix: "%", step: "any" },
       ],
     },
     {
@@ -119,6 +127,8 @@ function defaultWizardValues(): WizardValues {
     workingDaysPerMonth: 0,
     workingHoursPerDay: 0,
     driverPayPerHour: 0,
+    driverPayPerMile: 0,
+    deadheadPayPercent: 100,
     fuelConsumptionPer100km: 0,
     defaultDockTimeMinutes: 0,
     detentionRatePerHour: 0,
@@ -134,10 +144,14 @@ const EDITABLE_FIELD_KEYS: (keyof Omit<CostProfile, "id" | "name" | "truckType" 
   "workingDaysPerMonth",
   "workingHoursPerDay",
   "driverPayPerHour",
+  "driverPayPerMile",
   "fuelConsumptionPer100km",
   "defaultDockTimeMinutes",
   "detentionRatePerHour",
 ];
+
+// Fields where 0 is a valid value (optional fields)
+const OPTIONAL_FIELDS = new Set(["driverPayPerMile", "deadheadPayPercent"]);
 
 function PresetButton({
   value,
@@ -154,10 +168,10 @@ function PresetButton({
   onClick: () => void;
   testId: string;
 }) {
-  const display =
-    suffix === "$" || suffix === "$/hr" || suffix === "$/L"
-      ? formatMoney(value)
-      : `${value}${suffix ? ` ${suffix}` : ""}`;
+  const isMoney = suffix === "$" || suffix === "$/hr" || suffix === "$/L" || suffix === "$/mi" || suffix === "$/km";
+  const display = isMoney
+    ? formatMoney(value)
+    : `${value}${suffix ? ` ${suffix}` : ""}`;
 
   return (
     <Button
@@ -173,36 +187,89 @@ function PresetButton({
   );
 }
 
-function TruckTypeSelector({
+const EQUIPMENT_TYPES = [
+  { key: "dry_van", label: "Dry Van", Icon: Package },
+  { key: "reefer", label: "Reefer", Icon: Snowflake },
+  { key: "flatbed", label: "Flatbed", Icon: Layers },
+  { key: "step_deck", label: "Step Deck", Icon: Layers },
+  { key: "tanker", label: "Tanker", Icon: Container },
+];
+
+function EquipmentTypeSelector({
   value,
+  customValue,
   onChange,
+  onCustomChange,
 }: {
   value: string;
+  customValue: string;
   onChange: (v: string) => void;
+  onCustomChange: (v: string) => void;
 }) {
-  const types = [
-    { key: "dry_van", label: "Dry Van", Icon: Package },
-    { key: "reefer", label: "Reefer", Icon: Snowflake },
-    { key: "flatbed", label: "Flatbed", Icon: Layers },
-  ];
+  const isCustom = value === "__custom__";
 
   return (
-    <div className="flex gap-2">
-      {types.map(({ key, label, Icon }) => (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        {EQUIPMENT_TYPES.map(({ key, label, Icon }) => (
+          <Button
+            key={key}
+            type="button"
+            variant={value === key ? "default" : "outline"}
+            className="gap-2 text-xs"
+            size="sm"
+            data-testid={`wizard-equip-${key}`}
+            onClick={() => onChange(key)}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </Button>
+        ))}
         <Button
-          key={key}
           type="button"
-          variant={value === key ? "default" : "outline"}
-          className="flex-1 gap-2"
-          data-testid={`wizard-truck-${key}`}
-          onClick={() => onChange(key)}
+          variant={isCustom ? "default" : "outline"}
+          className="gap-2 text-xs"
+          size="sm"
+          data-testid="wizard-equip-custom"
+          onClick={() => onChange("__custom__")}
         >
-          <Icon className="w-4 h-4" />
-          {label}
+          <Truck className="w-3.5 h-3.5" />
+          Other
         </Button>
-      ))}
+      </div>
+      {isCustom && (
+        <Input
+          data-testid="wizard-equip-custom-input"
+          placeholder="e.g. Lowboy, Car Hauler, Conestoga..."
+          value={customValue}
+          onChange={(e) => onCustomChange(e.target.value)}
+        />
+      )}
     </div>
   );
+}
+
+/** Default values for a quick-start profile so new users can jump right in */
+function quickProfileDefaults(currency: SupportedCurrency): Omit<CostProfile, "id"> {
+  return {
+    name: "Quick Start Profile",
+    truckType: "dry_van",
+    monthlyTruckPayment: 2500,
+    monthlyInsurance: 1200,
+    monthlyMaintenance: 600,
+    monthlyPermitsPlates: 200,
+    monthlyOther: 150,
+    workingDaysPerMonth: 22,
+    workingHoursPerDay: 10,
+    driverPayPerHour: 25,
+    driverPayPerMile: 0.65,
+    deadheadPayPercent: 80,
+    fuelConsumptionPer100km: 35,
+    defaultDockTimeMinutes: 30,
+    detentionRatePerHour: 60,
+    currency,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 export type CostProfileWizardProps = {
@@ -254,6 +321,8 @@ export function CostProfileWizard({
     return base;
   });
   const [selectedPresets, setSelectedPresets] = useState<Record<string, number>>({});
+  const [customEquipment, setCustomEquipment] = useState("");
+  const [quickProfileCreated, setQuickProfileCreated] = useState(false);
 
   function setWizardField(key: string, value: number | string) {
     setWizardValues((prev) => ({ ...prev, [key]: value }));
@@ -285,7 +354,8 @@ export function CostProfileWizard({
 
   function canProceed(): boolean {
     const hasName = typeof wizardValues.name === "string" && wizardValues.name.trim().length > 0;
-    const hasTruckType = typeof wizardValues.truckType === "string" && wizardValues.truckType.trim().length > 0;
+    const rawType = wizardValues.truckType as string;
+    const hasTruckType = rawType === "__custom__" ? customEquipment.trim().length > 0 : rawType.trim().length > 0;
 
     if (wizardStep === 0) {
       return hasName && hasTruckType;
@@ -295,6 +365,7 @@ export function CostProfileWizard({
     if (isLastStep) {
       const allNumericFieldsValid = EDITABLE_FIELD_KEYS.every((k) => {
         const v = wizardValues[k];
+        if (OPTIONAL_FIELDS.has(k)) return typeof v === "number" && v >= 0;
         return typeof v === "number" && v > 0;
       });
       return hasName && hasTruckType && allNumericFieldsValid;
@@ -303,8 +374,15 @@ export function CostProfileWizard({
     const step = WIZARD_STEPS[wizardStep];
     return step.fields.every((f) => {
       const v = wizardValues[f.key];
+      if (OPTIONAL_FIELDS.has(f.key)) return typeof v === "number" && v >= 0;
       return typeof v === "number" && v > 0;
     });
+  }
+
+  function handleQuickProfile() {
+    const defaults = quickProfileDefaults(currency);
+    onSave(defaults);
+    setQuickProfileCreated(true);
   }
 
   function handleSaveProfile() {
@@ -312,9 +390,10 @@ export function CostProfileWizard({
     // Convert fuel consumption from display unit to internal L/100km
     const fuelValue = v.fuelConsumptionPer100km as number;
     const fuelAsLPer100km = isImperial ? mpgToLPer100km(fuelValue) : fuelValue;
+    const resolvedType = (v.truckType as string) === "__custom__" ? customEquipment.trim() : (v.truckType as string);
     onSave({
       name: v.name as string,
-      truckType: v.truckType as string,
+      truckType: resolvedType,
       monthlyTruckPayment: v.monthlyTruckPayment as number,
       monthlyInsurance: v.monthlyInsurance as number,
       monthlyMaintenance: v.monthlyMaintenance as number,
@@ -323,9 +402,12 @@ export function CostProfileWizard({
       workingDaysPerMonth: v.workingDaysPerMonth as number,
       workingHoursPerDay: v.workingHoursPerDay as number,
       driverPayPerHour: v.driverPayPerHour as number,
+      driverPayPerMile: (v.driverPayPerMile as number) || undefined,
+      deadheadPayPercent: (v.deadheadPayPercent as number) || undefined,
       fuelConsumptionPer100km: Math.round(fuelAsLPer100km * 100) / 100,
       defaultDockTimeMinutes: v.defaultDockTimeMinutes as number,
       detentionRatePerHour: v.detentionRatePerHour as number,
+      currency, // Store which currency the values were entered in
       createdAt: new Date().toISOString(),
     });
   }
@@ -381,6 +463,39 @@ export function CostProfileWizard({
         <CardContent className="space-y-5">
           {wizardStep === 0 && (
             <>
+              {/* Quick Profile alert — shown after creation */}
+              {quickProfileCreated && (
+                <div className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3">
+                  <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />
+                  <p className="text-sm text-orange-800">
+                    Quick profile created with industry-average values. For the most accurate cost estimates, fine-tune your profile in <strong>Company Profile</strong>.
+                  </p>
+                </div>
+              )}
+
+              {/* Quick Profile button */}
+              {!quickProfileCreated && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full gap-2 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+                  data-testid="wizard-quick-profile"
+                  disabled={isSaving}
+                  onClick={handleQuickProfile}
+                >
+                  <Zap className="w-4 h-4" />
+                  {isSaving ? "Creating..." : "Quick Profile — Start with defaults"}
+                </Button>
+              )}
+
+              {!quickProfileCreated && (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="flex-1 h-px bg-border" />
+                  or build your own
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label className="text-sm">Profile Name</Label>
                 <Input
@@ -391,10 +506,12 @@ export function CostProfileWizard({
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-sm">Truck Type</Label>
-                <TruckTypeSelector
+                <Label className="text-sm">Equipment Type</Label>
+                <EquipmentTypeSelector
                   value={wizardValues.truckType as string}
+                  customValue={customEquipment}
                   onChange={(v) => setWizardField("truckType", v)}
+                  onCustomChange={setCustomEquipment}
                 />
               </div>
             </>

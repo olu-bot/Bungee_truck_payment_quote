@@ -45,9 +45,12 @@ export const insertCostProfileSchema = z.object({
   workingDaysPerMonth: z.number(),
   workingHoursPerDay: z.number(),
   driverPayPerHour: z.number(),
+  driverPayPerMile: z.number().optional(), // Per-mile driver pay for long-haul ($/mi or $/km)
+  deadheadPayPercent: z.number().optional(), // Deadhead rate as % of loaded rate (e.g. 75 = 75%), defaults to 100
   fuelConsumptionPer100km: z.number(),
   defaultDockTimeMinutes: z.number(),
   detentionRatePerHour: z.number(),
+  currency: z.string().optional(), // Currency the profile values were entered in (e.g. "USD", "CAD")
   createdAt: z.string().optional(),
 });
 
@@ -119,6 +122,8 @@ export type SavedRoute = {
 
 // ── Quote ────────────────────────────────────────────────────────
 
+export type QuoteStatus = "pending" | "won" | "lost";
+
 export type Quote = {
   id: string;
   quoteNumber: string;
@@ -141,4 +146,12 @@ export type Quote = {
   profitMarginPercent: number;
   quoteSource?: string;
   routeSnapshotJson?: string;
+  /** Free-text note: RFQ#, customer name, lane memo, etc. */
+  customerNote?: string;
+  /** Pipeline status — defaults to "pending" */
+  status?: QuoteStatus;
+  /** The final rate the customer agreed to (may differ from customerPrice after negotiation) */
+  wonRate?: number | null;
+  /** Note recorded when marking won or lost (e.g. why we lost, who won, negotiation details) */
+  statusNote?: string;
 };

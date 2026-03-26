@@ -34,15 +34,45 @@ function getAllInHourly(p: CostProfile): number {
 
 // ── OSRM Distance/Duration Calculation ──────────────────────────
 
+const OSRM_TIMEOUT_MS = 10_000; // 10-second timeout to avoid hanging on unroutable destinations
+
+/**
+ * Haversine straight-line distance between two lat/lng points.
+ * Used as fallback when OSRM can't find a road route (e.g. islands, remote areas).
+ * Returns distance in km. Assumes average 60 km/h for drive-time estimate.
+ */
+function haversineDistanceKm(
+  lat1: number, lng1: number,
+  lat2: number, lng2: number,
+): { distanceKm: number; durationMinutes: number; isEstimate: true } {
+  const R = 6371; // Earth radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const straightLine = R * c;
+  // Apply 1.3x detour factor for road distance estimate
+  const estimatedRoad = r2(straightLine * 1.3);
+  const estimatedMinutes = r2(estimatedRoad / 60 * 60); // ~60 km/h average
+  return { distanceKm: estimatedRoad, durationMinutes: estimatedMinutes, isEstimate: true };
+}
+
 async function getOSRMRoute(
   fromLat: number, fromLng: number,
   toLat: number, toLng: number,
-): Promise<{ distanceKm: number; durationMinutes: number } | null> {
+): Promise<{ distanceKm: number; durationMinutes: number; isEstimate?: boolean } | null> {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
     const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=false`;
     const res = await fetch(url, {
       headers: { "User-Agent": "BungeeConnect/3.0" },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const data = await res.json();
     if (data.code === "Ok" && data.routes && data.routes.length > 0) {
       const route = data.routes[0];
@@ -51,10 +81,15 @@ async function getOSRMRoute(
         durationMinutes: r2(route.duration / 60),
       };
     }
-  } catch {
-    // Silently fail
+    // OSRM returned non-Ok (e.g. "NoRoute") — fall back to haversine
+    console.log(`[OSRM] Non-Ok response: ${data.code} — falling back to haversine`);
+    return haversineDistanceKm(fromLat, fromLng, toLat, toLng);
+  } catch (err) {
+    // Timeout or network error — fall back to haversine
+    const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
+    console.log(`[OSRM] ${reason} — falling back to haversine`);
+    return haversineDistanceKm(fromLat, fromLng, toLat, toLng);
   }
-  return null;
 }
 
 /**
@@ -66,12 +101,16 @@ async function getOSRMMultiRoute(
 ): Promise<{ distanceKm: number; durationMinutes: number }[] | null> {
   if (waypoints.length < 2) return null;
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
     const coords = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
     const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=false&steps=false`;
     console.log("[OSRM multi] URL:", url);
     const res = await fetch(url, {
       headers: { "User-Agent": "BungeeConnect/3.0" },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const data = await res.json();
     if (data.code === "Ok" && data.routes && data.routes.length > 0) {
       const legs = data.routes[0].legs;
@@ -80,9 +119,10 @@ async function getOSRMMultiRoute(
         durationMinutes: r2(leg.duration / 60),
       }));
     }
-    console.log("[OSRM multi] Non-Ok response:", data.code);
+    console.log("[OSRM multi] Non-Ok response:", data.code, "— will use per-leg fallback");
   } catch (err) {
-    console.error("[OSRM multi] Error:", err);
+    const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
+    console.error(`[OSRM multi] ${reason}:`, err instanceof Error ? err.message : err);
   }
   return null;
 }
@@ -174,7 +214,8 @@ function calculateRouteCost(
       driveMinutes: r2(driveMin),
       dockMinutes: r2(dockMin),
       totalBillableHours: r2((driveMin + dockMin) / 60),
-      laborCost: r2((driveMin + dockMin) / 60 * allInHourly),
+      fixedCost: r2((driveMin + dockMin) / 60 * (allInHourly - (profile.driverPayPerHour || 0))),
+      driverCost: r2((driveMin + dockMin) / 60 * (profile.driverPayPerHour || 0)),
       fuelCost: r2(legFuelCost),
       legCost: r2(legTimeCost + legFuelCost),
     });
@@ -201,7 +242,8 @@ function calculateRouteCost(
       driveMinutes: r2(retMin),
       dockMinutes: 0,
       totalBillableHours: r2(retMin / 60),
-      laborCost: r2(driveHours * allInHourly),
+      fixedCost: r2(driveHours * (allInHourly - (profile.driverPayPerHour || 0))),
+      driverCost: r2(driveHours * (profile.driverPayPerHour || 0)),
       fuelCost: r2(legFuelCost),
       legCost: r2(legTimeCost + legFuelCost),
     };
@@ -456,8 +498,18 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid waypoint coordinates" });
       }
     }
-    const legs = await getOSRMMultiRoute(waypoints);
-    if (!legs) return res.status(500).json({ error: "Routing failed" });
+    let legs = await getOSRMMultiRoute(waypoints);
+    if (!legs) {
+      // Multi-waypoint OSRM failed (timeout, unroutable, etc.)
+      // Fall back to per-leg haversine estimates
+      console.log("[/api/distances] Multi-waypoint OSRM failed, falling back to per-leg haversine");
+      legs = [];
+      for (let i = 1; i < waypoints.length; i++) {
+        const prev = waypoints[i - 1];
+        const cur = waypoints[i];
+        legs.push(haversineDistanceKm(prev.lat, prev.lng, cur.lat, cur.lng));
+      }
+    }
     res.json({ legs });
   });
 
