@@ -26,6 +26,12 @@ import {
   localizeMoneySuffix,
   type SupportedCurrency,
 } from "@/lib/currency";
+import {
+  type MeasurementUnit,
+  fuelConsumptionLabel,
+  lPer100kmToMpg,
+  mpgToLPer100km,
+} from "@/lib/measurement";
 
 type WizardField = {
   key: string;
@@ -41,57 +47,63 @@ type WizardStep = {
   fields: WizardField[];
 };
 
-const WIZARD_STEPS: WizardStep[] = [
-  {
-    title: "Vehicle",
-    icon: Truck,
-    fields: [
-      { key: "monthlyTruckPayment", label: "Monthly truck payment", presets: [1500, 2500, 3500], suffix: "$", step: "any" },
-    ],
-  },
-  {
-    title: "Insurance & Overhead",
-    icon: Shield,
-    fields: [
-      { key: "monthlyInsurance", label: "Monthly insurance", presets: [800, 1200, 1600], suffix: "$", step: "any" },
-      { key: "monthlyMaintenance", label: "Monthly maintenance", presets: [400, 600, 800], suffix: "$", step: "any" },
-      { key: "monthlyPermitsPlates", label: "Monthly permits & plates", presets: [150, 200, 250], suffix: "$", step: "any" },
-      { key: "monthlyOther", label: "Monthly other costs", presets: [100, 150, 250], suffix: "$", step: "any" },
-    ],
-  },
-  {
-    title: "Operations",
-    icon: Calendar,
-    fields: [
-      { key: "workingDaysPerMonth", label: "Working days per month", presets: [20, 22, 24], step: "any" },
-      { key: "workingHoursPerDay", label: "Working hours per day", presets: [8, 10, 12], step: "any" },
-    ],
-  },
-  {
-    title: "Driver",
-    icon: User,
-    fields: [
-      { key: "driverPayPerHour", label: "Driver hourly wage", presets: [22, 25, 28], suffix: "$/hr", step: "any" },
-    ],
-  },
-  {
-    title: "Fuel Consumption",
-    icon: Fuel,
-    fields: [
-      { key: "fuelConsumptionPer100km", label: "Fuel consumption (L/100km)", presets: [30, 35, 42], step: "any" },
-    ],
-  },
-  {
-    title: "Dock & Detention",
-    icon: Timer,
-    fields: [
-      { key: "defaultDockTimeMinutes", label: "Default dock time", presets: [30, 60, 90], suffix: "min", step: "any" },
-      { key: "detentionRatePerHour", label: "Detention rate/hr", presets: [50, 60, 75], suffix: "$/hr", step: "any" },
-    ],
-  },
-];
+function getWizardSteps(unit: MeasurementUnit): WizardStep[] {
+  const isImperial = unit === "imperial";
+  return [
+    {
+      title: "Vehicle",
+      icon: Truck,
+      fields: [
+        { key: "monthlyTruckPayment", label: "Monthly truck payment", presets: [1500, 2500, 3500], suffix: "$", step: "any" },
+      ],
+    },
+    {
+      title: "Insurance & Overhead",
+      icon: Shield,
+      fields: [
+        { key: "monthlyInsurance", label: "Monthly insurance", presets: [800, 1200, 1600], suffix: "$", step: "any" },
+        { key: "monthlyMaintenance", label: "Monthly maintenance", presets: [400, 600, 800], suffix: "$", step: "any" },
+        { key: "monthlyPermitsPlates", label: "Monthly permits & plates", presets: [150, 200, 250], suffix: "$", step: "any" },
+        { key: "monthlyOther", label: "Monthly other costs", presets: [100, 150, 250], suffix: "$", step: "any" },
+      ],
+    },
+    {
+      title: "Operations",
+      icon: Calendar,
+      fields: [
+        { key: "workingDaysPerMonth", label: "Working days per month", presets: [20, 22, 24], step: "any" },
+        { key: "workingHoursPerDay", label: "Working hours per day", presets: [8, 10, 12], step: "any" },
+      ],
+    },
+    {
+      title: "Driver",
+      icon: User,
+      fields: [
+        { key: "driverPayPerHour", label: "Driver hourly wage", presets: [22, 25, 28], suffix: "$/hr", step: "any" },
+      ],
+    },
+    {
+      title: "Fuel Consumption",
+      icon: Fuel,
+      fields: [
+        isImperial
+          ? { key: "fuelConsumptionPer100km", label: `Fuel consumption (${fuelConsumptionLabel(unit)})`, presets: [5.6, 6.7, 7.8], suffix: "MPG", step: "any" }
+          : { key: "fuelConsumptionPer100km", label: `Fuel consumption (${fuelConsumptionLabel(unit)})`, presets: [30, 35, 42], suffix: "L/100km", step: "any" },
+      ],
+    },
+    {
+      title: "Dock & Detention",
+      icon: Timer,
+      fields: [
+        { key: "defaultDockTimeMinutes", label: "Default dock time", presets: [30, 60, 90], suffix: "min", step: "any" },
+        { key: "detentionRatePerHour", label: "Detention rate/hr", presets: [50, 60, 75], suffix: "$/hr", step: "any" },
+      ],
+    },
+  ];
+}
 
-const STEP_LABELS = WIZARD_STEPS.map((s) => s.title);
+// STEP_LABELS are the same regardless of measurement unit
+const STEP_LABELS = ["Vehicle", "Insurance & Overhead", "Operations", "Driver", "Fuel Consumption", "Dock & Detention"];
 
 type WizardValues = Record<string, number | string>;
 
@@ -207,6 +219,8 @@ export type CostProfileWizardProps = {
   backTestId?: string;
   /** Display currency for money presets and suffixes (from user / onboarding country). */
   currency?: SupportedCurrency;
+  /** Measurement unit for fuel consumption display (metric = L/100km, imperial = MPG). */
+  measurementUnit?: MeasurementUnit;
 };
 
 export function CostProfileWizard({
@@ -221,11 +235,14 @@ export function CostProfileWizard({
   isSaving = false,
   backTestId = "wizard-back",
   currency = "CAD",
+  measurementUnit = "metric",
 }: CostProfileWizardProps) {
   const formatMoney = useMemo(
     () => (n: number) => formatCurrencyAmount(n, currency),
     [currency]
   );
+  const WIZARD_STEPS = useMemo(() => getWizardSteps(measurementUnit), [measurementUnit]);
+  const isImperial = measurementUnit === "imperial";
   const [wizardStep, setWizardStep] = useState(0);
   const [wizardValues, setWizardValues] = useState<WizardValues>(() => {
     const base = defaultWizardValues();
@@ -292,6 +309,9 @@ export function CostProfileWizard({
 
   function handleSaveProfile() {
     const v = wizardValues;
+    // Convert fuel consumption from display unit to internal L/100km
+    const fuelValue = v.fuelConsumptionPer100km as number;
+    const fuelAsLPer100km = isImperial ? mpgToLPer100km(fuelValue) : fuelValue;
     onSave({
       name: v.name as string,
       truckType: v.truckType as string,
@@ -303,7 +323,7 @@ export function CostProfileWizard({
       workingDaysPerMonth: v.workingDaysPerMonth as number,
       workingHoursPerDay: v.workingHoursPerDay as number,
       driverPayPerHour: v.driverPayPerHour as number,
-      fuelConsumptionPer100km: v.fuelConsumptionPer100km as number,
+      fuelConsumptionPer100km: Math.round(fuelAsLPer100km * 100) / 100,
       defaultDockTimeMinutes: v.defaultDockTimeMinutes as number,
       detentionRatePerHour: v.detentionRatePerHour as number,
       createdAt: new Date().toISOString(),

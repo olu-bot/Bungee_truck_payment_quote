@@ -24,6 +24,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus,
@@ -48,14 +55,27 @@ import {
   Lock,
   Check,
   Loader2,
+  Building2,
+  MapPin,
+  Globe,
+  Ruler,
 } from "lucide-react";
-import type { CostProfile } from "@shared/schema";
+import type { CostProfile, Yard } from "@shared/schema";
 import {
   formatCurrencyAmount,
   localizeMoneySuffix,
   resolveWorkspaceCurrency,
 } from "@/lib/currency";
+import {
+  resolveMeasurementUnit,
+  displayFuelConsumption,
+  fuelConsumptionLabel,
+  displayDistance,
+  distanceLabel,
+  inputToLPer100km,
+} from "@/lib/measurement";
 import { apiRequest } from "@/lib/queryClient";
+import { geocodeLocation } from "@/lib/geo";
 
 /** Free tier: one profile (created in onboarding). Additional profiles require upgrade. */
 const FREE_COST_PROFILE_LIMIT = 1;
@@ -98,19 +118,407 @@ type EditableField = {
   group: string;
 };
 
-const EDITABLE_FIELDS: EditableField[] = [
-  { key: "monthlyTruckPayment", label: "Monthly Truck Payment", suffix: "$", step: "100", icon: Truck, group: "Vehicle" },
-  { key: "monthlyInsurance", label: "Monthly Insurance", suffix: "$", step: "50", icon: Shield, group: "Insurance & Overhead" },
-  { key: "monthlyMaintenance", label: "Monthly Maintenance", suffix: "$", step: "50", icon: Wrench, group: "Insurance & Overhead" },
-  { key: "monthlyPermitsPlates", label: "Monthly Permits & Plates", suffix: "$", step: "25", icon: Shield, group: "Insurance & Overhead" },
-  { key: "monthlyOther", label: "Monthly Other Costs", suffix: "$", step: "25", icon: DollarSign, group: "Insurance & Overhead" },
-  { key: "workingDaysPerMonth", label: "Working Days/Month", suffix: "days", step: "1", icon: Calendar, group: "Operations" },
-  { key: "workingHoursPerDay", label: "Working Hours/Day", suffix: "hrs", step: "1", icon: Clock, group: "Operations" },
-  { key: "driverPayPerHour", label: "Driver Pay/Hour", suffix: "$/hr", step: "1", icon: User, group: "Driver" },
-  { key: "fuelConsumptionPer100km", label: "Consumption (L/100km)", suffix: "L", step: "1", icon: Fuel, group: "Fuel Consumption" },
-  { key: "defaultDockTimeMinutes", label: "Default Dock Time", suffix: "min", step: "15", icon: Timer, group: "Dock & Detention" },
-  { key: "detentionRatePerHour", label: "Detention Rate/Hr", suffix: "$/hr", step: "5", icon: Timer, group: "Dock & Detention" },
-];
+function getEditableFields(fuelLabel: string, fuelSuffix: string): EditableField[] {
+  return [
+    { key: "monthlyTruckPayment", label: "Monthly Truck Payment", suffix: "$", step: "100", icon: Truck, group: "Vehicle" },
+    { key: "monthlyInsurance", label: "Monthly Insurance", suffix: "$", step: "50", icon: Shield, group: "Insurance & Overhead" },
+    { key: "monthlyMaintenance", label: "Monthly Maintenance", suffix: "$", step: "50", icon: Wrench, group: "Insurance & Overhead" },
+    { key: "monthlyPermitsPlates", label: "Monthly Permits & Plates", suffix: "$", step: "25", icon: Shield, group: "Insurance & Overhead" },
+    { key: "monthlyOther", label: "Monthly Other Costs", suffix: "$", step: "25", icon: DollarSign, group: "Insurance & Overhead" },
+    { key: "workingDaysPerMonth", label: "Working Days/Month", suffix: "days", step: "1", icon: Calendar, group: "Operations" },
+    { key: "workingHoursPerDay", label: "Working Hours/Day", suffix: "hrs", step: "1", icon: Clock, group: "Operations" },
+    { key: "driverPayPerHour", label: "Driver Pay/Hour", suffix: "$/hr", step: "1", icon: User, group: "Driver" },
+    { key: "fuelConsumptionPer100km", label: `Consumption (${fuelLabel})`, suffix: fuelSuffix, step: "1", icon: Fuel, group: "Fuel Consumption" },
+    { key: "defaultDockTimeMinutes", label: "Default Dock Time", suffix: "min", step: "15", icon: Timer, group: "Dock & Detention" },
+    { key: "detentionRatePerHour", label: "Detention Rate/Hr", suffix: "$/hr", step: "5", icon: Timer, group: "Dock & Detention" },
+  ];
+}
+
+// ── Section Heading ────────────────────────────────────────────────
+
+function SectionHeading({ icon: Icon, title, subtitle }: { icon: typeof Building2; title: string; subtitle: string }) {
+  return (
+    <div className="mb-4">
+      <h2 className="text-base font-semibold flex items-center gap-2">
+        <Icon className="w-4 h-4 text-primary" />
+        {title}
+      </h2>
+      <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+    </div>
+  );
+}
+
+// ── Company Info Section ───────────────────────────────────────────
+
+function CompanyInfoSection() {
+  const { user } = useFirebaseAuth();
+  const { toast } = useToast();
+  const [isEditing, setIsEditing] = useState(false);
+  const [companyName, setCompanyName] = useState("");
+  const [fleetSize, setFleetSize] = useState("");
+  const [measurementUnit, setMeasurementUnit] = useState("metric");
+  const [preferredCurrency, setPreferredCurrency] = useState("CAD");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setCompanyName(user.companyName || "");
+      setFleetSize(user.fleetSize || "");
+      setMeasurementUnit(user.measurementUnit || "metric");
+      setPreferredCurrency((user as Record<string, unknown>).preferredCurrency as string || resolveWorkspaceCurrency(user));
+    }
+  }, [user]);
+
+  function startEdit() {
+    if (user) {
+      setCompanyName(user.companyName || "");
+      setFleetSize(user.fleetSize || "");
+      setMeasurementUnit(user.measurementUnit || "metric");
+      setPreferredCurrency((user as Record<string, unknown>).preferredCurrency as string || resolveWorkspaceCurrency(user));
+    }
+    setIsEditing(true);
+  }
+
+  async function handleSave() {
+    if (!user) return;
+    setSaving(true);
+    try {
+      await firebaseDb.updateUserProfile(user.uid, {
+        companyName,
+        fleetSize,
+        measurementUnit,
+        preferredCurrency,
+      });
+      toast({ title: "Company info updated" });
+      setIsEditing(false);
+      // Reload to pick up changes
+      window.location.reload();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save";
+      toast({ title: "Error saving company info", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const FLEET_SIZE_OPTIONS = [
+    { value: "1", label: "1 truck" },
+    { value: "2-5", label: "2–5 trucks" },
+    { value: "6-20", label: "6–20 trucks" },
+    { value: "21-50", label: "21–50 trucks" },
+    { value: "51+", label: "51+ trucks" },
+  ];
+
+  return (
+    <Card className="border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <SectionHeading icon={Building2} title="Company Info" subtitle="Your company name, fleet size, and measurement preferences." />
+          {!isEditing && (
+            <Button variant="outline" size="sm" onClick={startEdit} data-testid="company-info-edit">
+              <Pencil className="w-3.5 h-3.5 mr-1" />
+              Edit
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isEditing ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5" /> Company Name
+                </label>
+                <Input
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Your company name"
+                  data-testid="input-company-name"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Truck className="w-3.5 h-3.5" /> Fleet Size
+                </label>
+                <Select value={fleetSize} onValueChange={setFleetSize}>
+                  <SelectTrigger data-testid="select-fleet-size">
+                    <SelectValue placeholder="Select fleet size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FLEET_SIZE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Ruler className="w-3.5 h-3.5" /> Measurement Unit
+                </label>
+                <Select value={measurementUnit} onValueChange={setMeasurementUnit}>
+                  <SelectTrigger data-testid="select-measurement-unit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="metric">KM / L (Metric)</SelectItem>
+                    <SelectItem value="imperial">MPG (Imperial)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5" /> Preferred Currency
+                </label>
+                <Select value={preferredCurrency} onValueChange={setPreferredCurrency}>
+                  <SelectTrigger data-testid="select-preferred-currency">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="CAD">CAD (CA$)</SelectItem>
+                    <SelectItem value="USD">USD ($)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5" /> Operating Region
+                </label>
+                <Input
+                  value={[user?.operatingCity, user?.operatingCountryCode].filter(Boolean).join(", ") || "—"}
+                  disabled
+                  className="bg-muted/30"
+                />
+                <p className="text-[11px] text-muted-foreground">Change your city in Home Base below.</p>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button size="sm" onClick={handleSave} disabled={saving} className="bg-orange-500 hover:bg-orange-600 text-white">
+                {saving ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> Saving...</> : <><Save className="w-3.5 h-3.5 mr-1" /> Save Changes</>}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center gap-3 rounded-md border border-border p-3">
+              <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <div className="text-xs text-muted-foreground">Company Name</div>
+                <div className="text-sm font-medium">{user?.companyName || "—"}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border border-border p-3">
+              <Truck className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <div className="text-xs text-muted-foreground">Fleet Size</div>
+                <div className="text-sm font-medium">{user?.fleetSize || "—"}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border border-border p-3">
+              <Ruler className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <div className="text-xs text-muted-foreground">Measurement</div>
+                <div className="text-sm font-medium">{user?.measurementUnit === "imperial" ? "MPG (Imperial)" : "KM / L (Metric)"}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border border-border p-3">
+              <DollarSign className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <div className="text-xs text-muted-foreground">Preferred Currency</div>
+                <div className="text-sm font-medium">{((user as Record<string, unknown>)?.preferredCurrency as string) === "USD" ? "USD ($)" : "CAD (CA$)"}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border border-border p-3">
+              <Globe className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div>
+                <div className="text-xs text-muted-foreground">Operating Region</div>
+                <div className="text-sm font-medium">{[user?.operatingCity, user?.operatingCountryCode].filter(Boolean).join(", ") || "—"}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Home Base / Yard Section ──────────────────────────────────────
+
+function HomeBaseSection() {
+  const { user } = useFirebaseAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const scopeId = workspaceFirestoreId(user);
+
+  const { data: yards = [], isLoading } = useQuery<Yard[]>({
+    queryKey: ["firebase", "yards", scopeId ?? ""],
+    queryFn: () => firebaseDb.getYards(scopeId),
+    enabled: !!scopeId,
+  });
+
+  const [editingYardId, setEditingYardId] = useState<string | null>(null);
+  const [yardName, setYardName] = useState("");
+  const [yardAddress, setYardAddress] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [addingYard, setAddingYard] = useState(false);
+
+  function startEditYard(yard: Yard) {
+    setEditingYardId(yard.id);
+    setYardName(yard.name);
+    setYardAddress(yard.address);
+  }
+
+  async function saveYard() {
+    if (!editingYardId || !scopeId) return;
+    setSaving(true);
+    try {
+      const coords = await geocodeLocation(yardAddress || yardName);
+      await firebaseDb.updateYard(scopeId, editingYardId, {
+        name: yardName,
+        address: yardAddress,
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
+      });
+      queryClient.invalidateQueries({ queryKey: ["firebase", "yards", scopeId] });
+      setEditingYardId(null);
+      toast({ title: "Home base updated" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to save";
+      toast({ title: "Error updating yard", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function addYard() {
+    if (!scopeId) return;
+    setSaving(true);
+    try {
+      // Geocode the address at save time so route builder has coordinates ready
+      const coords = await geocodeLocation(yardAddress || yardName);
+      await firebaseDb.createYard(scopeId, {
+        name: yardName,
+        address: yardAddress,
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
+        isDefault: yards.length === 0,
+      });
+      queryClient.invalidateQueries({ queryKey: ["firebase", "yards", scopeId] });
+      setAddingYard(false);
+      setYardName("");
+      setYardAddress("");
+      toast({ title: "Yard added" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to add";
+      toast({ title: "Error adding yard", description: msg, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteYard(yardId: string) {
+    if (!scopeId) return;
+    try {
+      await firebaseDb.deleteYard(scopeId, yardId);
+      queryClient.invalidateQueries({ queryKey: ["firebase", "yards", scopeId] });
+      toast({ title: "Yard removed" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to delete";
+      toast({ title: "Error deleting yard", description: msg, variant: "destructive" });
+    }
+  }
+
+  return (
+    <Card className="border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <SectionHeading icon={MapPin} title="Home Base" subtitle="Your yards and depot locations. Used for deadhead (return trip) calculations." />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { setAddingYard(true); setYardName(""); setYardAddress(""); }}
+            data-testid="button-add-yard"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            Add Yard
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="text-sm text-muted-foreground py-4 text-center">Loading yards...</div>
+        ) : yards.length === 0 && !addingYard ? (
+          <div className="flex flex-col items-center justify-center py-8 text-center border border-dashed rounded-md">
+            <MapPin className="w-7 h-7 text-muted-foreground mb-2" />
+            <p className="text-sm text-muted-foreground mb-3">No home base set yet. Add your first yard or depot.</p>
+            <Button
+              size="sm"
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              onClick={() => { setAddingYard(true); setYardName(""); setYardAddress(""); }}
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              Add Your First Yard
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {yards.map((yard) => (
+              <div key={yard.id} className="flex items-center gap-3 rounded-md border border-border p-3">
+                {editingYardId === yard.id ? (
+                  <div className="flex-1 space-y-2">
+                    <Input value={yardName} onChange={(e) => setYardName(e.target.value)} placeholder="Yard name" className="h-8" />
+                    <Input value={yardAddress} onChange={(e) => setYardAddress(e.target.value)} placeholder="Address" className="h-8" />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={saveYard} disabled={saving} className="bg-orange-500 hover:bg-orange-600 text-white">
+                        {saving ? "Saving..." : "Save"}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setEditingYardId(null)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        {yard.name}
+                        {yard.isDefault && <Badge variant="secondary" className="text-[10px]">Default</Badge>}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">{yard.address}</div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => startEditYard(yard)}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => deleteYard(yard.id)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+
+            {addingYard && (
+              <div className="rounded-md border border-dashed border-border p-3 space-y-2">
+                <Input value={yardName} onChange={(e) => setYardName(e.target.value)} placeholder="Yard name (e.g. Main Depot)" className="h-8" />
+                <Input value={yardAddress} onChange={(e) => setYardAddress(e.target.value)} placeholder="City (e.g. Mississauga, ON)" className="h-8" />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={addYard} disabled={saving || !yardName.trim()} className="bg-orange-500 hover:bg-orange-600 text-white">
+                    {saving ? "Adding..." : "Add Yard"}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setAddingYard(false)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Main Component ─────────────────────────────────────────────────
 
@@ -122,10 +530,15 @@ export default function CostProfiles() {
   const { user } = useFirebaseAuth();
   const isAdmin = user?.role === "admin";
   const scopeId = workspaceFirestoreId(user);
-  const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
+  const currency = useMemo(() => resolveWorkspaceCurrency(user as Record<string, unknown>), [user]);
+  const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
   const formatCurrency = useCallback(
     (value: number) => formatCurrencyAmount(value, currency),
     [currency]
+  );
+  const EDITABLE_FIELDS = useMemo(
+    () => getEditableFields(fuelConsumptionLabel(measureUnit), measureUnit === "imperial" ? "MPG" : "L"),
+    [measureUnit]
   );
 
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -213,7 +626,13 @@ export default function CostProfiles() {
   function startEditingProfile(profile: CostProfile) {
     const vals: Record<string, string> = {};
     for (const f of EDITABLE_FIELDS) {
-      vals[f.key] = String(profile[f.key]);
+      // Convert fuel consumption to display unit for editing
+      if (f.key === "fuelConsumptionPer100km") {
+        const displayVal = displayFuelConsumption(profile[f.key] as number, measureUnit);
+        vals[f.key] = String(Math.round(displayVal * 10) / 10);
+      } else {
+        vals[f.key] = String(profile[f.key]);
+      }
     }
     setEditValues(vals);
     setIsEditing(true);
@@ -223,7 +642,13 @@ export default function CostProfiles() {
     if (!selectedProfileId) return;
     const payload: Record<string, number> = {};
     for (const f of EDITABLE_FIELDS) {
-      payload[f.key] = Number(editValues[f.key]);
+      const raw = Number(editValues[f.key]);
+      // Convert fuel consumption from display unit back to L/100km for storage
+      if (f.key === "fuelConsumptionPer100km") {
+        payload[f.key] = Math.round(inputToLPer100km(raw, measureUnit) * 100) / 100;
+      } else {
+        payload[f.key] = raw;
+      }
     }
     updateMutation.mutate({ id: selectedProfileId, data: payload });
   }
@@ -281,7 +706,7 @@ export default function CostProfiles() {
       } else {
         toast({
           title: "Checkout cancelled",
-          description: "You can upgrade anytime from Cost Profiles.",
+          description: "You can upgrade anytime from Company Profile.",
         });
       }
       const pathOnly = hash.slice(0, qIdx);
@@ -301,110 +726,117 @@ export default function CostProfiles() {
     }
   }, [isLoading, scopeId, viewMode, profiles.length]);
 
-  // ── Render: Profile List ────────────────────────────────────────
+  // ── Render: Cost Profile List ─────────────────────────────────
 
   function renderProfileList() {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h2 className="text-base font-semibold flex items-center gap-2">
-              <Truck className="w-4 h-4 text-primary" />
-              Cost Profiles
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage truck cost profiles for accurate route pricing.
-            </p>
+      <Card className="border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <SectionHeading
+              icon={Truck}
+              title="Cost Profiles"
+              subtitle="Each profile represents a truck type with its operating costs. These are used when calculating route quotes."
+            />
+            <Button
+              size="sm"
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              data-testid="button-create-profile"
+              onClick={openCreateProfileFlow}
+            >
+              <Plus className="w-4 h-4 mr-1" />
+              Create Profile
+            </Button>
           </div>
-          <Button
-            size="sm"
-            data-testid="button-create-profile"
-            onClick={openCreateProfileFlow}
-          >
-            <Plus className="w-4 h-4 mr-1" />
-            Create New Profile
-          </Button>
-        </div>
-
-        {isLoading ? (
-          <div className="text-sm text-muted-foreground py-8 text-center">Loading profiles...</div>
-        ) : profiles.length === 0 ? (
-          <Card className="border-dashed border-border">
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="text-sm text-muted-foreground py-8 text-center">Loading profiles...</div>
+          ) : profiles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-center border border-dashed rounded-md">
               <Truck className="w-8 h-8 text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">
-                No cost profiles yet. Create one to get started.
+              <p className="text-sm font-medium mb-1">No cost profiles yet</p>
+              <p className="text-sm text-muted-foreground max-w-sm mb-4">
+                A cost profile captures your truck's monthly expenses, driver pay, and fuel consumption so Bungee can calculate accurate per-trip pricing.
               </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {profiles.map((profile) => {
-              const Icon = TRUCK_ICONS[profile.truckType] || Package;
-              const derived = computeDerived(profile);
+              <Button
+                size="sm"
+                className="bg-orange-500 hover:bg-orange-600 text-white"
+                onClick={openCreateProfileFlow}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Create Your First Profile
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {profiles.map((profile) => {
+                const Icon = TRUCK_ICONS[profile.truckType] || Package;
+                const derived = computeDerived(profile);
 
-              return (
-                <Card
-                  key={profile.id}
-                  className="border-border cursor-pointer hover:border-primary/50 transition-colors"
-                  data-testid={`card-profile-${profile.id}`}
-                  onClick={() => {
-                    setSelectedProfileId(profile.id);
-                    setIsEditing(false);
-                    setViewMode("detail");
-                  }}
-                >
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center justify-between">
-                      <span className="flex items-center gap-2 truncate">
-                        <Icon className="w-4 h-4 shrink-0" />
-                        {profile.name}
-                      </span>
-                      <Badge variant="secondary" className="text-xs shrink-0">
-                        {TRUCK_LABELS[profile.truckType] || profile.truckType}
-                      </Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">All-in hourly</span>
-                      <span className="font-medium">{formatCurrency(derived.allInHourlyRate)}/hr</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Fuel className="w-3 h-3" /> Consumption
-                      </span>
-                      <span className="font-medium">{profile.fuelConsumptionPer100km} L/100km</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Monthly fixed</span>
-                      <span className="font-medium">{formatCurrency(derived.monthlyFixed)}</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-xs text-muted-foreground">View details</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                          data-testid={`button-delete-profile-${profile.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteMutation.mutate(profile.id);
-                          }}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                return (
+                  <Card
+                    key={profile.id}
+                    className="border-border cursor-pointer hover:border-primary/50 transition-colors"
+                    data-testid={`card-profile-${profile.id}`}
+                    onClick={() => {
+                      setSelectedProfileId(profile.id);
+                      setIsEditing(false);
+                      setViewMode("detail");
+                    }}
+                  >
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center justify-between">
+                        <span className="flex items-center gap-2 truncate">
+                          <Icon className="w-4 h-4 shrink-0" />
+                          {profile.name}
+                        </span>
+                        <Badge variant="secondary" className="text-xs shrink-0">
+                          {TRUCK_LABELS[profile.truckType] || profile.truckType}
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">All-in hourly</span>
+                        <span className="font-medium">{formatCurrency(derived.allInHourlyRate)}/hr</span>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <Fuel className="w-3 h-3" /> Consumption
+                        </span>
+                        <span className="font-medium">{Math.round(displayFuelConsumption(profile.fuelConsumptionPer100km, measureUnit) * 10) / 10} {fuelConsumptionLabel(measureUnit)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Monthly fixed</span>
+                        <span className="font-medium">{formatCurrency(derived.monthlyFixed)}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-xs text-muted-foreground">View details</span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            data-testid={`button-delete-profile-${profile.id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteMutation.mutate(profile.id);
+                            }}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     );
   }
 
@@ -416,6 +848,7 @@ export default function CostProfiles() {
         <h2 className="text-base font-semibold">Create Cost Profile</h2>
         <CostProfileWizard
           currency={currency}
+          measurementUnit={measureUnit}
           onSave={(data) => createMutation.mutate(data)}
           onBack={() => setViewMode("list")}
           backLabel="Back"
@@ -484,6 +917,7 @@ export default function CostProfiles() {
                   data-testid="detail-save-edit"
                   disabled={updateMutation.isPending}
                   onClick={saveEditedProfile}
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
                 >
                   <Save className="w-4 h-4 mr-1" />
                   {updateMutation.isPending ? "Saving..." : "Save Changes"}
@@ -555,7 +989,11 @@ export default function CostProfiles() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {fields.map((f) => {
                   const FieldIcon = f.icon;
-                  const rawValue = selectedProfile[f.key];
+                  let rawValue = selectedProfile[f.key] as number;
+                  // Convert fuel consumption to display unit
+                  if (f.key === "fuelConsumptionPer100km") {
+                    rawValue = Math.round(displayFuelConsumption(rawValue, measureUnit) * 10) / 10;
+                  }
                   const displayValue =
                     f.suffix === "$" || f.suffix === "$/hr" || f.suffix === "$/L"
                       ? formatCurrency(rawValue as number)
@@ -609,8 +1047,15 @@ export default function CostProfiles() {
   // ── Main Render ─────────────────────────────────────────────────
 
   return (
-    <div className="space-y-8" data-testid="cost-profiles-page">
-      {viewMode === "list" && renderProfileList()}
+    <div className="space-y-6" data-testid="cost-profiles-page">
+      {/* Company Info — always visible on list view */}
+      {viewMode === "list" && (
+        <>
+          <CompanyInfoSection />
+          <HomeBaseSection />
+          {renderProfileList()}
+        </>
+      )}
       {viewMode === "wizard" && renderWizard()}
       {viewMode === "detail" && renderDetail()}
 
@@ -669,7 +1114,7 @@ export default function CostProfiles() {
               <CardFooter className="mt-auto flex-col gap-2 pt-2">
                 <Button
                   type="button"
-                  className="w-full"
+                  className="w-full bg-orange-500 hover:bg-orange-600 text-white"
                   disabled={checkoutTier !== null}
                   onClick={() => startStripeCheckout("pro")}
                 >

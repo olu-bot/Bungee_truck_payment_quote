@@ -225,6 +225,17 @@ export async function syncDefaultYardFromOperatingCity(
   }
 }
 
+// ─── User Profile ────────────────────────────────────────────────
+
+export async function updateUserProfile(
+  uid: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  if (!firebaseConfigured || !uid) return;
+  const ref = doc(db, "users", uid);
+  await updateDoc(ref, data);
+}
+
 // ─── Feedback (global collection) ──────────────────────────────────
 
 export type FeedbackTicket = {
