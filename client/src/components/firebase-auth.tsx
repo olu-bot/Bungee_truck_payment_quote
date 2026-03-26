@@ -16,7 +16,7 @@ import {
   signOut,
   type User as FirebaseUser,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, collection } from "firebase/firestore";
+import { doc, getDoc, setDoc, collection, onSnapshot } from "firebase/firestore";
 
 import { auth, db, firebaseConfigured } from "@/lib/firebase";
 import * as firebaseDb from "@/lib/firebaseDb";
@@ -25,6 +25,9 @@ import type { MeasurementUnit } from "@/lib/measurement";
 
 export type AppUserRole = "admin" | "user";
 export type AppSector = "brokers" | "carriers" | "shippers";
+
+/** Set by Stripe webhooks (server) on `users/{uid}` — unlocks extra cost profiles for pro/fleet. */
+export type SubscriptionTier = "free" | "pro" | "fleet";
 
 export type AppUser = {
   uid: string;
@@ -44,6 +47,11 @@ export type AppUser = {
   measurementUnit?: MeasurementUnit;
   role: AppUserRole;
   logoUrl?: string;
+  subscriptionTier?: SubscriptionTier;
+  subscriptionStatus?: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePriceId?: string | null;
 };
 
 type FirebaseAuthContextValue = {
@@ -251,6 +259,23 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       }
     });
   }, []);
+
+  // Keep subscription fields in sync when Stripe webhooks update `users/{uid}`.
+  useEffect(() => {
+    if (!firebaseConfigured || !db || !user?.uid) return;
+    const uid = user.uid;
+    const userRef = doc(db, "users", uid);
+    const unsub = onSnapshot(
+      userRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data() as Omit<AppUser, "uid">;
+        setUser((prev) => (prev?.uid === uid ? { uid, ...data } : prev));
+      },
+      (err) => console.error("[auth] user doc listener", err),
+    );
+    return () => unsub();
+  }, [user?.uid]);
 
   const login = useCallback(async (args: { email: string; password: string }) => {
     if (!firebaseConfigured) throw new Error("Firebase is not configured (missing VITE_FIREBASE_* env vars).");

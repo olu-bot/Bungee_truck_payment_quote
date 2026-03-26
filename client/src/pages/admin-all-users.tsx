@@ -281,6 +281,11 @@ export default function AdminAllUsers() {
                                 Route build
                               </Badge>
                             ) : null}
+                            {q.quoteSource === "quote_calculator" ? (
+                              <Badge variant="outline" className="text-[10px]">
+                                Calculator
+                              </Badge>
+                            ) : null}
                           </div>
                         );
                       })}

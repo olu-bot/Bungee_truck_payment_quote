@@ -30,6 +30,10 @@ import {
   type RouteBuilderSnapshot,
 } from "@/lib/routeBuilderSnapshot";
 import {
+  parseQuoteCalculatorSnapshot,
+  type QuoteCalculatorSnapshot,
+} from "@/lib/quoteCalculatorSnapshot";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -63,6 +67,204 @@ function formatDate(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatTimeMinutes(minutes: number): string {
+  const hrs = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  if (hrs === 0) return `${mins}m`;
+  if (mins === 0) return `${hrs}h`;
+  return `${hrs}h ${mins}m`;
+}
+
+function QuoteCalculatorSnapshotView({
+  snap,
+  currency,
+}: {
+  snap: QuoteCalculatorSnapshot;
+  currency: SupportedCurrency;
+}) {
+  const formatCurrency = useCallback(
+    (value: number) => formatCurrencyAmount(value, currency),
+    [currency]
+  );
+  const truckLabel = TRUCK_LABELS[snap.truckType] || snap.truckType;
+  const marginLabel =
+    snap.marginType === "flat"
+      ? `Flat ${formatCurrencyAmount(snap.marginValue, currency)}`
+      : `${snap.marginValue}%`;
+
+  if (snap.pricingMode === "local_pd" && snap.local) {
+    const lr = snap.local;
+    return (
+      <div className="space-y-4 text-sm max-h-[70vh] overflow-y-auto pr-1">
+        <Badge variant="outline" className="text-xs">{truckLabel}</Badge>
+        <p className="text-xs text-muted-foreground">
+          Local P&D · Margin: {marginLabel}
+        </p>
+        <div className="flex items-center gap-2 text-sm flex-wrap">
+          <span className="truncate">{snap.localOrigin}</span>
+          <ArrowRight className="w-3 h-3 shrink-0 text-muted-foreground" />
+          <span className="truncate">{snap.localDestination}</span>
+          {lr.stopsCount > 2 ? (
+            <Badge variant="secondary" className="text-xs">
+              +{lr.stopsCount - 2} stop{lr.stopsCount - 2 > 1 ? "s" : ""}
+            </Badge>
+          ) : null}
+          {snap.isRushHour ? (
+            <Badge variant="secondary" className="text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              Rush
+            </Badge>
+          ) : null}
+        </div>
+        {snap.additionalStops && snap.additionalStops.length > 0 ? (
+          <div className="text-xs rounded border border-border p-2 space-y-1">
+            <div className="font-medium text-muted-foreground">Extra stops</div>
+            {snap.additionalStops.map((s, i) => (
+              <div key={i}>
+                {s.location || "(no label)"} · dock {s.dockTimeMinutes}m · {s.distanceKm} km leg
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <Separator />
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-muted-foreground uppercase">Time</div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Drive (one-way est.)</span>
+            <span>{formatTimeMinutes(lr.driveTimeMinutes - lr.returnTimeMinutes)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Dock / wait</span>
+            <span>{formatTimeMinutes(lr.dockTimeMinutes)}</span>
+          </div>
+          {lr.returnTimeMinutes > 0 ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Return deadhead</span>
+              <span>{formatTimeMinutes(lr.returnTimeMinutes)}</span>
+            </div>
+          ) : null}
+          <div className="flex justify-between font-medium pt-1 border-t border-dashed">
+            <span>Total</span>
+            <span>
+              {formatTimeMinutes(lr.totalMinutes)} ({lr.totalHours.toFixed(1)} hrs)
+            </span>
+          </div>
+        </div>
+        <Separator />
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-muted-foreground uppercase">Cost</div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">
+              Time ({lr.totalHours.toFixed(1)}h × {formatCurrency(lr.allInHourlyRate)}/hr)
+            </span>
+            <span>{formatCurrency(lr.timeCost)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Fuel ({lr.totalKm} km × {formatCurrency(lr.fuelPerKm)}/km)</span>
+            <span>{formatCurrency(lr.fuelCost)}</span>
+          </div>
+          <div className="flex justify-between font-medium pt-1 border-t border-dashed">
+            <span>Total carrier</span>
+            <span>{formatCurrency(lr.totalCarrierCost)}</span>
+          </div>
+        </div>
+        <Separator />
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Margin</span>
+          <span className="font-medium text-primary">+{formatCurrency(lr.marginAmount)}</span>
+        </div>
+        <div className="rounded-lg bg-primary/8 p-3 space-y-1">
+          <div className="flex justify-between">
+            <span className="font-medium">Customer price</span>
+            <span className="text-lg font-bold text-primary">{formatCurrency(lr.customerPrice)}</span>
+          </div>
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Gross profit</span>
+            <span>
+              {formatCurrency(lr.grossProfit)} ({lr.profitMarginPercent.toFixed(1)}%)
+            </span>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Round trip: {snap.isRoundTrip ? "yes" : "no"} · Distance (km): {snap.localDistanceKm}
+        </p>
+      </div>
+    );
+  }
+
+  if (snap.standard) {
+    const sr = snap.standard;
+    return (
+      <div className="space-y-4 text-sm max-h-[70vh] overflow-y-auto pr-1">
+        <Badge variant="outline" className="text-xs">{truckLabel}</Badge>
+        <p className="text-xs text-muted-foreground">
+          {snap.pricingMode === "fixed_lane" ? "Fixed lane" : "Per-mile"} · Margin: {marginLabel}
+        </p>
+        {snap.laneLabel ? (
+          <p className="text-xs rounded border border-border p-2">
+            <span className="text-muted-foreground">Lane: </span>
+            {snap.laneLabel}
+          </p>
+        ) : null}
+        <div className="flex items-center gap-2 text-sm flex-wrap">
+          <span className="truncate">{snap.origin}</span>
+          <ArrowRight className="w-3 h-3 shrink-0 text-muted-foreground" />
+          <span className="truncate">{snap.destination}</span>
+        </div>
+        {snap.distanceInputLabel ? (
+          <p className="text-xs text-muted-foreground">Distance: {snap.distanceInputLabel}</p>
+        ) : null}
+        <Separator />
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">
+              {snap.pricingMode === "fixed_lane"
+                ? "Lane / base cost"
+                : `Base (${formatCurrency(sr.ratePerMile)}/mi)`}
+            </span>
+            <span>{formatCurrency(sr.carrierCost)}</span>
+          </div>
+          {sr.fuelSurcharge > 0 ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fuel surcharge ({sr.fuelSurchargePercent}%)</span>
+              <span>{formatCurrency(sr.fuelSurcharge)}</span>
+            </div>
+          ) : null}
+          <div className="flex justify-between font-medium pt-1 border-t border-dashed">
+            <span>Total carrier</span>
+            <span>{formatCurrency(sr.totalCarrierCost)}</span>
+          </div>
+        </div>
+        <Separator />
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Margin</span>
+          <span className="font-medium text-primary">+{formatCurrency(sr.marginAmount)}</span>
+        </div>
+        <div className="rounded-lg bg-primary/8 p-3 space-y-1">
+          <div className="flex justify-between">
+            <span className="font-medium">Customer price</span>
+            <span className="text-lg font-bold text-primary">{formatCurrency(sr.customerPrice)}</span>
+          </div>
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Gross profit</span>
+            <span>
+              {formatCurrency(sr.grossProfit)} ({sr.profitMarginPercent.toFixed(1)}%)
+            </span>
+          </div>
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          Min charge (rate table): {formatCurrency(sr.minCharge)}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-sm text-muted-foreground py-4">
+      Calculator snapshot is missing result data.
+    </p>
+  );
 }
 
 function RouteBuilderSnapshotView({
@@ -206,7 +408,10 @@ export default function QuoteHistory() {
     [currency]
   );
   const [detailQuote, setDetailQuote] = useState<Quote | null>(null);
-  const detailSnap = detailQuote
+  const detailCalcSnap = detailQuote
+    ? parseQuoteCalculatorSnapshot(detailQuote.quoteCalculatorSnapshotJson)
+    : null;
+  const detailRbSnap = detailQuote
     ? parseRouteBuilderSnapshot(detailQuote.routeSnapshotJson)
     : null;
 
@@ -269,7 +474,10 @@ export default function QuoteHistory() {
       <div className="block lg:hidden space-y-3">
         {quotes.map((q) => {
           const Icon = TRUCK_ICONS[q.truckType] || Package;
-          const rbSnap = parseRouteBuilderSnapshot(q.routeSnapshotJson);
+          const hasDetail = !!(
+            parseRouteBuilderSnapshot(q.routeSnapshotJson) ||
+            parseQuoteCalculatorSnapshot(q.quoteCalculatorSnapshotJson)
+          );
           return (
             <Card key={q.id} className="border-border" data-testid={`card-quote-${q.id}`}>
               <CardContent className="p-4 space-y-3">
@@ -284,19 +492,24 @@ export default function QuoteHistory() {
                         Route build
                       </Badge>
                     ) : null}
+                    {q.quoteSource === "quote_calculator" ? (
+                      <Badge variant="outline" className="text-[10px]">
+                        Calculator
+                      </Badge>
+                    ) : null}
                     <span className="text-xs text-muted-foreground font-mono">
                       {q.quoteNumber}
                     </span>
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0">
-                    {rbSnap ? (
+                    {hasDetail ? (
                       <Button
                         variant="ghost"
                         size="sm"
                         data-testid={`button-view-quote-${q.id}`}
                         onClick={() => setDetailQuote(q)}
                         className="h-8 w-8 p-0 text-muted-foreground"
-                        title="View route details"
+                        title="View quote details"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </Button>
@@ -376,7 +589,10 @@ export default function QuoteHistory() {
               <TableBody>
                 {quotes.map((q) => {
                   const Icon = TRUCK_ICONS[q.truckType] || Package;
-                  const rbSnap = parseRouteBuilderSnapshot(q.routeSnapshotJson);
+                  const hasDetail = !!(
+                    parseRouteBuilderSnapshot(q.routeSnapshotJson) ||
+                    parseQuoteCalculatorSnapshot(q.quoteCalculatorSnapshotJson)
+                  );
                   return (
                     <TableRow key={q.id} data-testid={`row-quote-${q.id}`}>
                       <TableCell className="font-mono text-xs">
@@ -404,6 +620,11 @@ export default function QuoteHistory() {
                               Route build
                             </Badge>
                           ) : null}
+                          {q.quoteSource === "quote_calculator" ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5">
+                              Calculator
+                            </Badge>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="text-right text-sm">
@@ -426,14 +647,14 @@ export default function QuoteHistory() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-end gap-0.5">
-                          {rbSnap ? (
+                          {hasDetail ? (
                             <Button
                               variant="ghost"
                               size="sm"
                               data-testid={`button-view-${q.id}`}
                               onClick={() => setDetailQuote(q)}
                               className="h-7 w-7 p-0 text-muted-foreground"
-                              title="View route details"
+                              title="View quote details"
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
@@ -467,15 +688,19 @@ export default function QuoteHistory() {
     >
       <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Route build snapshot</DialogTitle>
+          <DialogTitle>
+            {detailCalcSnap ? "Quote calculator" : "Route build snapshot"}
+          </DialogTitle>
           {detailQuote ? (
             <p className="text-xs text-muted-foreground font-mono pt-1">
               {detailQuote.quoteNumber}
             </p>
           ) : null}
         </DialogHeader>
-        {detailSnap ? (
-          <RouteBuilderSnapshotView snap={detailSnap} currency={currency} />
+        {detailCalcSnap ? (
+          <QuoteCalculatorSnapshotView snap={detailCalcSnap} currency={currency} />
+        ) : detailRbSnap ? (
+          <RouteBuilderSnapshotView snap={detailRbSnap} currency={currency} />
         ) : (
           <p className="text-sm text-muted-foreground py-4">
             Details are not available for this entry.

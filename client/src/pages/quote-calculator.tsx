@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import * as firebaseDb from "@/lib/firebaseDb";
+import { workspaceFirestoreId } from "@/lib/workspace";
+import { buildQuoteCalculatorSnapshot } from "@/lib/quoteCalculatorSnapshot";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -129,7 +132,9 @@ function standardDistanceAsMiles(
 
 export default function QuoteCalculator() {
   const { toast } = useToast();
+  const queryClientFirebase = useQueryClient();
   const { user } = useFirebaseAuth();
+  const scopeId = workspaceFirestoreId(user);
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
   const currencySym = useMemo(() => currencySymbol(currency), [currency]);
   const formatCurrency = useCallback(
@@ -242,33 +247,77 @@ export default function QuoteCalculator() {
     onError: (err: Error) => { toast({ title: "Calculation Error", description: err.message, variant: "destructive" }); },
   });
 
-  // === Save quote (unified) ===
+  // === Save quote → Firestore (same collection as Quote History) ===
   const saveMutation = useMutation({
     mutationFn: async () => {
       const result = pricingMode === "local_pd" ? localResult : quoteResult;
       if (!result) throw new Error("No quote to save");
+      if (!scopeId) throw new Error("Sign in to save quotes to your history.");
       const o = pricingMode === "local_pd" ? localOrigin : origin;
       const d = pricingMode === "local_pd" ? localDestination : destination;
       const dist =
         pricingMode === "local_pd" ? Number(localDistanceKm) : standardMiles;
-      const res = await apiRequest("POST", "/api/quotes", {
-        origin: o, destination: d, truckType, distance: dist, pricingMode,
-        carrierCost: pricingMode === "local_pd" ? (localResult!.timeCost + localResult!.fuelCost) : quoteResult!.carrierCost,
-        fuelSurcharge: pricingMode === "local_pd" ? localResult!.fuelCost : quoteResult!.fuelSurcharge,
+      const snapshot = buildQuoteCalculatorSnapshot({
+        pricingMode,
+        measurementUnit,
+        truckType,
+        marginType,
+        marginValue: Number(marginValue),
+        origin,
+        destination,
+        standardMiles,
+        standardDistanceLabel,
+        selectedLaneId,
+        lanes,
+        localOrigin,
+        localDestination,
+        localDistanceKm,
+        pickupDockMinutes,
+        deliveryDockMinutes,
+        additionalStops: additionalStops.map((s) => ({
+          location: s.location,
+          dockTimeMinutes: s.dockTimeMinutes,
+          distanceKm: s.distanceKm,
+        })),
+        isRoundTrip,
+        isRushHour,
+        standard: quoteResult,
+        local: localResult,
+      });
+      return firebaseDb.createQuote(scopeId, {
+        profileId: null,
+        routeId: null,
+        origin: o,
+        destination: d,
+        truckType,
+        distance: dist,
+        pricingMode,
+        carrierCost:
+          pricingMode === "local_pd"
+            ? localResult!.timeCost + localResult!.fuelCost
+            : quoteResult!.carrierCost,
+        fuelSurcharge:
+          pricingMode === "local_pd" ? localResult!.fuelCost : quoteResult!.fuelSurcharge,
         totalCarrierCost: result.totalCarrierCost,
-        marginType, marginValue: Number(marginValue),
+        marginType,
+        marginValue: Number(marginValue),
         marginAmount: result.marginAmount,
         customerPrice: result.customerPrice,
         grossProfit: result.grossProfit,
         profitMarginPercent: result.profitMarginPercent,
+        quoteSource: "quote_calculator",
+        quoteCalculatorSnapshotJson: JSON.stringify(snapshot),
       });
-      return res.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/quotes"] });
-      toast({ title: "Quote Saved", description: `Quote ${data.quoteNumber} saved.` });
+      queryClientFirebase.invalidateQueries({
+        queryKey: ["firebase", "quotes", scopeId ?? ""],
+      });
+      toast({ title: "Quote saved", description: `Saved to history as ${data.quoteNumber}.` });
     },
-    onError: (err: Error) => { toast({ title: "Save Error", description: err.message, variant: "destructive" }); },
+    onError: (err: Error) => {
+      toast({ title: "Save Error", description: err.message, variant: "destructive" });
+    },
   });
 
   // Add stop
@@ -669,7 +718,8 @@ export default function QuoteCalculator() {
                 </div>
 
                 <Button data-testid="button-save-quote" onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending} variant="outline" className="w-full">
+                  disabled={!scopeId || saveMutation.isPending} variant="outline" className="w-full"
+                  title={!scopeId ? "Sign in to save quotes to your history" : undefined}>
                   <Save className="w-4 h-4 mr-2" />{saveMutation.isPending ? "Saving..." : "Save Quote"}
                 </Button>
               </CardContent>
@@ -732,7 +782,8 @@ export default function QuoteCalculator() {
                   </div>
                 </div>
                 <Button data-testid="button-save-quote" onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending} variant="outline" className="w-full">
+                  disabled={!scopeId || saveMutation.isPending} variant="outline" className="w-full"
+                  title={!scopeId ? "Sign in to save quotes to your history" : undefined}>
                   <Save className="w-4 h-4 mr-2" />{saveMutation.isPending ? "Saving..." : "Save Quote"}
                 </Button>
               </CardContent>

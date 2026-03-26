@@ -141,4 +141,6 @@ export type Quote = {
   profitMarginPercent: number;
   quoteSource?: string;
   routeSnapshotJson?: string;
+  /** Full calculator inputs + breakdown when saved from Quote Calculator */
+  quoteCalculatorSnapshotJson?: string;
 };

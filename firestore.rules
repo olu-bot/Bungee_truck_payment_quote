@@ -8,16 +8,33 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
     }
 
+    // Stripe subscription fields are written only by the server (Admin SDK webhooks).
+    function userSubscriptionFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny([
+        "subscriptionTier",
+        "subscriptionStatus",
+        "stripeCustomerId",
+        "stripeSubscriptionId",
+        "stripePriceId",
+        "subscriptionUpdatedAt",
+      ]);
+    }
+
     // Own profile: create as user only; updates cannot change role (promote admin in Firebase Console or Admin SDK)
     match /users/{userId} {
       allow get, list: if request.auth != null && (
         request.auth.uid == userId || isGlobalAdmin()
       );
       allow create: if request.auth != null && request.auth.uid == userId
-        && request.resource.data.role == "user";
+        && request.resource.data.role == "user"
+        && !request.resource.data.keys().hasAny([
+          "subscriptionTier", "subscriptionStatus", "stripeCustomerId",
+          "stripeSubscriptionId", "stripePriceId", "subscriptionUpdatedAt"
+        ]);
       allow update: if request.auth != null && request.auth.uid == userId
         // Prevent clients from changing their own role.
-        && request.resource.data.role == resource.data.role;
+        && request.resource.data.role == resource.data.role
+        && userSubscriptionFieldsUnchanged();
       allow delete: if false;
     }
 
