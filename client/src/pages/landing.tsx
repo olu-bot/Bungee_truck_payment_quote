@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
+import DOMPurify from "dompurify";
 import marketingHtml from "./landing-marketing.html?raw";
 import "./landing.css";
 import { useToast } from "@/hooks/use-toast";
@@ -13,8 +14,6 @@ import {
   setOnboardingActive,
   setOnboardingStep,
 } from "@/lib/onboarding";
-import { CostProfileWizard } from "@/components/CostProfileWizard";
-import type { CostProfile } from "@shared/schema";
 import { auth, db, firebaseConfigured } from "@/lib/firebase";
 import { collection, doc, setDoc } from "firebase/firestore";
 import { currencyForCountryCode, currencySymbol } from "@/lib/currency";
@@ -69,23 +68,9 @@ const MEASUREMENT_UNIT_OPTIONS: { value: MeasurementUnit; label: string; hint: s
   { value: "imperial", label: "Imperial / US customary", hint: "Miles, gallons context where applicable" },
 ];
 
-const SIGNUP_FLOW_STEPS = 3;
+const SIGNUP_FLOW_STEPS = 2;
 
-const ONBOARDING_COST_DEFAULTS = {
-  name: "",
-  truckType: "dry_van",
-  monthlyTruckPayment: 2500,
-  monthlyInsurance: 1200,
-  monthlyMaintenance: 800,
-  monthlyPermitsPlates: 200,
-  monthlyOther: 100,
-  workingDaysPerMonth: 22,
-  workingHoursPerDay: 10,
-  driverPayPerHour: 28,
-  fuelConsumptionPer100km: 38,
-  defaultDockTimeMinutes: 60,
-  detentionRatePerHour: 75,
-};
+// Cost profile creation now happens on /#/profiles after signup redirect
 
 export default function Landing() {
   const [, setLocation] = useLocation();
@@ -110,7 +95,8 @@ export default function Landing() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [costSaving, setCostSaving] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [termsShake, setTermsShake] = useState(false);
 
   const marketingRef = useRef<HTMLDivElement>(null);
 
@@ -118,7 +104,12 @@ export default function Landing() {
     const currency = currencyForCountryCode(countryCode || user?.operatingCountryCode);
     const sym = currencySymbol(currency);
     // Marketing HTML is injected as a raw string; localize the currency symbol only.
-    return marketingHtml.replaceAll("$", sym);
+    const localized = marketingHtml.replaceAll("$", sym);
+    // Sanitize to prevent XSS — allows only safe HTML tags and attributes
+    return DOMPurify.sanitize(localized, {
+      ADD_TAGS: ["section", "nav", "footer"],
+      ADD_ATTR: ["data-action", "data-scroll", "data-testid"],
+    });
   }, [countryCode, user?.operatingCountryCode]);
 
   useEffect(() => {
@@ -130,11 +121,12 @@ export default function Landing() {
     if (!isOnboardingActive()) return;
     const step = getOnboardingStep();
     if (step != null && step >= 3) {
-      setView("onboarding");
-      setAuthMode("signup");
-      setSignupStep(step);
+      // Step 3+ now handled by the cost profiles page, not the onboarding widget
+      localStorage.setItem("bungee_open_cost_wizard", "1");
+      setOnboardingActive(false);
+      setLocation("/profiles");
     }
-  }, [user]);
+  }, [user, setLocation]);
 
   const showLanding = useCallback(() => {
     if (user) {
@@ -302,6 +294,14 @@ export default function Landing() {
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
+    if (!agreedToTerms) {
+      setTermsShake(true);
+      setTimeout(() => setTermsShake(false), 1400);
+      // Scroll the checkbox into view so the user sees the alert
+      document.getElementById("terms-checkbox")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      toast({ title: "Agreement required", description: "Please accept the User Agreement and Privacy Policy to continue.", variant: "destructive" });
+      return;
+    }
     if (!companyName.trim()) {
       toast({ title: "Company required", description: "Enter your company name.", variant: "destructive" });
       return;
@@ -414,9 +414,11 @@ export default function Landing() {
           });
           await queryClient.invalidateQueries({ queryKey: ["firebase", "yards", companyId] });
         }
-        setSignupStep(3);
-        window.scrollTo(0, 0);
-        toast({ title: "Company profile saved", description: "Set up your cost profile next." });
+        // Redirect to cost profiles page with auto-open wizard flag
+        localStorage.setItem("bungee_open_cost_wizard", "1");
+        setOnboardingActive(false);
+        setLocation("/profiles");
+        toast({ title: "Company profile saved", description: "Set up your cost profile to get started." });
         return;
       }
 
@@ -438,37 +440,17 @@ export default function Landing() {
         operatingCity: operatingCityValue,
         measurementUnit,
       });
-      setSignupStep(3);
-      window.scrollTo(0, 0);
-      toast({ title: "Account created", description: "Set up your cost profile next." });
+      // Redirect to cost profiles page with auto-open wizard flag
+      localStorage.setItem("bungee_open_cost_wizard", "1");
+      setOnboardingActive(false);
+      setLocation("/profiles");
+      toast({ title: "Account created", description: "Set up your cost profile to get started." });
     } catch (err: unknown) {
       setOnboardingActive(false);
       const msg = err instanceof Error ? err.message : "Please check your details.";
       toast({ title: "Sign up failed", description: msg, variant: "destructive" });
     } finally {
       setSignupLoading(false);
-    }
-  }
-
-  async function handleSaveCostProfile(data: Omit<CostProfile, "id">) {
-    if (!user) return;
-    const scopeId = workspaceFirestoreId(user);
-    if (!scopeId) {
-      toast({ title: "Error", description: "No workspace.", variant: "destructive" });
-      return;
-    }
-    setCostSaving(true);
-    try {
-      await firebaseDb.createProfile(scopeId, data);
-      await queryClient.invalidateQueries({ queryKey: ["firebase", "profiles", scopeId] });
-      setSignupStep(4);
-      setOnboardingStep(4);
-      toast({ title: "Cost profile saved", description: "You can edit it anytime under Cost Profiles." });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Could not save profile.";
-      toast({ title: "Save failed", description: msg, variant: "destructive" });
-    } finally {
-      setCostSaving(false);
     }
   }
 
@@ -624,27 +606,6 @@ export default function Landing() {
                     )}
                   </div>
                   <div className={signupStep === 2 ? "step-label active-label" : "step-label"}>Company</div>
-                </div>
-                <div className={signupStep > 2 ? "step-connector done" : "step-connector pending"} />
-                <div className="step-col">
-                  <div
-                    className={
-                      signupStep === 3
-                        ? "step-dot active"
-                        : signupStep > 3
-                          ? "step-dot completed"
-                          : "step-dot pending"
-                    }
-                  >
-                    {signupStep > 3 ? (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3}>
-                        <path d="M20 6L9 17l-5-5" />
-                      </svg>
-                    ) : (
-                      "3"
-                    )}
-                  </div>
-                  <div className={signupStep === 3 ? "step-label active-label" : "step-label"}>Cost profile</div>
                 </div>
               </div>
             </>
@@ -1014,6 +975,62 @@ export default function Landing() {
                 </select>
               </div>
 
+              {/* ── Agreement checkbox ────────────────── */}
+              <label
+                id="terms-checkbox"
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  marginTop: 16,
+                  padding: "12px 14px",
+                  borderRadius: 8,
+                  border: termsShake
+                    ? "2px solid #ef4444"
+                    : agreedToTerms
+                      ? "1.5px solid var(--orange)"
+                      : "1.5px solid var(--border)",
+                  background: termsShake
+                    ? "rgba(239,68,68,0.08)"
+                    : agreedToTerms
+                      ? "rgba(234,88,12,0.04)"
+                      : "transparent",
+                  cursor: "pointer",
+                  transition: "border 0.2s, background 0.2s",
+                  animation: termsShake ? "shake 0.5s ease-in-out, blink-border 0.4s ease-in-out 3" : "none",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={agreedToTerms}
+                  onChange={(e) => setAgreedToTerms(e.target.checked)}
+                  style={{ marginTop: 3, accentColor: "var(--orange)", width: 16, height: 16, flexShrink: 0 }}
+                />
+                <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--muted-fg, #666)" }}>
+                  <span className="req">*</span> I agree to the{" "}
+                  <a
+                    href="/user-agreement.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--orange)", fontWeight: 600, textDecoration: "underline" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    User Agreement
+                  </a>{" "}
+                  and{" "}
+                  <a
+                    href="/privacy-policy.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--orange)", fontWeight: 600, textDecoration: "underline" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Privacy Policy
+                  </a>
+                  . Your data is encrypted and private.
+                </span>
+              </label>
+
               <div className="card-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setSignupStep(1)}>
                   Back
@@ -1025,69 +1042,8 @@ export default function Landing() {
             </form>
           )}
 
-          {authMode === "signup" && signupStep === 3 && user && (
-            <div className="card" id="step3">
-              <h2 className="card-title">Set Up Your Cost Profile</h2>
-              <p className="card-sub" style={{ marginBottom: 24 }}>
-                Same as <strong>Cost Profiles</strong> in the app — saved to your company in Firebase. Complete this step
-                to finish setup (you can edit the profile anytime in the app).
-              </p>
-              <CostProfileWizard
-                currency={currencyForCountryCode(countryCode || user?.operatingCountryCode)}
-                measurementUnit={(measurementUnit || user?.measurementUnit || "metric") as MeasurementUnit}
-                onSave={(data) => handleSaveCostProfile(data)}
-                saveLabel="Save & continue"
-                defaultValues={ONBOARDING_COST_DEFAULTS}
-                isSaving={costSaving}
-              />
-            </div>
-          )}
-
-          {authMode === "signup" && signupStep === 4 && user && (
-            <div className="card" id="step4-success">
-              <div className="success-content">
-                <div className="success-icon">
-                  <svg viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
-                    <path d="M22 4L12 14.01l-3-3" />
-                  </svg>
-                </div>
-                <h2 className="success-title">You&apos;re all set!</h2>
-                <p className="success-sub">
-                  Your account and cost profile are ready. Start quoting loads from the home screen.
-                </p>
-                <div className="success-features">
-                  <div className="success-feature">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                    <span>Unlimited free route quotes</span>
-                  </div>
-                  <div className="success-feature">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                    <span>AI chatbot ready to use</span>
-                  </div>
-                  <div className="success-feature">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                    <span>3-tier pricing on every quote</span>
-                  </div>
-                  <div className="success-feature">
-                    <svg viewBox="0 0 24 24">
-                      <path d="M20 6L9 17l-5-5" />
-                    </svg>
-                    <span>Cost profile saved &amp; editable in Cost Profiles</span>
-                  </div>
-                </div>
-                <button type="button" className="btn btn-primary btn-lg btn-full" onClick={goDashboard}>
-                  Go to dashboard
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Steps 3 & 4 removed — after account creation, user is redirected to /#/profiles
+             where the CostDiscoveryWizard opens automatically */}
         </div>
       </div>
     </div>

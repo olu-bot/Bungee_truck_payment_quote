@@ -10,6 +10,8 @@ import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-aut
 import { FeedbackSheet } from "@/components/FeedbackSheet";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
+import { resolveMeasurementUnit } from "@/lib/measurement";
 
 // ── Lazy-loaded page components (code-split per route) ──────────
 const Landing = lazy(() => import("@/pages/landing"));
@@ -35,6 +37,8 @@ import {
   ContactRound,
   MessageSquare,
   Inbox,
+  Ruler,
+  DollarSign,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -184,6 +188,10 @@ function AppLayout() {
   };
 
   const page = PAGE_TITLES[routePath] || PAGE_TITLES["/"];
+
+  // Resolve user preferences for display on home page
+  const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
+  const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
 
   // Definitely signed out — only after Firebase has finished restoring the session.
   if (!authLoading && !user) {
@@ -362,9 +370,23 @@ function AppLayout() {
           <h1 className="text-lg font-semibold" data-testid="text-page-title">
             {page.title}
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {page.subtitle}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+            <p className="text-sm text-muted-foreground">
+              {page.subtitle}
+            </p>
+            {isHome && user && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground" title="Preferred currency">
+                  <DollarSign className="w-3 h-3" />
+                  {currency}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground" title="Unit of measurement">
+                  <Ruler className="w-3 h-3" />
+                  {measureUnit === "imperial" ? "Imperial (mi, gal)" : "Metric (km, L)"}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Keep RouteBuilder mounted while signed in so form/route state survives nav away from Home */}

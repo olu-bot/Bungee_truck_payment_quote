@@ -372,3 +372,22 @@
     display: none;
   }
 
+/* Shake animation for agreement checkbox */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10% { transform: translateX(-8px); }
+  20% { transform: translateX(7px); }
+  30% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  50% { transform: translateX(-4px); }
+  60% { transform: translateX(3px); }
+  70% { transform: translateX(-2px); }
+  80% { transform: translateX(1px); }
+}
+
+/* Blinking red pulse for agreement checkbox */
+@keyframes blink-border {
+  0%, 100% { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.25); }
+  50% { border-color: #dc2626; box-shadow: 0 0 0 6px rgba(239,68,68,0.15); }
+}
+

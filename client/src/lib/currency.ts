@@ -103,8 +103,8 @@ export function currencyPerLitreLabel(currency: SupportedCurrency): string {
 // Last updated: March 2026
 const EXCHANGE_RATES_TO_USD: Record<SupportedCurrency, number> = {
   USD: 1.0,
-  CAD: 0.72,   // 1 CAD = 0.72 USD
-  MXN: 0.058,  // 1 MXN = 0.058 USD
+  CAD: 0.6944,  // 1 CAD = 0.6944 USD  (1 USD = 1.44 CAD, matches fuelPriceService)
+  MXN: 0.058,   // 1 MXN = 0.058 USD
 };
 
 /**

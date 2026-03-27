@@ -1,4 +1,5 @@
 import type { CostProfile, RouteStop } from "@shared/schema";
+import type { MeasurementUnit } from "@/lib/measurement";
 
 export type PayMode = "perHour" | "perMile";
 
@@ -8,13 +9,14 @@ function r2(n: number): number {
 
 function getFixedCostPerHour(p: CostProfile): number {
   const monthlyFixed =
-    p.monthlyTruckPayment +
-    p.monthlyInsurance +
-    p.monthlyMaintenance +
-    p.monthlyPermitsPlates +
-    p.monthlyOther;
-  const hoursPerMonth = p.workingDaysPerMonth * p.workingHoursPerDay;
-  return hoursPerMonth > 0 ? monthlyFixed / hoursPerMonth : 0;
+    Math.max(0, p.monthlyTruckPayment) +
+    Math.max(0, p.monthlyInsurance) +
+    Math.max(0, p.monthlyMaintenance) +
+    Math.max(0, p.monthlyPermitsPlates) +
+    Math.max(0, p.monthlyOther);
+  const days = Math.max(1, p.workingDaysPerMonth);
+  const hours = Math.max(1, p.workingHoursPerDay);
+  return monthlyFixed / (days * hours);
 }
 
 function getFuelPerKm(fuelConsumptionPer100km: number, fuelPricePerLitre: number): number {
@@ -66,6 +68,7 @@ export function calculateRouteCost(
   _returnDistanceKm?: number,
   _returnDriveMinutes?: number,
   payMode: PayMode = "perHour",
+  measurementUnit: MeasurementUnit = "imperial",
 ) {
   const fixedCostPerHour = getFixedCostPerHour(profile);
   const allInHourly = getAllInHourly(profile);
@@ -104,10 +107,10 @@ export function calculateRouteCost(
     // Driver cost depends on pay mode
     let legDriverCost: number;
     if (effectivePayMode === "perMile" && driverPayPerMile > 0) {
-      // Per-mile: distance × rate. driverPayPerMile is stored per-km internally
-      // when imperial, it's stored as $/mi so convert distance to miles
-      const distMiles = distKm / 1.609344;
-      const baseDriverCost = distMiles * driverPayPerMile;
+      // Per-distance: driverPayPerMile stores $/mi for imperial, $/km for metric.
+      // Match distance units to the rate's units.
+      const effectiveDist = measurementUnit === "metric" ? distKm : distKm / 1.609344;
+      const baseDriverCost = effectiveDist * driverPayPerMile;
       // Apply deadhead reduced rate
       legDriverCost = deadhead ? baseDriverCost * (deadheadPayPercent / 100) : baseDriverCost;
     } else {

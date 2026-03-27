@@ -28,6 +28,7 @@ import type { CostProfile } from "@shared/schema";
 import {
   formatCurrencyAmount,
   localizeMoneySuffix,
+  convertCurrency,
   type SupportedCurrency,
 } from "@/lib/currency";
 import {
@@ -251,22 +252,24 @@ function EquipmentTypeSelector({
 
 /** Default values for a quick-start profile so new users can jump right in */
 function quickProfileDefaults(currency: SupportedCurrency): Omit<CostProfile, "id"> {
+  // Base values are in USD — convert to user's currency
+  const cx = (v: number) => Math.round(convertCurrency(v, "USD", currency) * 100) / 100;
   return {
     name: "Quick Start Profile",
     truckType: "dry_van",
-    monthlyTruckPayment: 2500,
-    monthlyInsurance: 1200,
-    monthlyMaintenance: 600,
-    monthlyPermitsPlates: 200,
-    monthlyOther: 150,
+    monthlyTruckPayment: cx(2500),
+    monthlyInsurance: cx(1200),
+    monthlyMaintenance: cx(600),
+    monthlyPermitsPlates: cx(200),
+    monthlyOther: cx(150),
     workingDaysPerMonth: 22,
     workingHoursPerDay: 10,
-    driverPayPerHour: 25,
-    driverPayPerMile: 0.65,
+    driverPayPerHour: cx(25),
+    driverPayPerMile: cx(0.65),
     deadheadPayPercent: 80,
     fuelConsumptionPer100km: 35,
     defaultDockTimeMinutes: 30,
-    detentionRatePerHour: 60,
+    detentionRatePerHour: cx(60),
     currency,
     createdAt: new Date().toISOString(),
   };
@@ -402,8 +405,8 @@ export function CostProfileWizard({
       workingDaysPerMonth: v.workingDaysPerMonth as number,
       workingHoursPerDay: v.workingHoursPerDay as number,
       driverPayPerHour: v.driverPayPerHour as number,
-      driverPayPerMile: (v.driverPayPerMile as number) || undefined,
-      deadheadPayPercent: (v.deadheadPayPercent as number) || undefined,
+      driverPayPerMile: (v.driverPayPerMile as number) || 0,
+      deadheadPayPercent: (v.deadheadPayPercent as number) || 100,
       fuelConsumptionPer100km: Math.round(fuelAsLPer100km * 100) / 100,
       defaultDockTimeMinutes: v.defaultDockTimeMinutes as number,
       detentionRatePerHour: v.detentionRatePerHour as number,

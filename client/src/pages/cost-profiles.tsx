@@ -4,6 +4,7 @@ import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
 import { CostProfileWizard } from "@/components/CostProfileWizard";
+import { CostDiscoveryWizard } from "@/components/CostDiscoveryWizard";
 import {
   Card,
   CardContent,
@@ -569,7 +570,14 @@ export default function CostProfiles() {
     [measureUnit]
   );
 
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    // Auto-open wizard if redirected from signup onboarding
+    if (localStorage.getItem("bungee_open_cost_wizard") === "1") {
+      localStorage.removeItem("bungee_open_cost_wizard");
+      return "wizard";
+    }
+    return "list";
+  });
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
@@ -887,13 +895,12 @@ export default function CostProfiles() {
     return (
       <div className="space-y-6">
         <h2 className="text-base font-semibold">Create Cost Profile</h2>
-        <CostProfileWizard
+        <CostDiscoveryWizard
           currency={currency}
           measurementUnit={measureUnit}
           onSave={(data) => createMutation.mutate(data)}
           onBack={() => setViewMode("list")}
           backLabel="Back"
-          backTestId="wizard-back-to-list"
           isSaving={createMutation.isPending}
         />
       </div>
