@@ -542,13 +542,7 @@ export function CostProfileWizard({
                     type="number"
                     step="any"
                     placeholder="Enter value"
-                    value={
-                      selectedPresets[field.key] !== undefined
-                        ? ""
-                        : currentValue > 0
-                          ? String(currentValue)
-                          : ""
-                    }
+                    value={currentValue > 0 ? String(currentValue) : ""}
                     onChange={(e) => handleCustomInput(field.key, e.target.value)}
                   />
                   {field.suffix && (

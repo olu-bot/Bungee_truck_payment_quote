@@ -62,7 +62,6 @@ const FLEET_SIZE_OPTIONS = ["1 - 10", "11 - 20", "21 - 50", "51 - 100", "100+"];
 const COUNTRY_OPTIONS = [
   { value: "CA", label: "Canada" },
   { value: "US", label: "USA" },
-  { value: "MX", label: "Mexico" },
 ] as const;
 
 const MEASUREMENT_UNIT_OPTIONS: { value: MeasurementUnit; label: string; hint: string }[] = [
@@ -179,6 +178,18 @@ export default function Landing() {
       if (action === "onboarding-signup") {
         e.preventDefault();
         showOnboarding("signup");
+      }
+      if (action === "set-billing") {
+        e.preventDefault();
+        const billing = el.getAttribute("data-billing-toggle");
+        if (billing !== "month" && billing !== "year") return;
+        const pricingRoot = root.querySelector<HTMLElement>("#pricing");
+        if (!pricingRoot) return;
+        pricingRoot.setAttribute("data-billing", billing);
+        root.querySelectorAll<HTMLElement>("[data-billing-toggle]").forEach((btn) => {
+          const isActive = btn.getAttribute("data-billing-toggle") === billing;
+          btn.classList.toggle("is-active", isActive);
+        });
       }
     };
     root.addEventListener("click", handler);

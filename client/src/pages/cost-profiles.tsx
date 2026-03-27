@@ -80,6 +80,7 @@ import {
 } from "@/lib/measurement";
 import { apiRequest } from "@/lib/queryClient";
 import { geocodeLocation } from "@/lib/geo";
+import { useLocation } from "wouter";
 
 /** Free tier: one profile (created in onboarding). Additional profiles require upgrade. */
 const FREE_COST_PROFILE_LIMIT = 1;
@@ -551,6 +552,11 @@ export default function CostProfiles() {
   const queryClient = useQueryClient();
   const { user } = useFirebaseAuth();
   const isAdmin = user?.role === "admin";
+  const isPaidTier =
+    user?.subscriptionTier === "pro" ||
+    user?.subscriptionTier === "fleet" ||
+    user?.subscriptionTier === "premium";
+  const canCreateUnlimitedProfiles = isAdmin || isPaidTier;
   const scopeId = workspaceFirestoreId(user);
   const currency = useMemo(() => resolveWorkspaceCurrency(user as Record<string, unknown>), [user]);
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
@@ -568,8 +574,10 @@ export default function CostProfiles() {
   const [isEditing, setIsEditing] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [paywallOpen, setPaywallOpen] = useState(false);
-  const [checkoutTier, setCheckoutTier] = useState<"pro" | "fleet" | null>(null);
+  const [billingPeriod, setBillingPeriod] = useState<"month" | "year">("month");
+  const [checkoutTier, setCheckoutTier] = useState<"free" | "pro" | "premium" | null>(null);
   const stripeReturnToastDone = useRef(false);
+  const [, setLocation] = useLocation();
 
   // ── Queries & Mutations ────────────────────────────────────────
 
@@ -582,7 +590,7 @@ export default function CostProfiles() {
   const createMutation = useMutation({
     mutationFn: async (data: Omit<CostProfile, "id">) => {
       const existing = await firebaseDb.getProfiles(scopeId);
-      if (!isAdmin && existing.length >= FREE_COST_PROFILE_LIMIT) {
+      if (!canCreateUnlimitedProfiles && existing.length >= FREE_COST_PROFILE_LIMIT) {
         throw new Error(
           "Your plan includes one cost profile. Upgrade to create additional profiles."
         );
@@ -677,22 +685,29 @@ export default function CostProfiles() {
   }
 
   function openCreateProfileFlow() {
-    if (!isAdmin && profiles.length >= FREE_COST_PROFILE_LIMIT) {
+    if (!canCreateUnlimitedProfiles && profiles.length >= FREE_COST_PROFILE_LIMIT) {
       setPaywallOpen(true);
       return;
     }
     setViewMode("wizard");
   }
 
-  async function startStripeCheckout(tier: "pro" | "fleet") {
+  async function startStripeCheckout(tier: "free" | "pro" | "premium") {
+    if (tier === "free") {
+      setPaywallOpen(false);
+      setLocation("/");
+      return;
+    }
     setCheckoutTier(tier);
     try {
+      const tierForApi = tier === "premium" ? "fleet" : tier;
       const res = await apiRequest("POST", "/api/stripe/create-checkout-session", {
-        tier,
+        tier: tierForApi,
+        billingPeriod,
         customerEmail: user?.email ?? undefined,
         clientReferenceId: user?.uid ?? undefined,
       });
-      const data = (await res.json()) as { url?: string; error?: string };
+      const data = (await res.json()) as { url?: string; error?: string; redirectPath?: string };
       if (data.error) {
         toast({ title: "Checkout unavailable", description: data.error, variant: "destructive" });
         return;
@@ -743,11 +758,11 @@ export default function CostProfiles() {
   useEffect(() => {
     if (isLoading || !scopeId) return;
     if (viewMode !== "wizard") return;
-    if (!isAdmin && profiles.length >= FREE_COST_PROFILE_LIMIT) {
+    if (!canCreateUnlimitedProfiles && profiles.length >= FREE_COST_PROFILE_LIMIT) {
       setViewMode("list");
       setPaywallOpen(true);
     }
-  }, [isLoading, scopeId, viewMode, profiles.length]);
+  }, [isLoading, scopeId, viewMode, profiles.length, canCreateUnlimitedProfiles]);
 
   // ── Render: Cost Profile List ─────────────────────────────────
 
@@ -1108,13 +1123,86 @@ export default function CostProfiles() {
             <DialogHeader className="space-y-2 text-center">
               <DialogTitle className="text-xl">Upgrade to add more cost profiles</DialogTitle>
               <DialogDescription className="mx-auto max-w-2xl text-pretty text-center">
-                Your account includes one cost profile and one yard. Upgrade to Pro or Fleet for unlimited profiles,
+                Your account includes one cost profile and one yard. Upgrade to Pro or Premium for unlimited profiles,
                 yards, and more.
               </DialogDescription>
             </DialogHeader>
+            <div className="mt-5 flex justify-center">
+              <div className="inline-flex rounded-md border border-border bg-muted/30 p-1">
+                <button
+                  type="button"
+                  className={`rounded px-4 py-1.5 text-sm font-medium transition ${
+                    billingPeriod === "month" ? "bg-orange-500 text-white" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => setBillingPeriod("month")}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  className={`rounded px-4 py-1.5 text-sm font-medium transition ${
+                    billingPeriod === "year" ? "bg-orange-500 text-white" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={() => setBillingPeriod("year")}
+                >
+                  Yearly
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="grid gap-6 p-6 sm:grid-cols-2 sm:p-8 sm:pt-6">
+          <div className="grid gap-6 p-6 sm:grid-cols-3 sm:p-8 sm:pt-6">
+            <Card className="flex flex-col border-border">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-semibold tracking-tight">Free (Forever)</CardTitle>
+                <p className="text-2xl font-bold tracking-tight">
+                  $0{" "}
+                  <span className="text-base font-normal text-muted-foreground">/ month</span>
+                </p>
+                <CardDescription className="text-sm leading-snug">
+                  Start free with core quoting tools.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col gap-3 pt-0">
+                <ul className="space-y-2.5 text-sm text-muted-foreground">
+                  {[
+                    "Unlimited route quotes",
+                    "AI Chatbot",
+                    "Map visualization",
+                    "3-tier pricing suggestion",
+                    "2 cost profiles",
+                    "1 yard",
+                    "1 user",
+                    "Custom quote",
+                    "Quote history up to 30 days",
+                  ].map((line) => (
+                    <li key={line} className="flex gap-2">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+              <CardFooter className="mt-auto flex-col gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={checkoutTier !== null}
+                  onClick={() => startStripeCheckout("free")}
+                >
+                  {checkoutTier === "free" ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Redirecting…
+                    </>
+                  ) : (
+                    "Continue Free"
+                  )}
+                </Button>
+              </CardFooter>
+            </Card>
+
             <Card className="flex flex-col border-primary shadow-md ring-1 ring-primary/20">
               <CardHeader className="pb-2">
                 <div className="mb-1 flex items-center justify-between gap-2">
@@ -1122,9 +1210,12 @@ export default function CostProfiles() {
                   <Badge className="text-[10px] uppercase">Popular</Badge>
                 </div>
                 <p className="text-2xl font-bold tracking-tight">
-                  $29{" "}
+                  {billingPeriod === "month" ? "$19" : "$14.92"}{" "}
                   <span className="text-base font-normal text-muted-foreground">/ month</span>
                 </p>
+                {billingPeriod === "year" ? (
+                  <p className="text-xs text-muted-foreground">$179 billed annually</p>
+                ) : null}
                 <CardDescription className="text-sm leading-snug">
                   For growing fleets that need more power and branded quotes.
                 </CardDescription>
@@ -1159,7 +1250,7 @@ export default function CostProfiles() {
                       Redirecting…
                     </>
                   ) : (
-                    "Start Pro — $29/mo"
+                    `Start Pro — ${billingPeriod === "month" ? "$19/mo" : "$179/yr"}`
                   )}
                 </Button>
               </CardFooter>
@@ -1167,24 +1258,26 @@ export default function CostProfiles() {
 
             <Card className="flex flex-col border-border">
               <CardHeader className="pb-2">
-                <CardTitle className="text-lg font-semibold tracking-tight">Fleet</CardTitle>
+                <CardTitle className="text-lg font-semibold tracking-tight">Premium</CardTitle>
                 <p className="text-2xl font-bold tracking-tight">
-                  $79{" "}
+                  {billingPeriod === "month" ? "$49" : "$39.08"}{" "}
                   <span className="text-base font-normal text-muted-foreground">/ month</span>
                 </p>
+                {billingPeriod === "year" ? (
+                  <p className="text-xs text-muted-foreground">$469 billed annually</p>
+                ) : null}
                 <CardDescription className="text-sm leading-snug">
-                  For fleets needing dispatch, portal, and integrations.
+                  For fleets needing dispatch, portal, and API integrations.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-3 pt-0">
                 <ul className="space-y-2.5 text-sm text-muted-foreground">
                   {[
-                    "Everything in Pro",
+                    "Everything in pro plus",
                     "Customer quote portal",
-                    "Multi-truck dispatch",
-                    "Accounting export",
+                    "Dispatch view",
                     "API access",
-                    "Dedicated support",
+                    "Priority support",
                   ].map((line) => (
                     <li key={line} className="flex gap-2">
                       <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
@@ -1199,15 +1292,15 @@ export default function CostProfiles() {
                   variant="secondary"
                   className="w-full"
                   disabled={checkoutTier !== null}
-                  onClick={() => startStripeCheckout("fleet")}
+                  onClick={() => startStripeCheckout("premium")}
                 >
-                  {checkoutTier === "fleet" ? (
+                  {checkoutTier === "premium" ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Redirecting…
                     </>
                   ) : (
-                    "Start Fleet — $79/mo"
+                    `Start Premium — ${billingPeriod === "month" ? "$49/mo" : "$469/yr"}`
                   )}
                 </Button>
               </CardFooter>

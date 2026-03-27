@@ -1,15 +1,13 @@
-export type SupportedCurrency = "CAD" | "USD" | "MXN";
+export type SupportedCurrency = "CAD" | "USD";
 
 const COUNTRY_TO_CURRENCY: Record<string, SupportedCurrency> = {
   CA: "CAD",
   US: "USD",
-  MX: "MXN",
 };
 
 const LOCALE_BY_CURRENCY: Record<SupportedCurrency, string> = {
   CAD: "en-CA",
   USD: "en-US",
-  MXN: "es-MX",
 };
 
 const NUMBER_FORMATTERS: Partial<Record<SupportedCurrency, Intl.NumberFormat>> = {};
@@ -38,7 +36,6 @@ export function currencyFromOperatingCountryLabels(
   if (!countries?.length) return "CAD";
   for (const c of countries) {
     const label = c.toLowerCase();
-    if (label.includes("mexico")) return "MXN";
     if (label.includes("usa") || label.includes("united states")) return "USD";
     if (label.includes("canada")) return "CAD";
   }
@@ -87,14 +84,11 @@ export function currencySymbol(currency: SupportedCurrency): string {
   // Required mapping by operating country:
   // - Canada: "CA$"
   // - USA: "$"
-  // - Mexico: "$Me"
   switch (currency) {
     case "CAD":
       return "CA$";
     case "USD":
       return "$";
-    case "MXN":
-      return "$Me";
     default:
       return currency;
   }

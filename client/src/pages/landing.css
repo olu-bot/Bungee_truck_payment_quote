@@ -166,6 +166,9 @@
 
   /* ─── Pricing ─── */
   .pricing { padding: 100px 0; }
+.pricing-billing-toggle { display: inline-flex; gap: 4px; padding: 4px; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: var(--radius-sm); margin: 6px auto 20px; }
+.billing-btn { border: none; background: transparent; color: var(--gray-500); font-size: 13px; font-weight: 600; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+.billing-btn.is-active { background: var(--orange); color: white; }
   .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; max-width: 960px; margin: 0 auto; }
   .pricing-card { padding: 32px 28px; border-radius: var(--radius-lg); border: 1px solid var(--gray-100); transition: all 0.25s ease; position: relative; }
   .pricing-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
@@ -175,6 +178,11 @@
   .pricing-price { font-size: 42px; font-weight: 900; color: var(--charcoal); letter-spacing: -2px; margin-bottom: 4px; }
   .pricing-card.featured .pricing-price { color: var(--orange); }
   .pricing-price span { font-size: 16px; font-weight: 500; color: var(--gray-500); letter-spacing: 0; }
+.pricing-billed-year { font-size: 12px; color: var(--gray-500); margin-bottom: 6px; }
+.only-year { display: none; }
+#pricing[data-billing="year"] .only-year { display: inline; }
+#pricing[data-billing="year"] .pricing-billed-year.only-year { display: block; }
+#pricing[data-billing="year"] .only-month { display: none; }
   .pricing-desc { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--gray-100); }
   .pricing-features { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
   .pricing-features li { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--gray-500); line-height: 1.5; }
@@ -229,12 +237,12 @@
 
   /* ─── Onboarding (merged, scoped) ─── */
   #onboarding-view .onboarding{ flex: 1; display: flex; flex-direction: column; align-items: center; padding: 32px 24px; }
-  #onboarding-view .top-bar{ width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+  #onboarding-view .top-bar{ width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: center; margin-bottom: 32px; }
   #onboarding-view .logo{ display: flex; align-items: center; gap: 10px; }
   #onboarding-view .logo-img{ height: 28px; width: auto; object-fit: contain; }
   #onboarding-view .logo-text{ font-size: 16px; font-weight: 800; color: var(--charcoal); }
   #onboarding-view .logo-text span{ display: block; font-size: 8px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--gray-500); line-height: 1; margin-top: -1px; }
-  #onboarding-view .step-indicator{ font-size: 13px; color: var(--gray-400); font-weight: 500; }
+  #onboarding-view .step-indicator{ display: none; }
   #onboarding-view .progress-bar{ width: 100%; max-width: 640px; height: 4px; background: var(--gray-200); border-radius: 4px; margin-bottom: 40px; overflow: hidden; }
   #onboarding-view .progress-fill{ height: 100%; background: var(--orange); border-radius: 4px; transition: width 0.4s ease; }
   #onboarding-view .steps-nav{ width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 36px; }

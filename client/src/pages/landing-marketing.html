@@ -177,52 +177,75 @@
 </section>
 
 <!-- Pricing -->
-<section class="pricing" id="pricing">
+<section class="pricing" id="pricing" data-billing="month">
   <div class="container" style="text-align:center;">
     <div class="section-label" style="justify-content:center;">Pricing</div>
     <h2 class="section-title" style="margin-left:auto;margin-right:auto;">Start Free. Upgrade When You're Ready.</h2>
     <p class="section-sub" style="margin-left:auto;margin-right:auto;">The core quoting tool is free forever. Premium features unlock as your fleet grows.</p>
+    <div class="pricing-billing-toggle" role="tablist" aria-label="Billing period">
+      <button type="button" class="billing-btn is-active" data-action="set-billing" data-billing-toggle="month">Monthly</button>
+      <button type="button" class="billing-btn" data-action="set-billing" data-billing-toggle="year">Yearly</button>
+    </div>
     <div class="pricing-grid">
       <div class="pricing-card">
-        <div class="pricing-name">Free</div>
-        <div class="pricing-price">$0<span> /forever</span></div>
+        <div class="pricing-name">Free (Forever)</div>
+        <div class="pricing-price">$0<span> /month</span></div>
+        <div class="pricing-billed-year only-year">$0 billed annually</div>
         <div class="pricing-desc">For owner-operators and small carriers getting started.</div>
         <ul class="pricing-features">
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited route quotes</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>1 cost profile & 1 yard</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>AI chatbot</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>AI Chatbot</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Map visualization</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>3-tier pricing advice</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>2 cost profiles</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>1 yard</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>1 user</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Custom quote</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>30-day quote history</li>
         </ul>
         <button type="button" class="pricing-btn secondary" data-action="onboarding-signup">Get Started Free</button>
       </div>
       <div class="pricing-card featured">
         <div class="pricing-name">Pro</div>
-        <div class="pricing-price">$29<span> /month</span></div>
+        <div class="pricing-price">
+          <span class="only-month">$19</span>
+          <span class="only-year">$14.92</span>
+          <span> /month</span>
+        </div>
+        <div class="pricing-billed-year only-year">$179 billed annually</div>
         <div class="pricing-desc">For growing fleets that need more power and branded quotes.</div>
         <ul class="pricing-features">
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in Free</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited profiles & yards</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in free plus</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited cost profiles</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited yards</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited quote history</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Branded Quote PDFs</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Live fuel prices</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Lane rate intelligence</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Priority support</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>5 users</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Role based access</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Live fuel price updates</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>CSV export</li>
         </ul>
-        <button type="button" class="pricing-btn primary" data-action="onboarding-signup">Start Pro — $29/mo</button>
+        <button type="button" class="pricing-btn primary" data-action="onboarding-signup">Start Pro</button>
       </div>
       <div class="pricing-card">
-        <div class="pricing-name">Fleet</div>
-        <div class="pricing-price">$79<span> /month</span></div>
+        <div class="pricing-name">Premium</div>
+        <div class="pricing-price">
+          <span class="only-month">$49</span>
+          <span class="only-year">$39.08</span>
+          <span> /month</span>
+        </div>
+        <div class="pricing-billed-year only-year">$469 billed annually</div>
         <div class="pricing-desc">For fleets needing dispatch, portal, and integrations.</div>
         <ul class="pricing-features">
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in Pro</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in pro plus</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited team members</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Lane rate intelligence</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Customer quote portal</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Multi-truck dispatch</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Accounting export</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Dispatch view</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>API access</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Dedicated support</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Priority support</li>
         </ul>
-        <button type="button" class="pricing-btn secondary" data-action="onboarding-signup">Contact Sales</button>
+        <button type="button" class="pricing-btn secondary" data-action="onboarding-signup">Start Premium</button>
       </div>
     </div>
   </div>

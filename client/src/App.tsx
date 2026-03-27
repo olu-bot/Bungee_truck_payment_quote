@@ -9,7 +9,7 @@ import { isOnboardingActive } from "@/lib/onboarding";
 import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-auth";
 import { FeedbackSheet } from "@/components/FeedbackSheet";
 import { db, firebaseConfigured } from "@/lib/firebase";
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 
 // ── Lazy-loaded page components (code-split per route) ──────────
 const Landing = lazy(() => import("@/pages/landing"));
@@ -127,7 +127,8 @@ function AppLayout() {
   /** Firebase session is restoring — avoid treating as logged out (no signup flash on refresh). */
   const sessionPending = authLoading && !user;
   const isAdmin = user?.role === "admin";
-  const isHome = location === "/";
+  const routePath = useMemo(() => location.split("?")[0] || "/", [location]);
+  const isHome = routePath === "/";
   const [feedbackUnread, setFeedbackUnread] = useState(0);
 
   useEffect(() => {
@@ -182,21 +183,21 @@ function AppLayout() {
     },
   };
 
-  const page = PAGE_TITLES[location] || PAGE_TITLES["/"];
+  const page = PAGE_TITLES[routePath] || PAGE_TITLES["/"];
 
   // Definitely signed out — only after Firebase has finished restoring the session.
   if (!authLoading && !user) {
-    if (location === "/signup") return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
+    if (routePath === "/signup") return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
     return <Redirect to="/signup" />;
   }
 
   // Session still restoring: keep current app URL (e.g. Home) instead of redirecting to signup.
-  if (sessionPending && location === "/signup") {
+  if (sessionPending && routePath === "/signup") {
     return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
   }
 
   // Signed in on /signup: onboarding vs home.
-  if (user && location === "/signup") {
+  if (user && routePath === "/signup") {
     if (isOnboardingActive()) return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
     return <Redirect to="/" />;
   }
@@ -232,7 +233,7 @@ function AppLayout() {
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1" data-testid="nav-desktop">
             {visibleNav.map(({ path, label, icon: Icon }) => {
-              const isActive = location === path;
+              const isActive = routePath === path;
               const inboxBadge = path === "/admin/feedback" && feedbackUnread > 0;
               return (
                 <Link key={path} href={path}>
@@ -308,7 +309,7 @@ function AppLayout() {
         {mobileNavOpen && (
           <div className="md:hidden border-t border-border bg-background px-4 py-2">
             {visibleNav.map(({ path, label, icon: Icon }) => {
-              const isActive = location === path;
+              const isActive = routePath === path;
               const inboxBadge = path === "/admin/feedback" && feedbackUnread > 0;
               return (
                 <Link key={path} href={path}>
@@ -371,16 +372,20 @@ function AppLayout() {
           <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
             <RouteBuilder key={routeBuilderKey} />
           </div>
-          {!isHome && (
-            <Switch>
-              <Route path="/profiles" component={CostProfiles} />
-              <Route path="/history" component={QuoteHistory} />
-              <Route path="/team" component={TeamRoute} />
-              <Route path="/admin/users" component={AdminAllUsers} />
-              <Route path="/admin/feedback" component={AdminFeedback} />
-              <Route component={NotFound} />
-            </Switch>
-          )}
+          {!isHome &&
+            (routePath === "/profiles" ? (
+              <CostProfiles />
+            ) : routePath === "/history" ? (
+              <QuoteHistory />
+            ) : routePath === "/team" ? (
+              <TeamRoute />
+            ) : routePath === "/admin/users" ? (
+              <AdminAllUsers />
+            ) : routePath === "/admin/feedback" ? (
+              <AdminFeedback />
+            ) : (
+              <NotFound />
+            ))}
         </Suspense>
       </main>
 

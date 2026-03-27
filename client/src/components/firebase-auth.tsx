@@ -34,7 +34,7 @@ export type AppUser = {
   companyId?: string;
   sector: AppSector;
   fleetSize?: string;
-  /** ISO country code for primary operating country (e.g. CA, US, MX) — drives display currency. */
+  /** ISO country code for primary operating country (e.g. CA, US) — drives display currency. */
   operatingCountryCode?: string;
   operatingCountries?: string[];
   operatingRegions?: string[];
