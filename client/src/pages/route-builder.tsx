@@ -42,6 +42,7 @@ import {
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
 import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
 import { RouteMapGoogle } from "@/components/RouteMapGoogle";
+import { LocationSuggestInput } from "@/components/LocationSuggestInput";
 import {
   currencyPerLitreLabel,
   currencySymbol,
@@ -74,24 +75,6 @@ function marginQualityLabel(percent: number): { label: string; color: string } {
   if (percent < 50) return { label: "Good", color: "text-slate-600 font-medium" };
   if (percent < 75) return { label: "Great", color: "text-slate-800 font-semibold" };
   return { label: "Outstanding", color: "text-slate-900 font-bold" };
-}
-
-// ── Geocode (client-side) ────────────────────────────────────────────
-
-const geocodeCache = new Map<string, { lat: number; lng: number }>();
-
-async function geocodeViaBackend(
-  location: string,
-): Promise<{ lat: number; lng: number } | null> {
-  const key = location.trim().toLowerCase();
-  if (!key) return null;
-  if (geocodeCache.has(key)) return geocodeCache.get(key)!;
-  const coords = await geocodeLocation(location);
-  if (coords) {
-    geocodeCache.set(key, coords);
-    return coords;
-  }
-  return null;
 }
 
 async function getDistance(
@@ -224,7 +207,7 @@ async function persistRouteBuilderQuote(
     customQuote: meta.pricing.customQuote ?? undefined,
     legs: meta.calc.legs,
     chatUserMessage: meta.chatUserMessage,
-    customerNote: meta.customerNote || "",
+    customerNote: meta.customerNote?.trim() || "",
   };
 
   return firebaseDb.createQuote(scopeId, {
@@ -246,7 +229,7 @@ async function persistRouteBuilderQuote(
     profitMarginPercent,
     quoteSource: "route_builder",
     routeSnapshotJson: JSON.stringify(snapshot),
-    customerNote: meta.customerNote || "",
+    customerNote: meta.customerNote?.trim() ?? "",
     status: "pending",
   });
 }
@@ -278,6 +261,8 @@ export default function RouteBuilder() {
     { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
     { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
   ]);
+  const formStopsRef = useRef<FormStop[]>(formStops);
+  formStopsRef.current = formStops;
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
@@ -330,7 +315,7 @@ export default function RouteBuilder() {
 
   const [routeCalc, setRouteCalc] = useState<RouteCalculation | null>(null);
   const [pricingAdvice, setPricingAdvice] = useState<PricingAdvice | null>(null);
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showBreakdown] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [isSavingQuote, setIsSavingQuote] = useState(false);
@@ -487,12 +472,12 @@ export default function RouteBuilder() {
             return { ...loc, lat: loc.knownLat, lng: loc.knownLng };
           }
           // Try geocoding the full address first
-          let coords = await geocodeViaBackend(loc.name);
+          let coords = await geocodeLocation(loc.name);
           // If full address fails, try extracting a city/region from it
           if (!coords) {
             const cityPart = extractCityFromAddress(loc.name);
             if (cityPart && cityPart !== loc.name) {
-              coords = await geocodeViaBackend(cityPart);
+              coords = await geocodeLocation(cityPart);
             }
           }
           return { ...loc, lat: coords?.lat, lng: coords?.lng };
@@ -841,7 +826,7 @@ export default function RouteBuilder() {
               } else if (yardLat == null || yardLng == null) {
                 // Yard has no coords — try geocoding
                 const yardLocation = effectiveYard.address || effectiveYard.name;
-                const coords = await geocodeViaBackend(yardLocation);
+                const coords = await geocodeLocation(yardLocation);
                 if (coords && lastStop?.lat != null && lastStop?.lng != null) {
                   const dist = await getDistance(lastStop.lat, lastStop.lng, coords.lat, coords.lng);
                   if (dist) {
@@ -885,7 +870,7 @@ export default function RouteBuilder() {
                   ) {
                     return s;
                   }
-                  const coords = await geocodeViaBackend(s.location);
+                  const coords = await geocodeLocation(s.location);
                   return {
                     ...s,
                     lat: coords?.lat,
@@ -1247,7 +1232,7 @@ export default function RouteBuilder() {
       <div className="sticky top-14 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-1 bg-background">
         <Card className="border-slate-200 shadow-sm" data-testid="route-cost-section">
           <CardContent className="p-3 sm:p-4 space-y-2.5">
-            {/* Row 1: Route name + stats + Show breakdown */}
+            {/* Row 1: Route name + stats */}
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 min-w-0 flex-wrap flex-1">
                 <span className="text-[15px] font-semibold text-slate-900 truncate tracking-tight">
@@ -1274,15 +1259,6 @@ export default function RouteBuilder() {
                 )}
               </div>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs text-slate-500 hover:text-slate-700 shrink-0"
-                data-testid="button-toggle-breakdown"
-                onClick={() => setShowBreakdown((p) => !p)}
-              >
-                {showBreakdown ? "Hide breakdown" : "Show breakdown"}
-              </Button>
             </div>
 
             {/* Row 2: Pricing cards — with vertical dividers */}
@@ -1701,30 +1677,35 @@ export default function RouteBuilder() {
                           <GripVertical className="w-4 h-4" />
                         </div>
 
-                        {/* Location input */}
-                        <Input
-                          data-testid={`input-stop-${idx}`}
-                          placeholder={
-                            isFirst
-                              ? "e.g. Mississauga"
-                              : isLast
-                                ? "e.g. Scarborough"
-                                : "Location"
-                          }
-                          className="text-sm flex-1"
-                          value={stop.location}
-                          onChange={(e) => {
-                            setFormStops((prev) =>
-                              prev.map((s, i) =>
-                                i === idx ? { ...s, location: e.target.value } : s,
-                              ),
-                            );
-                          }}
-                          onBlur={() => {
-                            const filled = formStops.filter((s) => s.location.trim());
-                            if (filled.length >= 2) triggerRouteBuild();
-                          }}
-                        />
+                        {/* Location input — Google suggestions + shared geo cache */}
+                        <div className="flex-1 min-w-0">
+                          <LocationSuggestInput
+                            data-testid={`input-stop-${idx}`}
+                            leadingIcon={false}
+                            inputClassName="text-sm h-9"
+                            placeholder={
+                              isFirst
+                                ? "e.g. Mississauga"
+                                : isLast
+                                  ? "e.g. Scarborough"
+                                  : "Location"
+                            }
+                            value={stop.location}
+                            onChange={(v) => {
+                              setFormStops((prev) =>
+                                prev.map((s, i) => (i === idx ? { ...s, location: v } : s)),
+                              );
+                            }}
+                            onBlur={() => {
+                              setTimeout(() => {
+                                const current = formStopsRef.current;
+                                if (current.filter((s) => s.location.trim()).length >= 2) {
+                                  void triggerRouteBuild(current, false);
+                                }
+                              }, 0);
+                            }}
+                          />
+                        </div>
 
                         {/* Remove button (only for middle stops, and only if more than 2 stops) */}
                         {!isFirst && !isLast && (

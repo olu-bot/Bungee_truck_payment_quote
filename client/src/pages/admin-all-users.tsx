@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -65,10 +66,12 @@ function profileAllInHourly(p: CostProfile): number {
 }
 
 export default function AdminAllUsers() {
+  const PAGE_SIZE = 20;
   const { user } = useFirebaseAuth();
   const isAdmin = user?.role === "admin";
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selected, setSelected] = useState<DirectoryUser | null>(null);
+  const [page, setPage] = useState(1);
 
   const sheetCurrency = useMemo(() => resolveWorkspaceCurrency(selected ?? undefined), [selected]);
   const formatCurrency = useCallback(
@@ -83,6 +86,16 @@ export default function AdminAllUsers() {
     queryFn: () => firebaseDb.listDirectoryUsers(),
     enabled: Boolean(isAdmin && firebaseConfigured),
   });
+
+  const totalPages = Math.max(1, Math.ceil(directory.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedDirectory = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return directory.slice(start, start + PAGE_SIZE);
+  }, [directory, currentPage]);
+
+  const pageStart = directory.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(directory.length, currentPage * PAGE_SIZE);
 
   const { data: quotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["firebase", "admin", "user-quotes", scope],
@@ -99,6 +112,14 @@ export default function AdminAllUsers() {
   function openUser(u: DirectoryUser) {
     setSelected(u);
     setSheetOpen(true);
+  }
+
+  function goPrevPage() {
+    setPage((p) => Math.max(1, p - 1));
+  }
+
+  function goNextPage() {
+    setPage((p) => Math.min(totalPages, p + 1));
   }
 
   if (!isAdmin) {
@@ -130,12 +151,12 @@ export default function AdminAllUsers() {
   return (
     <div className="space-y-4" data-testid="admin-users-page">
       <p className="text-sm text-muted-foreground">
-        {directory.length} user{directory.length !== 1 ? "s" : ""} registered. Select a row to
+        {directory.length} user{directory.length !== 1 ? "s" : ""} registered. Showing {pageStart}-{pageEnd}. Select a row to
         open their workspace quote history and cost profiles.
       </p>
 
       <div className="block lg:hidden space-y-2">
-        {directory.map((u) => (
+        {pagedDirectory.map((u) => (
           <Card
             key={u.uid}
             className="border-border cursor-pointer hover:bg-muted/40 transition-colors"
@@ -178,7 +199,7 @@ export default function AdminAllUsers() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {directory.map((u) => (
+              {pagedDirectory.map((u) => (
                 <TableRow
                   key={u.uid}
                   data-testid={`row-admin-user-${u.uid}`}
@@ -200,6 +221,32 @@ export default function AdminAllUsers() {
           </Table>
         </CardContent>
       </Card>
+
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Page {currentPage} of {totalPages}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={goPrevPage}
+            disabled={currentPage <= 1}
+          >
+            Previous
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={goNextPage}
+            disabled={currentPage >= totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
 
       <Sheet
         open={sheetOpen}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import marketingHtml from "./landing-marketing.html?raw";
+import marketingHtml from "./landing-hero.html?raw";
 import "./landing.css";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/components/firebase-auth";
@@ -51,6 +51,25 @@ function isGooglePopupCancelled(err: unknown): boolean {
   return /popup closed by user|popup-closed-by-user|cancelled-popup-request|auth\/popup-closed-by-user/i.test(
     msg,
   );
+}
+
+function sanitizeAuthErrorMessage(
+  err: unknown,
+  fallback: string,
+): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  const lower = raw.toLowerCase();
+  // Never surface provider/internal auth strings in production UI.
+  if (
+    lower.includes("firebase") ||
+    lower.includes("auth/") ||
+    lower.includes("invalid-credential") ||
+    lower.includes("invalid credential")
+  ) {
+    return fallback;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
 }
 
 type View = "landing" | "onboarding";
@@ -103,12 +122,22 @@ export default function Landing() {
   const marketingHtmlLocalized = useMemo(() => {
     const currency = currencyForCountryCode(countryCode || user?.operatingCountryCode);
     const sym = currencySymbol(currency);
-    // Marketing HTML is injected as a raw string; localize the currency symbol only.
-    const localized = marketingHtml.replaceAll("$", sym);
-    // Sanitize to prevent XSS — allows only safe HTML tags and attributes
+    // Localize $ elsewhere on the page, but keep literal "$" in the pricing / paywall section only.
+    const pricingBlock = marketingHtml.match(
+      /<section class="pricing" id="pricing"[^>]*>[\s\S]*?<\/section>/,
+    );
+    if (!pricingBlock || pricingBlock.index === undefined) {
+      return marketingHtml.replaceAll("$", sym);
+    }
+    const { index } = pricingBlock;
+    const block = pricingBlock[0];
+    const before = marketingHtml.slice(0, index).replaceAll("$", sym);
+    const after = marketingHtml.slice(index + block.length).replaceAll("$", sym);
+    const localized = before + block + after;
+    // Sanitize to prevent XSS — allows only safe HTML tags and attributes.
     return DOMPurify.sanitize(localized, {
       ADD_TAGS: ["section", "nav", "footer"],
-      ADD_ATTR: ["data-action", "data-scroll", "data-testid"],
+      ADD_ATTR: ["data-action", "data-scroll", "data-testid", "data-billing-toggle"],
     });
   }, [countryCode, user?.operatingCountryCode]);
 
@@ -223,7 +252,7 @@ export default function Landing() {
       await login({ email: email.trim(), password });
       toast({ title: "Logged in", description: "Welcome back." });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Please check your credentials.";
+      const msg = sanitizeAuthErrorMessage(err, "Please check your credentials.");
       toast({ title: "Login failed", description: msg, variant: "destructive" });
     } finally {
       setLoginLoading(false);
@@ -280,7 +309,7 @@ export default function Landing() {
         });
         return;
       }
-      const msg = err instanceof Error ? err.message : "Google sign-in failed.";
+      const msg = sanitizeAuthErrorMessage(err, "Sign-in failed.");
       toast({ title: "Sign-in failed", description: msg, variant: "destructive" });
     } finally {
       if (signInTimeoutId !== undefined) window.clearTimeout(signInTimeoutId);
@@ -447,7 +476,7 @@ export default function Landing() {
       toast({ title: "Account created", description: "Set up your cost profile to get started." });
     } catch (err: unknown) {
       setOnboardingActive(false);
-      const msg = err instanceof Error ? err.message : "Please check your details.";
+      const msg = sanitizeAuthErrorMessage(err, "Please check your details.");
       toast({ title: "Sign up failed", description: msg, variant: "destructive" });
     } finally {
       setSignupLoading(false);
@@ -534,33 +563,29 @@ export default function Landing() {
         aria-hidden={view !== "onboarding"}
       >
         <div className="onboarding" id="app">
-          <div className="top-bar" style={{ position: "relative" }}>
+          <div className="top-bar">
+            <div className="top-bar-left">
               <button
                 type="button"
                 className="onboarding-back"
                 onClick={showLanding}
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--gray-500)",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  whiteSpace: "nowrap",
-                }}
               >
                 ← Back to site
               </button>
-              <div className="logo" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
+            </div>
+            <div className="top-bar-center">
+              <div className="logo">
                 <img src="/lottie/BungeeConnect-logo.png" alt="Bungee Connect" className="logo-img" />
               </div>
-            <div className="step-indicator">
-              {authMode === "login"
-                ? "Log in"
-                : signupStep === 4
-                  ? "You're all set!"
-                  : `Step ${Math.min(signupStep, SIGNUP_FLOW_STEPS)} of ${SIGNUP_FLOW_STEPS}`}
+            </div>
+            <div className="top-bar-right">
+              <div className="step-indicator">
+                {authMode === "login"
+                  ? "Log in"
+                  : signupStep === 4
+                    ? "You're all set!"
+                    : `Step ${Math.min(signupStep, SIGNUP_FLOW_STEPS)} of ${SIGNUP_FLOW_STEPS}`}
+              </div>
             </div>
           </div>
 
@@ -807,11 +832,11 @@ export default function Landing() {
                 <div className="form-helper">At least 6 characters (Firebase). Use a strong password in production.</div>
               </div>
 
-              <div className="card-actions center" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16 }}>
+              <div className="card-actions" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
                 <button type="submit" className="btn btn-primary btn-lg">
                   Continue
                 </button>
-                <p className="form-helper" style={{ margin: 0, textAlign: "center" }}>
+                <p className="form-helper" style={{ margin: 0, textAlign: "center", alignSelf: "center" }}>
                   Already have an account?{" "}
                   <button
                     type="button"

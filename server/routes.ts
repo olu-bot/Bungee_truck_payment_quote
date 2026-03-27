@@ -15,6 +15,74 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ── Server-side geo caches (shared by API + internal callers) ───────────────
+
+const GEO_TTL_MS = 1000 * 60 * 60 * 24; // 24h
+const ROUTE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
+const SUGGEST_TTL_MS = 1000 * 60 * 60 * 6; // 6h
+const GEO_MISS_TTL_MS = 1000 * 60 * 5; // 5m negative cache
+const FETCH_TIMEOUT_MS = 8000;
+
+type CacheEntry<T> = { value: T; expiresAt: number };
+
+type OsrmRouteResult = { distanceKm: number; durationMinutes: number; isEstimate?: boolean };
+
+const geocodeCache = new Map<string, CacheEntry<{ lat: number; lng: number } | null>>();
+const distanceCache = new Map<string, CacheEntry<OsrmRouteResult>>();
+const multiRouteCache = new Map<string, CacheEntry<{ distanceKm: number; durationMinutes: number }[] | null>>();
+const placeSuggestCache = new Map<string, CacheEntry<string[]>>();
+
+function nowMs(): number {
+  return Date.now();
+}
+
+function cacheGet<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const hit = cache.get(key);
+  if (!hit) return undefined;
+  if (hit.expiresAt <= nowMs()) {
+    cache.delete(key);
+    return undefined;
+  }
+  return hit.value;
+}
+
+function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
+  cache.set(key, { value, expiresAt: nowMs() + ttlMs });
+}
+
+function normalizeLocationKey(location: string): string {
+  return location.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function googleMapsServerKey(): string | undefined {
+  return process.env.GOOGLE_MAPS_API_KEY?.trim() || process.env.VITE_GOOGLE_MAPS_API_KEY?.trim();
+}
+
+async function fetchJsonWithTimeout(url: string, init?: RequestInit): Promise<unknown> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function routePairKey(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number,
+): string {
+  const q = (n: number) => Number(n).toFixed(5);
+  return `${q(fromLat)},${q(fromLng)}=>${q(toLat)},${q(toLng)}`;
+}
+
+function waypointsKey(waypoints: { lat: number; lng: number }[]): string {
+  return waypoints.map((w) => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join(";");
+}
+
 // Derive hourly fixed cost from a cost profile
 function getFixedCostPerHour(p: CostProfile): number {
   const monthlyFixed = p.monthlyTruckPayment + p.monthlyInsurance + p.monthlyMaintenance + p.monthlyPermitsPlates + p.monthlyOther;
@@ -60,10 +128,10 @@ function haversineDistanceKm(
   return { distanceKm: estimatedRoad, durationMinutes: estimatedMinutes, isEstimate: true };
 }
 
-async function getOSRMRoute(
+async function getOSRMRouteUncached(
   fromLat: number, fromLng: number,
   toLat: number, toLng: number,
-): Promise<{ distanceKm: number; durationMinutes: number; isEstimate?: boolean } | null> {
+): Promise<OsrmRouteResult> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), OSRM_TIMEOUT_MS);
@@ -92,11 +160,23 @@ async function getOSRMRoute(
   }
 }
 
+async function getOSRMRoute(
+  fromLat: number, fromLng: number,
+  toLat: number, toLng: number,
+): Promise<OsrmRouteResult> {
+  const key = routePairKey(fromLat, fromLng, toLat, toLng);
+  const hit = cacheGet(distanceCache, key);
+  if (hit !== undefined) return hit;
+  const result = await getOSRMRouteUncached(fromLat, fromLng, toLat, toLng);
+  cacheSet(distanceCache, key, result, ROUTE_TTL_MS);
+  return result;
+}
+
 /**
  * Multi-waypoint OSRM request — one API call returns per-leg distances.
  * Avoids rate-limiting that occurs with sequential single-pair calls.
  */
-async function getOSRMMultiRoute(
+async function getOSRMMultiRouteUncached(
   waypoints: { lat: number; lng: number }[],
 ): Promise<{ distanceKm: number; durationMinutes: number }[] | null> {
   if (waypoints.length < 2) return null;
@@ -127,6 +207,18 @@ async function getOSRMMultiRoute(
   return null;
 }
 
+async function getOSRMMultiRoute(
+  waypoints: { lat: number; lng: number }[],
+): Promise<{ distanceKm: number; durationMinutes: number }[] | null> {
+  if (waypoints.length < 2) return null;
+  const key = waypointsKey(waypoints);
+  const hit = cacheGet(multiRouteCache, key);
+  if (hit !== undefined) return hit;
+  const result = await getOSRMMultiRouteUncached(waypoints);
+  cacheSet(multiRouteCache, key, result, ROUTE_TTL_MS);
+  return result;
+}
+
 async function geocodeRaw(query: string): Promise<{ lat: number; lng: number } | null> {
   try {
     const res = await fetch(
@@ -150,7 +242,7 @@ async function geocodeRaw(query: string): Promise<{ lat: number; lng: number } |
  * e.g. "123 Industrial Rd, Suite 5, Toronto, ON" →
  *      try "Suite 5, Toronto, ON" → "Toronto, ON" → "ON"
  */
-async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
+async function geocodeLocationUncached(location: string): Promise<{ lat: number; lng: number } | null> {
   // Try full address first
   const full = await geocodeRaw(location);
   if (full) return full;
@@ -166,6 +258,48 @@ async function geocodeLocation(location: string): Promise<{ lat: number; lng: nu
   }
 
   return null;
+}
+
+async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
+  const key = normalizeLocationKey(location);
+  if (!key) return null;
+  const hit = cacheGet(geocodeCache, key);
+  if (hit !== undefined) return hit;
+  const result = await geocodeLocationUncached(location);
+  cacheSet(geocodeCache, key, result, result ? GEO_TTL_MS : GEO_MISS_TTL_MS);
+  return result;
+}
+
+/** Google Places Autocomplete — US/CA geocodable results; cached server-side. */
+async function googlePlaceSuggestions(query: string): Promise<string[]> {
+  const key = normalizeLocationKey(query);
+  if (key.length < 2) return [];
+  const hit = cacheGet(placeSuggestCache, key);
+  if (hit !== undefined) return hit;
+  const gKey = googleMapsServerKey();
+  if (!gKey) {
+    cacheSet(placeSuggestCache, key, [], SUGGEST_TTL_MS);
+    return [];
+  }
+  const params = new URLSearchParams({
+    input: query.trim(),
+    types: "geocode",
+    components: "country:us|country:ca",
+    key: gKey,
+  });
+  const data = (await fetchJsonWithTimeout(
+    `https://maps.googleapis.com/maps/api/place/autocomplete/json?${params.toString()}`,
+  )) as { status?: string; predictions?: Array<{ description?: string }> };
+  if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+    cacheSet(placeSuggestCache, key, [], SUGGEST_TTL_MS);
+    return [];
+  }
+  const list = (data.predictions ?? [])
+    .map((p) => p.description?.trim())
+    .filter((x): x is string => Boolean(x?.length))
+    .slice(0, 10);
+  cacheSet(placeSuggestCache, key, list, SUGGEST_TTL_MS);
+  return list;
 }
 
 // ── Route Cost Calculation ──────────────────────────────────────
@@ -473,6 +607,17 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  app.get("/api/place-suggestions", async (req, res) => {
+    const q = typeof req.query.q === "string" ? req.query.q : "";
+    if (q.trim().length < 2) return res.json({ suggestions: [] });
+    try {
+      const suggestions = await googlePlaceSuggestions(q);
+      res.json({ suggestions });
+    } catch {
+      res.json({ suggestions: [] });
+    }
+  });
+
   // === DISTANCE BETWEEN TWO POINTS (OSRM) ===
   app.get("/api/distance", async (req, res) => {
     const fromLat = parseFloat(req.query.fromLat as string);
@@ -763,35 +908,63 @@ export async function registerRoutes(
         });
       }
 
-      // Geocode all locations and get distances between consecutive stops
-      const stopsWithGeo: any[] = [];
-      for (let i = 0; i < locations.length; i++) {
-        const loc = locations[i];
-        const geo = await geocodeLocation(loc);
-        const stop: any = {
-          id: randomUUID().slice(0, 8),
-          type: i === 0 ? "pickup" : i === locations.length - 1 ? "delivery" : "stop",
-          location: loc,
-          lat: geo?.lat,
-          lng: geo?.lng,
-          dockTimeMinutes: 60,
-          distanceFromPrevKm: 0,
-          driveMinutesFromPrev: 0,
-        };
+      // Geocode all locations in parallel, then compute legs with one multi-route request.
+      const geocoded = await Promise.all(
+        locations.map(async (loc) => ({ loc, geo: await geocodeLocation(loc) })),
+      );
 
-        // Calculate distance from previous stop
-        if (i > 0 && geo && stopsWithGeo[i - 1].lat && stopsWithGeo[i - 1].lng) {
-          const route = await getOSRMRoute(
-            stopsWithGeo[i - 1].lat, stopsWithGeo[i - 1].lng,
-            geo.lat, geo.lng,
-          );
-          if (route) {
-            stop.distanceFromPrevKm = route.distanceKm;
-            stop.driveMinutesFromPrev = route.durationMinutes;
-          }
+      const stopsWithGeo: any[] = geocoded.map(({ loc, geo }, i) => ({
+        id: randomUUID().slice(0, 8),
+        type: i === 0 ? "pickup" : i === locations.length - 1 ? "delivery" : "stop",
+        location: loc,
+        lat: geo?.lat,
+        lng: geo?.lng,
+        dockTimeMinutes: 60,
+        distanceFromPrevKm: 0,
+        driveMinutesFromPrev: 0,
+      }));
+
+      const waypoints: { lat: number; lng: number }[] = [];
+      const geoIdxToWpIdx = new Map<number, number>();
+      stopsWithGeo.forEach((s, i) => {
+        if (typeof s.lat === "number" && typeof s.lng === "number") {
+          geoIdxToWpIdx.set(i, waypoints.length);
+          waypoints.push({ lat: s.lat, lng: s.lng });
+        }
+      });
+
+      const multiLegs = waypoints.length >= 2 ? await getOSRMMultiRoute(waypoints) : null;
+
+      for (let i = 1; i < stopsWithGeo.length; i++) {
+        const prevWp = geoIdxToWpIdx.get(i - 1);
+        const curWp = geoIdxToWpIdx.get(i);
+        if (
+          prevWp != null &&
+          curWp != null &&
+          curWp === prevWp + 1 &&
+          multiLegs &&
+          multiLegs[prevWp]
+        ) {
+          stopsWithGeo[i].distanceFromPrevKm = multiLegs[prevWp].distanceKm;
+          stopsWithGeo[i].driveMinutesFromPrev = multiLegs[prevWp].durationMinutes;
+          continue;
         }
 
-        stopsWithGeo.push(stop);
+        // Fallback single-leg route (only when needed).
+        const prev = stopsWithGeo[i - 1];
+        const cur = stopsWithGeo[i];
+        if (
+          typeof prev?.lat === "number" &&
+          typeof prev?.lng === "number" &&
+          typeof cur?.lat === "number" &&
+          typeof cur?.lng === "number"
+        ) {
+          const route = await getOSRMRoute(prev.lat, prev.lng, cur.lat, cur.lng);
+          if (route) {
+            cur.distanceFromPrevKm = route.distanceKm;
+            cur.driveMinutesFromPrev = route.durationMinutes;
+          }
+        }
       }
 
       // Also compute return distance from last to first

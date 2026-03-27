@@ -320,11 +320,12 @@ export default function QuoteHistory() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async (args: { id: string; status: QuoteStatus; wonRate?: number | null; statusNote?: string }) => {
-      await firebaseDb.updateQuote(scopeId, args.id, {
+      const update: Record<string, unknown> = {
         status: args.status,
         wonRate: args.wonRate ?? null,
-        statusNote: args.statusNote || undefined,
-      });
+        statusNote: args.statusNote || "",
+      };
+      await firebaseDb.updateQuote(scopeId, args.id, update as any);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["firebase", "quotes", scopeId ?? ""] });
@@ -352,12 +353,12 @@ export default function QuoteHistory() {
       id: quote.id,
       status: action,
       wonRate,
-      statusNote: statusNoteInput.trim() || undefined,
+      statusNote: statusNoteInput.trim() || "",
     });
   }
 
   function resetToPending(quoteId: string) {
-    updateStatusMutation.mutate({ id: quoteId, status: "pending", wonRate: null, statusNote: undefined });
+    updateStatusMutation.mutate({ id: quoteId, status: "pending", wonRate: null, statusNote: "" });
   }
 
   // ── Loading / Empty ────────────────────────────────────────────

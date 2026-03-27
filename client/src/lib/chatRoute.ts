@@ -9,7 +9,8 @@ export type ChatRouteResult = {
 };
 
 const CHAT_TTL_MS = 1000 * 60 * 10; // 10m
-const CHAT_TIMEOUT_MS = 15000;
+// Production may have occasional cold starts / API latency spikes.
+const CHAT_TIMEOUT_MS = 60000;
 const chatCache = new Map<string, { value: ChatRouteResult; expiresAt: number }>();
 const chatInFlight = new Map<string, Promise<ChatRouteResult>>();
 

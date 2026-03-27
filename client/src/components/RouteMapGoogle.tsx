@@ -18,13 +18,35 @@ export function RouteMapGoogle({
 }) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 
+  function cityLevelLocation(raw: string | undefined): string {
+    const input = (raw ?? "").trim();
+    if (!input) return "";
+    const parts = input.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) return "";
+
+    const first = parts[0] ?? "";
+    const second = parts[1] ?? "";
+    const third = parts[2] ?? "";
+    const hasStreetLikeFirst = /\d/.test(first) || /\b(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court)\b/i.test(first);
+    const stateOrProvince = /^[A-Za-z]{2,3}$/.test(third) ? third.toUpperCase() : "";
+
+    // If the first segment looks like a street address, use city (+ state/province if present).
+    if (hasStreetLikeFirst && second) {
+      return stateOrProvince ? `${second}, ${stateOrProvince}` : second;
+    }
+
+    // Already city-like input (e.g. "Toronto, ON, Canada").
+    if (second) {
+      const stateFromSecond = /^[A-Za-z]{2,3}$/.test(second) ? second.toUpperCase() : "";
+      return stateFromSecond ? `${first}, ${stateFromSecond}` : `${first}, ${second}`;
+    }
+    return first;
+  }
+
   function pointParam(s: RouteStop): string {
-    const rawLat = s.lat as unknown;
-    const rawLng = s.lng as unknown;
-    const lat = typeof rawLat === "number" ? rawLat : Number(rawLat);
-    const lng = typeof rawLng === "number" ? rawLng : Number(rawLng);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) return `${lat},${lng}`;
-    return (s.location ?? "").trim();
+    // Use city-level strings for display-friendly Google directions labels.
+    // This avoids showing exact street addresses in the embed header.
+    return cityLevelLocation(s.location);
   }
 
   const osmBboxSrc = useMemo(() => {

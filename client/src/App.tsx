@@ -257,7 +257,7 @@ function AppLayout() {
                     <Icon className="w-3.5 h-3.5" />
                     {label}
                     {inboxBadge ? (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
                         {feedbackUnread > 99 ? "99+" : feedbackUnread}
                       </span>
                     ) : null}
@@ -329,7 +329,7 @@ function AppLayout() {
                     <Icon className="w-4 h-4" />
                     {label}
                     {inboxBadge ? (
-                      <span className="ml-auto min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                      <span className="ml-auto min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
                         {feedbackUnread > 99 ? "99+" : feedbackUnread}
                       </span>
                     ) : null}

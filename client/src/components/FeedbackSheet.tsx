@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import * as firebaseDb from "@/lib/firebaseDb";
 import type { FeedbackTicket } from "@/lib/firebaseDb";
 import { firebaseConfigured } from "@/lib/firebase";
+import { workspaceFirestoreId } from "@/lib/workspace";
 
 type FeedbackCategory = "feature" | "bug" | "improvement" | "other";
 type FeedbackPriority = "low" | "medium" | "high";
@@ -66,10 +67,11 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
   const [area, setArea] = useState("");
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const scopeId = workspaceFirestoreId(user as Record<string, unknown>);
 
   const { data: tickets = [] } = useQuery<FeedbackTicket[]>({
-    queryKey: ["firebase", "feedback", "user", user?.uid ?? ""],
-    queryFn: () => firebaseDb.listFeedbackForUser(user?.uid),
+    queryKey: ["firebase", "feedback", "user", user?.uid ?? "", scopeId ?? ""],
+    queryFn: () => firebaseDb.listFeedbackForUser(user?.uid, scopeId),
     enabled: Boolean(user?.uid && firebaseConfigured),
   });
 
@@ -118,7 +120,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
 
     setSubmitting(true);
     try {
-      await firebaseDb.createFeedbackTicket(user.uid, {
+      await firebaseDb.createFeedbackTicket(user.uid, scopeId, {
         companyId: user.companyId,
         companyName: user.companyName?.trim() ?? "",
         name: userName.trim(),

@@ -1,0 +1,4 @@
+# Keep secrets out of Cursor indexing (local dotenv still loads .env at runtime)
+.env
+.env.local
+.env.*.local

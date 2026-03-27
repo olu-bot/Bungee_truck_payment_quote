@@ -28,6 +28,7 @@
     "cors": "^2.8.5",
     "country-state-city": "^3.2.1",
     "dompurify": "^3.3.3",
+    "dotenv": "^17.3.1",
     "express": "^4.21.0",
     "firebase": "^11.0.0",
     "firebase-admin": "^12.6.0",

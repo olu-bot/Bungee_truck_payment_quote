@@ -30,6 +30,15 @@ function id() {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Firestore rejects `undefined` as a field value. */
+function omitUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out as T;
+}
+
 function toRecord<T extends Record<string, unknown>>(data: T): T {
   const out = { ...data };
   for (const k of Object.keys(out)) {
@@ -261,6 +270,7 @@ export type FeedbackTicket = {
 
 export async function createFeedbackTicket(
   uid: string | undefined,
+  scopeId: string | undefined,
   data: Omit<
     FeedbackTicket,
     "id" | "userId" | "createdAt" | "status" | "readByAdmin" | "adminReply" | "adminReplyAt" | "adminReplyByUid" | "replyEmailedAt"
@@ -276,19 +286,58 @@ export async function createFeedbackTicket(
     status: "open",
     readByAdmin: false,
   };
-  await setDoc(doc(db, "feedback", feedbackId), row);
+  try {
+    await setDoc(doc(db, "feedback", feedbackId), row);
+  } catch (e: unknown) {
+    // Some projects run older Firestore rules that block global /feedback writes.
+    // Fallback to a per-workspace path allowed by company-scoped rules.
+    const code = (e as { code?: string } | null)?.code ?? "";
+    const isPermissionDenied = typeof code === "string" && code.includes("permission-denied");
+    if (!isPermissionDenied) throw e;
+    const fallbackScope = (scopeId ?? uid).trim();
+    await setDoc(doc(db, "companies", fallbackScope, "feedback", feedbackId), row);
+  }
   return row;
 }
 
-export async function listFeedbackForUser(uid: string | undefined): Promise<FeedbackTicket[]> {
+export async function listFeedbackForUser(uid: string | undefined, scopeId?: string): Promise<FeedbackTicket[]> {
   if (!firebaseConfigured || !db || !uid) return [];
-  const q = query(
-    collection(db, "feedback"),
-    where("userId", "==", uid),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...toRecord(d.data() as Record<string, unknown>) } as FeedbackTicket));
+  const out: FeedbackTicket[] = [];
+  const seen = new Set<string>();
+
+  // Primary path (global feedback collection)
+  try {
+    const q = query(
+      collection(db, "feedback"),
+      where("userId", "==", uid),
+      orderBy("createdAt", "desc")
+    );
+    const snap = await getDocs(q);
+    for (const d of snap.docs) {
+      const row = { id: d.id, ...toRecord(d.data() as Record<string, unknown>) } as FeedbackTicket;
+      seen.add(row.id);
+      out.push(row);
+    }
+  } catch {
+    // ignore: may be blocked by rules on some deployments
+  }
+
+  // Fallback workspace path (used when global writes are denied)
+  const scoped = (scopeId ?? uid).trim();
+  try {
+    const scopedQuery = query(collection(db, "companies", scoped, "feedback"), orderBy("createdAt", "desc"));
+    const snap = await getDocs(scopedQuery);
+    for (const d of snap.docs) {
+      const row = { id: d.id, ...toRecord(d.data() as Record<string, unknown>) } as FeedbackTicket;
+      if (row.userId !== uid || seen.has(row.id)) continue;
+      seen.add(row.id);
+      out.push(row);
+    }
+  } catch {
+    // ignore: collection may not exist yet
+  }
+
+  return out.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function listAllFeedbackForAdmin(): Promise<FeedbackTicket[]> {
@@ -333,7 +382,10 @@ export async function createQuote(
   const quoteNumber = `BQ-${Date.now().toString(36).toUpperCase()}`;
   const createdAt = new Date().toISOString();
   const quote: Quote = { ...data, id: quoteId, quoteNumber, createdAt } as Quote;
-  await setDoc(doc(db, "companies", companyId, "quotes", quoteId), quote);
+  await setDoc(
+    doc(db, "companies", companyId, "quotes", quoteId),
+    omitUndefined(quote as unknown as Record<string, unknown>) as Quote,
+  );
   return quote;
 }
 
@@ -344,7 +396,7 @@ export async function updateQuote(
 ): Promise<void> {
   requireSignedInScope(companyId);
   const ref = doc(db, "companies", companyId, "quotes", quoteId);
-  await updateDoc(ref, data as Record<string, unknown>);
+  await updateDoc(ref, omitUndefined(data as Record<string, unknown>));
 }
 
 export async function deleteQuote(

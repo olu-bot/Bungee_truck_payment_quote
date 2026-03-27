@@ -19,7 +19,6 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import {
   Truck,
-  MapPin,
   DollarSign,
   Calculator,
   Save,
@@ -34,10 +33,10 @@ import {
   X,
   RotateCcw,
   AlertTriangle,
-  MapPinned,
 } from "lucide-react";
 import type { Lane, RateTable, HourlyRate } from "@shared/schema";
 import { useFirebaseAuth } from "@/components/firebase-auth";
+import { LocationSuggestInput } from "@/components/LocationSuggestInput";
 import { currencySymbol, formatCurrencyAmount, resolveWorkspaceCurrency } from "@/lib/currency";
 import {
   kmToMiles,
@@ -342,19 +341,23 @@ export default function QuoteCalculator() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="origin" className="text-sm">Origin</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input id="origin" data-testid="input-origin" placeholder="e.g. Toronto, ON"
-                      value={origin} onChange={(e) => setOrigin(e.target.value)} className="pl-9" />
-                  </div>
+                  <LocationSuggestInput
+                    id="origin"
+                    data-testid="input-origin"
+                    placeholder="e.g. Toronto, ON"
+                    value={origin}
+                    onChange={setOrigin}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="destination" className="text-sm">Destination</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input id="destination" data-testid="input-destination" placeholder="e.g. Montreal, QC"
-                      value={destination} onChange={(e) => setDestination(e.target.value)} className="pl-9" />
-                  </div>
+                  <LocationSuggestInput
+                    id="destination"
+                    data-testid="input-destination"
+                    placeholder="e.g. Montreal, QC"
+                    value={destination}
+                    onChange={setDestination}
+                  />
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -419,19 +422,21 @@ export default function QuoteCalculator() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label className="text-sm">Pickup Location</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input data-testid="input-local-origin" placeholder="e.g. Burlington, ON"
-                      value={localOrigin} onChange={(e) => setLocalOrigin(e.target.value)} className="pl-9" />
-                  </div>
+                  <LocationSuggestInput
+                    data-testid="input-local-origin"
+                    placeholder="e.g. Burlington, ON"
+                    value={localOrigin}
+                    onChange={setLocalOrigin}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-sm">Final Delivery</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input data-testid="input-local-destination" placeholder="e.g. Mississauga, ON"
-                      value={localDestination} onChange={(e) => setLocalDestination(e.target.value)} className="pl-9" />
-                  </div>
+                  <LocationSuggestInput
+                    data-testid="input-local-destination"
+                    placeholder="e.g. Mississauga, ON"
+                    value={localDestination}
+                    onChange={setLocalDestination}
+                  />
                 </div>
               </div>
 
@@ -471,9 +476,14 @@ export default function QuoteCalculator() {
                       <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Stop {idx + 1} Location</Label>
-                          <Input placeholder="e.g. Brampton, ON" value={stop.location}
+                          <LocationSuggestInput
+                            leadingIcon={false}
+                            inputClassName="h-9"
+                            placeholder="e.g. Brampton, ON"
+                            value={stop.location}
                             data-testid={`input-stop-location-${idx}`}
-                            onChange={(e) => updateStop(stop.id, "location", e.target.value)} />
+                            onChange={(v) => updateStop(stop.id, "location", v)}
+                          />
                         </div>
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Dock Time</Label>
