@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
-import marketingHtml from "./landing-marketing.html?raw";
+import marketingHtml from "./landing-hero.html?raw";
 import "./landing.css";
 import { useToast } from "@/hooks/use-toast";
 import { useFirebaseAuth } from "@/components/firebase-auth";
@@ -534,25 +534,15 @@ export default function Landing() {
         aria-hidden={view !== "onboarding"}
       >
         <div className="onboarding" id="app">
-          <div className="top-bar" style={{ position: "relative" }}>
+          <div className="top-bar">
               <button
                 type="button"
                 className="onboarding-back"
                 onClick={showLanding}
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--gray-500)",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                  whiteSpace: "nowrap",
-                }}
               >
                 ← Back to site
               </button>
-              <div className="logo" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
+              <div className="logo">
                 <img src="/lottie/BungeeConnect-logo.png" alt="Bungee Connect" className="logo-img" />
               </div>
             <div className="step-indicator">
@@ -807,11 +797,11 @@ export default function Landing() {
                 <div className="form-helper">At least 6 characters (Firebase). Use a strong password in production.</div>
               </div>
 
-              <div className="card-actions center" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16 }}>
+              <div className="card-actions" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
                 <button type="submit" className="btn btn-primary btn-lg">
                   Continue
                 </button>
-                <p className="form-helper" style={{ margin: 0, textAlign: "center" }}>
+                <p className="form-helper" style={{ margin: 0, textAlign: "center", alignSelf: "center" }}>
                   Already have an account?{" "}
                   <button
                     type="button"
