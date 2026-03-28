@@ -1,10 +1,15 @@
-# Production URL: https://bungee-connect-643512829867.us-central1.run.app
-# On Cloud Run, set env PUBLIC_APP_URL=https://bungee-connect-643512829867.us-central1.run.app (no trailing slash for Stripe).
-# Default _VITE_BASE_PATH=/ (standalone). For shipbungee.com/connect use cloudbuild.shipbungee.yaml or pass _VITE_BASE_PATH=/connect/
+# Build image for https://shipbungee.com/ + https://shipbungee.com/connect/
+# Frontend assets use base path /connect/
+#
+# After push, deploy to Cloud Run with runtime env:
+#   SERVE_UNIFIED_SITE=true
+#   PUBLIC_APP_URL=https://shipbungee.com
+#   CONNECT_PUBLIC_PATH=connect
+# Plus existing Stripe, Firebase, Maps keys, etc.
 substitutions:
-  _VITE_BASE_PATH: "/"
+  _VITE_BASE_PATH: "/connect/"
+  _VITE_CONNECT_GUEST_MODE: "true"
 steps:
-  # Build the full app container (React build + Express bundle)
   - name: "gcr.io/cloud-builders/docker"
     id: "build"
     args:
@@ -29,15 +34,13 @@ steps:
       - "VITE_FIREBASE_MEASUREMENT_ID=${_VITE_FIREBASE_MEASUREMENT_ID}"
       - "--build-arg"
       - "VITE_BASE_PATH=${_VITE_BASE_PATH}"
+      - "--build-arg"
+      - "VITE_CONNECT_GUEST_MODE=${_VITE_CONNECT_GUEST_MODE}"
       - "."
-
-  # Push image to Artifact Registry
   - name: "gcr.io/cloud-builders/docker"
     id: "push"
     args:
       - "push"
       - "${_IMAGE_URI}"
-
 images:
   - "${_IMAGE_URI}"
-

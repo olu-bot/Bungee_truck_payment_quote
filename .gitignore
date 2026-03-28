@@ -6,3 +6,7 @@ dist/
 
 # Local gcloud CLI state (credentials, logs — never commit)
 .gcloud/
+
+# GCP / Firebase service account JSON downloaded locally (never commit)
+bungee-calculator-*.json
+*-firebase-adminsdk-*.json

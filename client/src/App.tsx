@@ -11,6 +11,8 @@ import { FeedbackSheet } from "@/components/FeedbackSheet";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
+import { publicAsset } from "@/lib/publicPath";
+import { isConnectGuestUser } from "@/lib/connectGuest";
 import { resolveMeasurementUnit } from "@/lib/measurement";
 
 // ── Lazy-loaded page components (code-split per route) ──────────
@@ -193,6 +195,15 @@ function AppLayout() {
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
 
+  // Guest (unified site): marketing at #/, sign-up flow at #/signup — no app shell until they register.
+  if (user && isConnectGuestUser(user) && (routePath === "/" || routePath === "/signup")) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Landing />
+      </Suspense>
+    );
+  }
+
   // Definitely signed out — only after Firebase has finished restoring the session.
   if (!authLoading && !user) {
     if (routePath === "/signup") return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
@@ -232,7 +243,7 @@ function AppLayout() {
             }
           >
             <img
-              src="/lottie/BungeeConnect-logo.png"
+              src={publicAsset("lottie/BungeeConnect-logo.png")}
               alt="Bungee Connect"
               className="h-8 shrink-0 object-contain"
             />

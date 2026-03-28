@@ -1,0 +1,1583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bungee Supply Chain | Asset-Based Carrier Serving North America</title>
+    <meta name="description" content="Bungee Supply Chain is an asset-based carrier delivering freight across North America. FTL, LTL, and specialized fleet services with real-time tracking and dedicated support.">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        /* ========================================
+           BUNGEE SUPPLY CHAIN - Website Stylesheet
+           Brand Colors:
+             Dark Charcoal: #2D2A26
+             Orange:        #D4541C
+             White:         #FFFFFF
+             Light Gray:    #F7F7F7
+             Medium Gray:   #6B7280
+           Font: Inter (Google Fonts)
+        ======================================== */
+
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            font-size: 16px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: #2D2A26;
+            background: #FFFFFF;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ---- NAVIGATION ---- */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.97);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            transition: box-shadow 0.3s ease;
+        }
+
+        .nav.scrolled {
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+        }
+
+        .nav-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 72px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            text-decoration: none;
+        }
+
+        .logo img {
+            height: 40px;
+            width: auto;
+        }
+
+        .logo-text {
+            font-size: 26px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            color: #2D2A26;
+            line-height: 1;
+        }
+
+        .logo-sub {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 3px;
+            color: #D4541C;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            list-style: none;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: #6B7280;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: #2D2A26;
+        }
+
+        .nav-cta {
+            background: #D4541C;
+            color: #FFFFFF !important;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-weight: 600 !important;
+            transition: background 0.2s, transform 0.2s !important;
+        }
+
+        .nav-cta:hover {
+            background: #B8461A;
+            transform: translateY(-1px);
+        }
+
+        .nav-calendar {
+            background: #2D2A26;
+            color: #FFFFFF !important;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-weight: 600 !important;
+            font-size: 15px;
+            transition: background 0.2s, transform 0.2s !important;
+        }
+
+        .nav-calendar:hover {
+            background: #1a1816;
+            transform: translateY(-1px);
+        }
+
+        .nav-employee-login {
+            border: 1.5px solid #2D2A26 !important;
+            color: #2D2A26 !important;
+            background: rgba(255,255,255,0.9) !important;
+            padding: 10px 24px;
+            border-radius: 6px;
+            font-weight: 600 !important;
+            font-size: 14px !important;
+            transition: border-color 0.2s, color 0.2s, background 0.2s !important;
+        }
+
+        .nav-employee-login:hover {
+            border-color: #D4541C !important;
+            color: #D4541C !important;
+            background: #fff !important;
+        }
+
+        /* Mobile menu */
+        .mobile-toggle {
+            display: none;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+        }
+
+        .mobile-toggle span {
+            display: block;
+            width: 22px;
+            height: 2px;
+            background: #2D2A26;
+            margin: 5px 0;
+            transition: 0.3s;
+        }
+
+        /* ---- HERO SECTION ---- */
+        .hero-wrapper {
+            position: relative;
+            min-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+        }
+
+        .hero-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+        }
+
+        .hero-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.75) 50%, rgba(255,255,255,0.5) 100%);
+            z-index: 1;
+        }
+
+        .hero {
+            position: relative;
+            z-index: 2;
+            padding: 160px 24px 100px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #FFF4EF;
+            color: #D4541C;
+            padding: 8px 16px;
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 32px;
+            width: fit-content;
+        }
+
+        .hero-badge svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .hero h1 {
+            font-size: clamp(40px, 6vw, 72px);
+            font-weight: 900;
+            line-height: 1.05;
+            letter-spacing: -2px;
+            color: #2D2A26;
+            margin-bottom: 24px;
+            max-width: 800px;
+        }
+
+        .hero h1 .accent {
+            color: #D4541C;
+        }
+
+        .hero-sub {
+            font-size: 18px;
+            color: #6B7280;
+            max-width: 560px;
+            line-height: 1.7;
+            margin-bottom: 40px;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #D4541C;
+            color: #FFFFFF;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 600;
+            transition: background 0.2s, transform 0.2s;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-primary:hover {
+            background: #B8461A;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: transparent;
+            color: #2D2A26;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 600;
+            border: 1.5px solid #E5E7EB;
+            transition: border-color 0.2s, background 0.2s;
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            border-color: #2D2A26;
+            background: #F9FAFB;
+        }
+
+        .hero-stats {
+            display: flex;
+            gap: 48px;
+            margin-top: 64px;
+            padding-top: 40px;
+            border-top: 1px solid #F0F0F0;
+        }
+
+        .hero-stat h3 {
+            font-size: 32px;
+            font-weight: 800;
+            color: #2D2A26;
+            letter-spacing: -1px;
+        }
+
+        .hero-stat p {
+            font-size: 13px;
+            color: #9CA3AF;
+            font-weight: 500;
+            margin-top: 4px;
+        }
+
+        /* ---- SECTION COMMON ---- */
+        .section {
+            padding: 100px 24px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-full {
+            padding: 100px 24px;
+            background: #F7F7F7;
+        }
+
+        .section-full .section-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #D4541C;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: clamp(28px, 4vw, 42px);
+            font-weight: 800;
+            color: #2D2A26;
+            letter-spacing: -1px;
+            line-height: 1.15;
+            margin-bottom: 16px;
+        }
+
+        .section-desc {
+            font-size: 17px;
+            color: #6B7280;
+            max-width: 560px;
+            line-height: 1.7;
+            margin-bottom: 48px;
+        }
+
+        /* ---- SERVICES ---- */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+
+        .service-card {
+            background: #FFFFFF;
+            border: 1px solid #F0F0F0;
+            border-radius: 12px;
+            padding: 32px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .service-card:hover {
+            border-color: #E5E7EB;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+        }
+
+        .service-icon {
+            width: 44px;
+            height: 44px;
+            background: #FFF4EF;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .service-icon svg {
+            width: 22px;
+            height: 22px;
+            color: #D4541C;
+        }
+
+        .service-card h3 {
+            font-size: 17px;
+            font-weight: 700;
+            color: #2D2A26;
+            margin-bottom: 8px;
+        }
+
+        .service-card p {
+            font-size: 14px;
+            color: #6B7280;
+            line-height: 1.6;
+        }
+
+        /* ---- TECHNOLOGY (BUNGEE CONNECT) ---- */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: center;
+        }
+
+        .tech-features {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+
+        .tech-feature {
+            display: flex;
+            gap: 16px;
+        }
+
+        .tech-feature-icon {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+            background: #FFF4EF;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .tech-feature-icon svg {
+            width: 20px;
+            height: 20px;
+            color: #D4541C;
+        }
+
+        .tech-feature h4 {
+            font-size: 15px;
+            font-weight: 700;
+            color: #2D2A26;
+            margin-bottom: 4px;
+        }
+
+        .tech-feature p {
+            font-size: 14px;
+            color: #6B7280;
+            line-height: 1.5;
+        }
+
+        .tech-visual {
+            background: #2D2A26;
+            border-radius: 16px;
+            padding: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tech-visual-header {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 24px;
+        }
+
+        .tech-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #3B3835;
+        }
+
+        .tech-dot.red { background: #EF4444; }
+        .tech-dot.yellow { background: #F59E0B; }
+        .tech-dot.green { background: #22C55E; }
+
+        .tech-mock-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+
+        .tech-mock-bar {
+            height: 8px;
+            border-radius: 4px;
+            background: #3B3835;
+        }
+
+        .tech-mock-bar.orange { background: #D4541C; }
+        .tech-mock-bar.light { background: #4A4744; }
+
+        .tech-mock-stat {
+            background: #3B3835;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .tech-mock-stat-item {
+            text-align: center;
+        }
+
+        .tech-mock-stat-item .num {
+            font-size: 22px;
+            font-weight: 800;
+            color: #D4541C;
+        }
+
+        .tech-mock-stat-item .label {
+            font-size: 11px;
+            color: #9CA3AF;
+            margin-top: 2px;
+        }
+
+        /* ---- WHY BUNGEE ---- */
+        .why-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .why-item {
+            padding: 8px 0;
+        }
+
+        .why-number {
+            font-size: 38px;
+            font-weight: 900;
+            color: #D4541C;
+            line-height: 1;
+            margin-bottom: 12px;
+        }
+
+        .why-item h3 {
+            font-size: 17px;
+            font-weight: 700;
+            color: #2D2A26;
+            margin-bottom: 8px;
+        }
+
+        .why-item p {
+            font-size: 14px;
+            color: #6B7280;
+            line-height: 1.6;
+        }
+
+        /* ---- INDUSTRIES ---- */
+        .industries-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+        }
+
+        .industry-card {
+            background: #FFFFFF;
+            border: 1px solid #F0F0F0;
+            border-radius: 12px;
+            padding: 28px 20px;
+            text-align: center;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+
+        .industry-card:hover {
+            border-color: #D4541C;
+            transform: translateY(-2px);
+        }
+
+        .industry-icon {
+            width: 48px;
+            height: 48px;
+            background: #F7F7F7;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 14px;
+        }
+
+        .industry-icon svg {
+            width: 24px;
+            height: 24px;
+            color: #2D2A26;
+        }
+
+        .industry-card h4 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #2D2A26;
+            margin-bottom: 4px;
+        }
+
+        .industry-card p {
+            font-size: 12px;
+            color: #9CA3AF;
+            font-weight: 500;
+        }
+
+        /* ---- CARRIER CTA ---- */
+        .carrier-section {
+            padding: 80px 24px;
+            background: linear-gradient(rgba(45,42,38,0.88), rgba(45,42,38,0.92)), url('https://images.pexels.com/photos/27099094/pexels-photo-27099094.jpeg?auto=compress&cs=tinysrgb&w=1920') center/cover no-repeat;
+        }
+
+        .carrier-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: center;
+        }
+
+        .carrier-section h2 {
+            font-size: clamp(28px, 3vw, 38px);
+            font-weight: 800;
+            color: #FFFFFF;
+            letter-spacing: -1px;
+            margin-bottom: 16px;
+        }
+
+        .carrier-section p {
+            font-size: 16px;
+            color: #9CA3AF;
+            line-height: 1.7;
+            margin-bottom: 32px;
+        }
+
+        .carrier-benefits {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .carrier-benefit {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #D1D5DB;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .carrier-benefit svg {
+            width: 18px;
+            height: 18px;
+            color: #D4541C;
+            min-width: 18px;
+        }
+
+        .recruit-row {
+            max-width: 1200px;
+            margin: 48px auto 0;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+        }
+
+        .recruit-card {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 36px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .recruit-card h3 {
+            font-size: 20px;
+            font-weight: 700;
+            color: #FFFFFF;
+            margin: 0;
+        }
+
+        .recruit-card p {
+            font-size: 14px;
+            color: #9CA3AF;
+            line-height: 1.6;
+            margin: 0 0 8px;
+            flex: 1;
+        }
+
+        .recruit-card .btn-outline {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 28px;
+            border: 2px solid #D4541C;
+            color: #D4541C;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.25s;
+            width: fit-content;
+        }
+
+        .recruit-card .btn-outline:hover {
+            background: #D4541C;
+            color: #FFFFFF;
+        }
+
+        .recruit-card .btn-outline svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .recruit-row {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+        }
+
+        /* ---- CONTACT / CTA SECTION ---- */
+        .cta-section {
+            padding: 100px 24px;
+            text-align: center;
+        }
+
+        .cta-section .section-title {
+            max-width: 600px;
+            margin: 0 auto 16px;
+        }
+
+        .cta-section .section-desc {
+            max-width: 480px;
+            margin: 0 auto 40px;
+        }
+
+        .cta-actions {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* ---- CONTACT FORM ---- */
+        .contact-section {
+            padding: 100px 24px;
+            background: linear-gradient(rgba(247,247,247,0.95), rgba(247,247,247,0.95)), url('https://images.pexels.com/photos/4481256/pexels-photo-4481256.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2') center/cover no-repeat;
+        }
+
+        .contact-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: start;
+        }
+
+        .contact-form {
+            background: #FFFFFF;
+            border-radius: 16px;
+            padding: 40px;
+            border: 1px solid #F0F0F0;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #2D2A26;
+            margin-bottom: 6px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1.5px solid #E5E7EB;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Inter', sans-serif;
+            color: #2D2A26;
+            transition: border-color 0.2s;
+            background: #FFFFFF;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #D4541C;
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-submit {
+            width: 100%;
+            padding: 14px;
+            background: #D4541C;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: 'Inter', sans-serif;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .form-submit:hover {
+            background: #B8461A;
+        }
+
+        .contact-info {
+            padding-top: 16px;
+        }
+
+        .contact-info h3 {
+            font-size: 15px;
+            font-weight: 700;
+            color: #2D2A26;
+            margin-bottom: 4px;
+        }
+
+        .contact-info p {
+            font-size: 14px;
+            color: #6B7280;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+
+        .contact-detail {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .contact-detail-icon {
+            width: 40px;
+            height: 40px;
+            background: #FFF4EF;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 40px;
+        }
+
+        .contact-detail-icon svg {
+            width: 18px;
+            height: 18px;
+            color: #D4541C;
+        }
+
+        .contact-detail div {
+            font-size: 14px;
+        }
+
+        .contact-detail .label {
+            font-size: 12px;
+            color: #9CA3AF;
+            font-weight: 500;
+        }
+
+        .contact-detail .value {
+            color: #2D2A26;
+            font-weight: 600;
+        }
+
+        /* ---- FOOTER ---- */
+        .footer {
+            background: #2D2A26;
+            padding: 64px 24px 32px;
+        }
+
+        .footer-inner {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-top {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 48px;
+            padding-bottom: 40px;
+            border-bottom: 1px solid #3B3835;
+        }
+
+        .footer-brand .logo-text {
+            color: #FFFFFF;
+        }
+
+        .footer-brand .logo-sub {
+            color: #D4541C;
+        }
+
+        .footer-brand p {
+            font-size: 14px;
+            color: #9CA3AF;
+            line-height: 1.6;
+            margin-top: 16px;
+            max-width: 280px;
+        }
+
+        .footer-col h4 {
+            font-size: 13px;
+            font-weight: 700;
+            color: #FFFFFF;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+        }
+
+        .footer-col a {
+            display: block;
+            font-size: 14px;
+            color: #9CA3AF;
+            text-decoration: none;
+            margin-bottom: 12px;
+            transition: color 0.2s;
+        }
+
+        .footer-col a:hover {
+            color: #D4541C;
+        }
+
+        .footer-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 32px;
+        }
+
+        .footer-bottom p {
+            font-size: 13px;
+            color: #6B7280;
+        }
+
+        /* ---- RESPONSIVE ---- */
+        @media (max-width: 1024px) {
+            .services-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .industries-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .footer-top {
+                grid-template-columns: 1fr 1fr;
+                gap: 32px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            .mobile-toggle {
+                display: block;
+            }
+            .hero {
+                padding: 120px 24px 60px;
+                min-height: auto;
+            }
+            .hero h1 {
+                font-size: 36px;
+                letter-spacing: -1px;
+            }
+            .hero-stats {
+                gap: 24px;
+                flex-wrap: wrap;
+            }
+            .services-grid {
+                grid-template-columns: 1fr;
+            }
+            .tech-grid {
+                grid-template-columns: 1fr;
+            }
+            .why-grid {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
+            .industries-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .carrier-inner {
+                grid-template-columns: 1fr;
+                gap: 32px;
+            }
+            .contact-inner {
+                grid-template-columns: 1fr;
+            }
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            .footer-top {
+                grid-template-columns: 1fr;
+            }
+            .footer-bottom {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+        }
+
+        /* ---- ANIMATIONS ---- */
+        .fade-up {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .fade-up.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ====== NAVIGATION ====== -->
+    <nav class="nav" id="nav">
+        <div class="nav-inner">
+            <a href="#" class="logo">
+                <img src="logo.png" alt="Bungee Supply Chain">
+            </a>
+            <ul class="nav-links">
+                <li><a href="#services">Services</a></li>
+                <li><a href="#technology">Technology</a></li>
+                <li><a href="#why">Why Bungee</a></li>
+                <li><a href="#industries">Industries</a></li>
+                <li><a href="#fleet">Our Fleet</a></li>
+                <li><a href="https://shipbungee.com/connect/" class="nav-cta">Get a Quote</a></li>
+                <li><a href="calculator.html?calendar=1" class="nav-calendar">Calendar</a></li>
+            </ul>
+            <button class="mobile-toggle" onclick="toggleMobile()" aria-label="Menu">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- ====== HERO ====== -->
+    <div class="hero-wrapper">
+        <video class="hero-video" autoplay muted loop playsinline poster="https://images.pexels.com/photos/93398/pexels-photo-93398.jpeg?auto=compress&cs=tinysrgb&w=1920">
+            <source src="https://videos.pexels.com/video-files/18749847/18749847-hd_1920_1080_60fps.mp4" type="video/mp4">
+        </video>
+        <div class="hero-overlay"></div>
+    <section class="hero" id="hero">
+        <div class="hero-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            Asset-Based Carrier
+        </div>
+        <h1>Our trucks. <span class="accent">Your freight.</span><br>Delivered.</h1>
+        <p class="hero-sub">Asset-based carrier serving North America with real-time tracking, reliable capacity, and dedicated support. Our fleet, our drivers, your peace of mind.</p>
+        <div class="hero-actions">
+            <a href="#contact" class="btn-primary">
+                Get a Quote
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a href="#fleet" class="btn-secondary">Our Fleet</a>
+        </div>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <h3>95%+</h3>
+                <p>On-Time Delivery</p>
+            </div>
+            <div class="hero-stat">
+                <h3>24/7</h3>
+                <p>Live Tracking & Support</p>
+            </div>
+            <div class="hero-stat">
+                <h3>100+</h3>
+                <p>Trucks in Our Fleet</p>
+            </div>
+            <div class="hero-stat">
+                <h3>3 Yrs</h3>
+                <p>Proven Track Record</p>
+            </div>
+        </div>
+    </section>
+    </div><!-- end hero-wrapper -->
+
+    <!-- ====== SERVICES ====== -->
+    <section class="section-full" id="services">
+        <div class="section-inner fade-up">
+            <div class="section-label">Our Services</div>
+            <div class="section-title">Our fleet. Your solution.</div>
+            <p class="section-desc">From full truckload to temperature-controlled freight, our asset-based fleet gives you the accountability and capacity you can count on.</p>
+            <div class="services-grid">
+                <div class="service-card">
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                    </div>
+                    <h3>Full Truckload (FTL)</h3>
+                    <p>Dedicated capacity with direct routes across North America. Dry van, flatbed, and specialized equipment backed by our asset-based fleet.</p>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                    </div>
+                    <h3>Less-than-Truckload (LTL)</h3>
+                    <p>Cost-effective consolidation with reliable schedules. Ideal for shipments that don't require a full trailer, with flexible pickup options.</p>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/><line x1="1" y1="10" x2="16" y2="10"/></svg>
+                    </div>
+                    <h3>Straight Truck</h3>
+                    <p>Versatile mid-size freight for urban and regional deliveries. Perfect for time-sensitive shipments that need flexible access points.</p>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+                    </div>
+                    <h3>Temperature-Controlled</h3>
+                    <p>GDP-certified cold chain integrity for pharmaceuticals, food, and perishables. Continuous temperature monitoring throughout transit.</p>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    </div>
+                    <h3>Cross-Border</h3>
+                    <p>Seamless USA-Canada cross-border service with customs clearance expertise. CUSMA compliant with full documentation support from our operations team.</p>
+                </div>
+                <div class="service-card">
+                    <div class="service-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                    </div>
+                    <h3>Regional Distribution</h3>
+                    <p>Next-day delivery with AI-optimized routing across our fleet. Efficient last-mile and regional distribution coverage across key corridors.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== IMAGE DIVIDER ====== -->
+    <div style="width: 100%; height: 360px; overflow: hidden; position: relative;">
+        <img src="https://images.pexels.com/photos/2800121/pexels-photo-2800121.jpeg?auto=compress&cs=tinysrgb&w=1920&h=750&dpr=2" alt="Trucks on highway" style="width: 100%; height: 100%; object-fit: cover; object-position: center 40%;">
+        <div style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 15%, rgba(255,255,255,0) 85%, rgba(255,255,255,1) 100%);"></div>
+    </div>
+
+    <!-- ====== TECHNOLOGY ====== -->
+    <section class="section" id="technology">
+        <div class="fade-up">
+            <div class="section-label">Bungee Connect&trade;</div>
+            <div class="section-title">Fleet management powered by intelligence.</div>
+            <p class="section-desc">Our proprietary TMS gives you full visibility into our fleet operations — real-time tracking, AI-optimized routing, and data analytics to keep your supply chain running at peak efficiency.</p>
+            <div class="tech-grid">
+                <div class="tech-features">
+                    <div class="tech-feature">
+                        <div class="tech-feature-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        </div>
+                        <div>
+                            <h4>Instant Quotes</h4>
+                            <p>Get competitive rates in seconds. No waiting, no back-and-forth — just accurate pricing when you need it.</p>
+                        </div>
+                    </div>
+                    <div class="tech-feature">
+                        <div class="tech-feature-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        </div>
+                        <div>
+                            <h4>Live GPS Tracking</h4>
+                            <p>Real-time shipment visibility with automated status updates. Know exactly where your freight is at every moment.</p>
+                        </div>
+                    </div>
+                    <div class="tech-feature">
+                        <div class="tech-feature-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                        </div>
+                        <div>
+                            <h4>Data Analytics</h4>
+                            <p>Actionable insights and forecasting to optimize your shipping spend. Identify trends and make smarter supply chain decisions.</p>
+                        </div>
+                    </div>
+                    <div class="tech-feature">
+                        <div class="tech-feature-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        </div>
+                        <div>
+                            <h4>Secure & Reliable</h4>
+                            <p>Enterprise-grade platform with 99.9% uptime. Your data is encrypted and protected at every level.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="tech-visual">
+                    <div class="tech-visual-header">
+                        <div class="tech-dot red"></div>
+                        <div class="tech-dot yellow"></div>
+                        <div class="tech-dot green"></div>
+                    </div>
+                    <div class="tech-mock-row">
+                        <div class="tech-mock-bar orange" style="width: 60px; height: 6px;"></div>
+                        <div class="tech-mock-bar light" style="width: 120px; height: 6px;"></div>
+                    </div>
+                    <div style="background: #3B3835; border-radius: 8px; padding: 20px; margin-bottom: 12px;">
+                        <div class="tech-mock-row">
+                            <div class="tech-mock-bar" style="width: 100%; height: 100px; border-radius: 6px; background: linear-gradient(135deg, #3B3835, #4A4744); position: relative; overflow: hidden;">
+                                <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 2px; background: #D4541C;"></div>
+                                <svg viewBox="0 0 200 60" style="width: 100%; height: 100%; opacity: 0.3;">
+                                    <polyline points="0,50 30,40 60,45 90,20 120,30 150,15 180,25 200,10" fill="none" stroke="#D4541C" stroke-width="1.5"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tech-mock-stat">
+                        <div class="tech-mock-stat-item">
+                            <div class="num">247</div>
+                            <div class="label">Active Loads</div>
+                        </div>
+                        <div class="tech-mock-stat-item">
+                            <div class="num">98%</div>
+                            <div class="label">On-Time</div>
+                        </div>
+                        <div class="tech-mock-stat-item">
+                            <div class="num">$42K</div>
+                            <div class="label">Saved This Month</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== WHY BUNGEE ====== -->
+    <section class="section-full" id="why">
+        <div class="section-inner fade-up">
+            <div class="section-label">Why Bungee</div>
+            <div class="section-title">We own the trucks. We deliver the results.</div>
+            <p class="section-desc">As an asset-based carrier, we bring our own fleet, our own drivers, and a level of accountability that makes the difference. No excuses — just reliable freight delivery.</p>
+            <div class="why-grid">
+                <div class="why-item">
+                    <div class="why-number">01</div>
+                    <h3>Our Own Fleet</h3>
+                    <p>With trucks on the road that we own and operate, you get guaranteed capacity when you need it most — even during peak seasons.</p>
+                </div>
+                <div class="why-item">
+                    <div class="why-number">02</div>
+                    <h3>24/7 Live Support</h3>
+                    <p>Round-the-clock customer service and real-time tracking. A real person answers when you call — not a phone tree.</p>
+                </div>
+                <div class="why-item">
+                    <div class="why-number">03</div>
+                    <h3>AI-Optimized Dispatch</h3>
+                    <p>Machine learning algorithms optimize our fleet dispatch and routing in real time, reducing transit times and maximizing efficiency on every load.</p>
+                </div>
+                <div class="why-item">
+                    <div class="why-number">04</div>
+                    <h3>Direct Pricing</h3>
+                    <p>No hidden fees, no surprises. Straightforward, competitive rates backed by the efficiency of running our own fleet.</p>
+                </div>
+                <div class="why-item">
+                    <div class="why-number">05</div>
+                    <h3>Single Point of Contact</h3>
+                    <p>Your own dedicated account manager who knows your business, your lanes, and your freight. One call, one team, every time.</p>
+                </div>
+                <div class="why-item">
+                    <div class="why-number">06</div>
+                    <h3>Safety-First Culture</h3>
+                    <p>Rigorous safety standards, well-maintained equipment, and continuous performance monitoring. Every load is held to the same high bar.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== INDUSTRIES ====== -->
+    <section class="section" id="industries">
+        <div class="fade-up">
+            <div class="section-label">Industries We Serve</div>
+            <div class="section-title">Our fleet serves every sector.</div>
+            <p class="section-desc">From temperature-sensitive pharmaceuticals to time-critical automotive parts — our equipment and drivers are equipped to handle the unique demands of your industry.</p>
+            <div class="industries-grid">
+                <div class="industry-card">
+                    <div class="industry-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                    </div>
+                    <h4>Healthcare</h4>
+                    <p>GDP Certified</p>
+                </div>
+                <div class="industry-card">
+                    <div class="industry-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                    </div>
+                    <h4>Automotive</h4>
+                    <p>CUSMA Expert</p>
+                </div>
+                <div class="industry-card">
+                    <div class="industry-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                    </div>
+                    <h4>E-Commerce</h4>
+                    <p>Fast Fulfillment</p>
+                </div>
+                <div class="industry-card">
+                    <div class="industry-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+                    </div>
+                    <h4>Food & Beverage</h4>
+                    <p>FSMA Compliant</p>
+                </div>
+                <div class="industry-card">
+                    <div class="industry-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M5 20V8l7-5 7 5v12"/><path d="M9 20v-4h6v4"/></svg>
+                    </div>
+                    <h4>Industrial</h4>
+                    <p>Heavy Haul Ready</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== OUR FLEET ====== -->
+    <section class="carrier-section" id="fleet">
+        <div class="carrier-inner fade-up">
+            <div>
+                <div class="section-label" style="color: #D4541C;">Our Fleet</div>
+                <h2>Your freight, our trucks.</h2>
+                <p>As an asset-based carrier, we invest in our own equipment and people. That means guaranteed capacity, consistent service quality, and the accountability that comes with having skin in the game.</p>
+                <a href="#contact" class="btn-primary">Request a Quote</a>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 24px;">
+                <img src="bungeetrucklogo.jpg" alt="Bungee fleet operations" style="width: 100%; border-radius: 12px; max-height: 480px; object-fit: cover; opacity: 0.9;">
+            <div class="carrier-benefits">
+                <div class="carrier-benefit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Company-owned dry van, flatbed &amp; reefer trailers
+                </div>
+                <div class="carrier-benefit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Professional, trained drivers on every load
+                </div>
+                <div class="carrier-benefit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    GPS-tracked equipment with ELD compliance
+                </div>
+                <div class="carrier-benefit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Well-maintained, late-model equipment
+                </div>
+                <div class="carrier-benefit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Guaranteed capacity — no peak season scramble
+                </div>
+                <div class="carrier-benefit">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    Full accountability from pickup to delivery
+                </div>
+            </div>
+            </div><!-- end fleet right column wrapper -->
+        </div>
+
+        <!-- Recruitment CTAs -->
+        <div class="recruit-row fade-up">
+            <div class="recruit-card">
+                <h3>Become a Carrier</h3>
+                <p>Join our network of trusted carriers. Get access to consistent freight, fast payments, and a dedicated support team that treats you like a partner.</p>
+                <a href="#contact" class="btn-outline">
+                    Apply as Carrier
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </a>
+            </div>
+            <div class="recruit-card">
+                <h3>Drive With Us</h3>
+                <p>We're always looking for professional drivers. Competitive pay, well-maintained equipment, consistent miles, and a team that respects your time on the road.</p>
+                <a href="#contact" class="btn-outline">
+                    Apply as Driver
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== CONTACT ====== -->
+    <section class="contact-section" id="contact">
+        <div class="contact-inner fade-up">
+            <div class="contact-info">
+                <div class="section-label">Get in Touch</div>
+                <div class="section-title">Let's move your freight.</div>
+                <p class="section-desc" style="margin-bottom: 40px;">Whether you need a shipping quote, want to join our driving team, or just have a question — we'd love to hear from you.</p>
+
+                <div class="contact-detail">
+                    <div class="contact-detail-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </div>
+                    <div>
+                        <div class="label">Phone</div>
+                        <div class="value">1-866-8BUNGEE (1-866-828-6433)</div>
+                    </div>
+                </div>
+
+                <div class="contact-detail">
+                    <div class="contact-detail-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    </div>
+                    <div>
+                        <div class="label">Email</div>
+                        <div class="value">inbox@shipbungee.com</div>
+                    </div>
+                </div>
+
+                <div class="contact-detail">
+                    <div class="contact-detail-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    </div>
+                    <div>
+                        <div class="label">Office</div>
+                        <div class="value">501 - 105 Gordon Baker Rd.<br>North York, ON M2H 3S1, Canada</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="contact-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>First Name</label>
+                        <input type="text" placeholder="John">
+                    </div>
+                    <div class="form-group">
+                        <label>Last Name</label>
+                        <input type="text" placeholder="Smith">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Company</label>
+                    <input type="text" placeholder="Your company name">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" placeholder="john@company.com">
+                </div>
+                <div class="form-group">
+                    <label>I'm a...</label>
+                    <select>
+                        <option value="" disabled selected>Select one</option>
+                        <option>Shipper looking for a quote</option>
+                        <option>Driver interested in joining the team</option>
+                        <option>Partnership inquiry</option>
+                        <option>Other inquiry</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Message</label>
+                    <textarea placeholder="Tell us about your freight needs..."></textarea>
+                </div>
+                <button class="form-submit" type="button">Send Message</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== FOOTER ====== -->
+    <footer class="footer">
+        <div class="footer-inner">
+            <div class="footer-top">
+                <div class="footer-brand">
+                    <img src="logo-white.png" alt="Bungee Supply Chain" style="height: 40px; width: auto; margin-bottom: 8px;">
+                    <p>Asset-based carrier delivering freight across North America. Our fleet, our people, your trust — built a mile at a time.</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Services</h4>
+                    <a href="#services">Full Truckload</a>
+                    <a href="#services">Less-than-Truckload</a>
+                    <a href="#services">Straight Truck</a>
+                    <a href="#services">Temperature-Controlled</a>
+                    <a href="#services">Cross-Border</a>
+                </div>
+                <div class="footer-col">
+                    <h4>Company</h4>
+                    <a href="#why">Why Bungee</a>
+                    <a href="#technology">Technology</a>
+                    <a href="#industries">Industries</a>
+                    <a href="#fleet">Our Fleet</a>
+                    <a href="#contact">Contact</a>
+                </div>
+                <div class="footer-col">
+                    <h4>Connect</h4>
+                    <a href="https://www.linkedin.com/company/bungee-supply-chain-ltd" target="_blank" rel="noopener">LinkedIn</a>
+                    <a href="#">Facebook</a>
+                    <a href="mailto:inbox@shipbungee.com">inbox@shipbungee.com</a>
+                    <a href="https://www.shipbungee.com">www.shipbungee.com</a>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 Bungee Supply Chain Ltd. All rights reserved.</p>
+                <p style="font-size: 13px; color: #6B7280;">North York, ON, Canada &middot; Serving North America</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- ====== SCRIPTS ====== -->
+    <script>
+        // Navbar scroll effect
+        const nav = document.getElementById('nav');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 20) {
+                nav.classList.add('scrolled');
+            } else {
+                nav.classList.remove('scrolled');
+            }
+        });
+
+        // Fade-up on scroll
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Mobile toggle (basic)
+        function toggleMobile() {
+            const links = document.querySelector('.nav-links');
+            if (links.style.display === 'flex') {
+                links.style.display = 'none';
+            } else {
+                links.style.display = 'flex';
+                links.style.flexDirection = 'column';
+                links.style.position = 'absolute';
+                links.style.top = '72px';
+                links.style.left = '0';
+                links.style.right = '0';
+                links.style.background = '#FFFFFF';
+                links.style.padding = '24px';
+                links.style.borderBottom = '1px solid #E5E7EB';
+                links.style.gap = '16px';
+            }
+        }
+    </script>
+</body>
+</html>

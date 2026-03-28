@@ -5,7 +5,18 @@ import react from "@vitejs/plugin-react";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
+/** Subpath when hosted at e.g. https://shipbungee.com/connect/ (`/connect/`). Default `/` for Cloud Run root. */
+function normalizeViteBase(raw: string | undefined): string {
+  const b = (raw || "/").trim();
+  if (!b || b === "/") return "/";
+  let x = b.startsWith("/") ? b : `/${b}`;
+  if (!x.endsWith("/")) x += "/";
+  return x;
+}
+const viteBase = normalizeViteBase(process.env.VITE_BASE_PATH);
+
 export default defineConfig({
+  base: viteBase,
   root: path.resolve(rootDir, "client"),
   /** Load `.env` from repo root (beside this file), not from `client/`. */
   envDir: rootDir,

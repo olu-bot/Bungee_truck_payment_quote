@@ -63,6 +63,11 @@ import {
   getFuelPriceForRouteBuilder,
   type FuelPriceData,
 } from "@/lib/fuelPriceService";
+import {
+  buildConnectGuestQuickProfile,
+  CONNECT_GUEST_PROFILE_ID,
+  isConnectGuestUser,
+} from "@/lib/connectGuest";
 
 let stopIdCounter = 0;
 function nextStopId(): string {
@@ -328,6 +333,7 @@ export default function RouteBuilder() {
   const isAdmin = user?.role === "admin";
   const scopeId = workspaceFirestoreId(user);
   const queryClient = useQueryClient();
+  const connectGuest = isConnectGuestUser(user);
 
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
   const formatCurrency = useCallback(
@@ -337,16 +343,23 @@ export default function RouteBuilder() {
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
   const dLabel = distanceLabel(measureUnit);
 
-  const { data: profiles = [] } = useQuery<CostProfile[]>({
+  const connectGuestProfile = useMemo(
+    () => buildConnectGuestQuickProfile(currency),
+    [currency],
+  );
+
+  const { data: remoteProfiles = [] } = useQuery<CostProfile[]>({
     queryKey: ["firebase", "profiles", scopeId ?? ""],
     queryFn: () => firebaseDb.getProfiles(scopeId),
-    enabled: !!scopeId,
+    enabled: !!scopeId && !connectGuest,
   });
+
+  const profiles = connectGuest ? [connectGuestProfile] : remoteProfiles;
 
   const { data: yards = [] } = useQuery<Yard[]>({
     queryKey: ["firebase", "yards", scopeId ?? ""],
     queryFn: () => firebaseDb.getYards(scopeId),
-    enabled: !!scopeId,
+    enabled: !!scopeId && !connectGuest,
   });
 
   const selectedYard = useMemo(
@@ -633,7 +646,12 @@ export default function RouteBuilder() {
 
     setIsCalculating(true);
     try {
-      const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      let rawProfile: CostProfile | null = null;
+      if (connectGuest && selectedProfileId === CONNECT_GUEST_PROFILE_ID) {
+        rawProfile = connectGuestProfile;
+      } else {
+        rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      }
       if (!rawProfile) throw new Error("Cost profile not found");
 
       // Convert profile costs to the user's display currency
@@ -743,7 +761,12 @@ export default function RouteBuilder() {
 
     setIsSavingQuote(true);
     try {
-      const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      let rawProfile: CostProfile | null = null;
+      if (connectGuest && selectedProfileId === CONNECT_GUEST_PROFILE_ID) {
+        rawProfile = connectGuestProfile;
+      } else {
+        rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      }
       if (!rawProfile) throw new Error("Cost profile not found");
       const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
       const profile = convertCostProfileCurrency(rawProfile, profileCurrency, currency) as typeof rawProfile;
@@ -1014,7 +1037,7 @@ export default function RouteBuilder() {
               Create a cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
             </p>
             <a
-              href="/#/profiles"
+              href="#/profiles"
               className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-md px-3.5 py-1.5 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1188,7 +1211,7 @@ export default function RouteBuilder() {
           <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
           <p className="text-[13px] text-slate-600 leading-snug">
             You're using the <strong className="text-slate-800">Quick Start Profile</strong> with industry-average values. For accurate quotes,{" "}
-            <a href="/#/profiles" className="underline font-semibold text-orange-600 hover:text-orange-500">
+            <a href="#/profiles" className="underline font-semibold text-orange-600 hover:text-orange-500">
               create your own profile
             </a>{" "}
             with your real costs.

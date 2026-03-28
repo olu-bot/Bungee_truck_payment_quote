@@ -43,6 +43,14 @@ ENV VITE_FIREBASE_APP_ID=${VITE_FIREBASE_APP_ID}
 ARG VITE_FIREBASE_MEASUREMENT_ID
 ENV VITE_FIREBASE_MEASUREMENT_ID=${VITE_FIREBASE_MEASUREMENT_ID}
 
+# `/` for standalone Cloud Run; `/connect/` when unified with marketing (shipbungee.com/connect/).
+ARG VITE_BASE_PATH=/
+ENV VITE_BASE_PATH=${VITE_BASE_PATH}
+
+# When `true`, shipbungee unified build opens the calculator without Firebase sign-in (guest + Quick Start profile).
+ARG VITE_CONNECT_GUEST_MODE=
+ENV VITE_CONNECT_GUEST_MODE=${VITE_CONNECT_GUEST_MODE}
+
 ENV NODE_ENV=production
 RUN npm run build
 
@@ -57,6 +65,7 @@ ENV PORT=5000
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/website ./website
 
 EXPOSE 5000
 CMD ["npm", "start"]

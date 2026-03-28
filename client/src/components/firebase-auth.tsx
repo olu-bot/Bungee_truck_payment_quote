@@ -13,6 +13,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User as FirebaseUser,
 } from "firebase/auth";
@@ -20,6 +21,13 @@ import { doc, getDoc, setDoc, collection } from "firebase/firestore";
 
 import { auth, db, firebaseConfigured } from "@/lib/firebase";
 import * as firebaseDb from "@/lib/firebaseDb";
+import {
+  connectGuestAppUser,
+  isConnectGuestBuild,
+  isConnectGuestUser,
+  readConnectGuestDeclined,
+  setConnectGuestDeclined,
+} from "@/lib/connectGuest";
 import { queryClient } from "@/lib/queryClient";
 import type { MeasurementUnit } from "@/lib/measurement";
 
@@ -185,16 +193,26 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!firebaseConfigured) {
       setAuthLoading(false);
-      setUser(null);
+      if (isConnectGuestBuild() && !readConnectGuestDeclined()) {
+        setUser(connectGuestAppUser() as AppUser);
+      } else {
+        setUser(null);
+      }
       return;
     }
 
     return onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
-        setUser(null);
+        if (isConnectGuestBuild() && !readConnectGuestDeclined()) {
+          setUser(connectGuestAppUser() as AppUser);
+        } else {
+          setUser(null);
+        }
         setAuthLoading(false);
         return;
       }
+
+      setConnectGuestDeclined(false);
 
       try {
         const existing = await loadUserProfile(fbUser);
@@ -264,11 +282,24 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
 
   const loginWithGoogle = useCallback(async () => {
     if (!firebaseConfigured) throw new Error("Firebase is not configured (missing VITE_FIREBASE_* env vars).");
-    const cred = await signInWithPopup(auth, new GoogleAuthProvider());
+    const provider = new GoogleAuthProvider();
     try {
-      setUser(await resolveAppUser(cred.user));
-    } catch {
-      setUser(buildFallbackUser(cred.user));
+      const cred = await signInWithPopup(auth, provider);
+      try {
+        setUser(await resolveAppUser(cred.user));
+      } catch {
+        setUser(buildFallbackUser(cred.user));
+      }
+    } catch (e: unknown) {
+      const code =
+        e && typeof e === "object" && "code" in e
+          ? String((e as { code: unknown }).code)
+          : "";
+      if (code === "auth/popup-blocked") {
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw e;
     }
   }, []);
 
@@ -360,9 +391,14 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    if (isConnectGuestUser(user)) {
+      setConnectGuestDeclined(true);
+      setUser(null);
+      return;
+    }
     if (!firebaseConfigured) return;
     await signOut(auth);
-  }, []);
+  }, [user]);
 
   const value = useMemo(
     () => ({

@@ -1,0 +1,2053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employee Tools — Bungee Supply Chain</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- React + Babel (no build step required) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #F5F5F7;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    #app { min-height: 100vh; }
+
+    /* ── PASSWORD GATE ──────────────────────────────── */
+    #login-gate {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #F5F5F7;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-card {
+      background: #fff; border-radius: 22px;
+      padding: 52px 44px; width: 100%; max-width: 420px;
+      box-shadow: 0 8px 48px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.04);
+      text-align: center;
+    }
+    .login-logo { display: block; margin: 0 auto 28px auto; }
+    .login-logo img { height: 52px; width: auto; }
+    .login-title {
+      font-size: 24px; font-weight: 700; letter-spacing: -0.3px;
+      color: #1D1D1F; margin-bottom: 6px;
+    }
+    .login-sub { font-size: 13px; color: #6E6E73; margin-bottom: 36px; }
+    .login-input {
+      width: 100%; padding: 13px 16px; background: #F5F5F7; color: #1D1D1F;
+      border: 1.5px solid transparent; border-radius: 12px; font-size: 16px;
+      outline: none; margin-bottom: 12px;
+      font-family: inherit; transition: border-color 0.2s, background 0.2s;
+    }
+    .login-input:focus { border-color: #D4541C; background: #fff; }
+    .login-input.error { border-color: #FF3B30; background: #fff; }
+    .login-btn {
+      width: 100%; padding: 14px; background: #D4541C; color: #fff;
+      border: none; border-radius: 14px; font-size: 15px; font-weight: 600;
+      cursor: pointer; font-family: inherit; letter-spacing: -0.1px;
+      transition: opacity 0.15s, transform 0.1s; margin-bottom: 12px;
+    }
+    .login-btn:hover  { opacity: 0.88; }
+    .login-btn:active { transform: scale(0.98); }
+    .login-error { color: #FF3B30; font-size: 13px; min-height: 18px; }
+    .login-back {
+      display: inline-block; margin-top: 18px; color: #8A8A8E; font-size: 12px;
+      text-decoration: none; transition: color 0.15s;
+    }
+    .login-back:hover { color: #1D1D1F; }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ PASSWORD GATE ═══════════════════════════════════════════════════ -->
+  <div id="login-gate">
+    <div class="login-card">
+      <div class="login-logo"><img src="logo.png" alt="Bungee Supply Chain" /></div>
+      <div class="login-title">Employee Tools</div>
+      <div class="login-sub">Bungee Supply Chain &mdash; Internal Access Only</div>
+      <input
+        type="password"
+        id="pwd-input"
+        class="login-input"
+        placeholder="Enter password"
+        autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') doLogin()"
+      />
+      <button class="login-btn" onclick="doLogin()">Sign In</button>
+      <div class="login-error" id="login-error"></div>
+      <a href="index.html" class="login-back">← Back to website</a>
+    </div>
+  </div>
+
+  <!-- ═══ CALCULATOR APP (hidden until login) ═══════════════════════════ -->
+  <div id="app" style="display:none"></div>
+
+  <!-- ═══ LOGIN LOGIC ════════════════════════════════════════════════════ -->
+  <script>
+    // ================================================================
+    // EMPLOYEE PASSWORD — edit the value below to change the password
+    const EMPLOYEE_PASSWORD = "@Bungee2026";
+    // ================================================================
+
+    const CALENDAR_URL = 'https://bungee-truck-calendar.uc.r.appspot.com/';
+    const isCalendarRedirect = () => (new URLSearchParams(window.location.search)).get('calendar') === '1';
+
+    function doLogin() {
+      const val = document.getElementById('pwd-input').value;
+      const err = document.getElementById('login-error');
+      const inp = document.getElementById('pwd-input');
+      if (val === EMPLOYEE_PASSWORD) {
+        sessionStorage.setItem('bungee_auth', '1');
+        if (isCalendarRedirect()) {
+          window.location.href = CALENDAR_URL;
+          return;
+        }
+        document.getElementById('login-gate').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        if (window.__appMounted) return;
+        window.__appMounted = true;
+        // Trigger Babel transform now that the app div is visible
+        const script = document.getElementById('calc-script');
+        Babel.transformScriptTags(); // re-process any pending text/babel tags
+      } else {
+        inp.classList.add('error');
+        err.textContent = 'Incorrect password. Please try again.';
+        inp.value = '';
+        setTimeout(() => { inp.classList.remove('error'); err.textContent = ''; }, 3000);
+      }
+    }
+
+    // Auto-login if already authenticated this session
+    if (sessionStorage.getItem('bungee_auth') === '1') {
+      if (isCalendarRedirect()) {
+        window.location.href = CALENDAR_URL;
+      } else {
+        document.getElementById('login-gate').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+      }
+    }
+  </script>
+
+  <!-- ═══ REACT CALCULATOR ══════════════════════════════════════════════ -->
+  <script type="text/babel" data-presets="react">
+    // Make React hooks available without imports (CDN global build)
+    const { useState, useMemo, useRef, useEffect } = React;
+
+    // ── CALCULATOR SOURCE ──────────────────────────────────────────────
+
+// ─── VERIFIED GOOGLE MAPS DISTANCES FROM TORONTO (car times — truck factor applied in getRoute) ──
+const FROM_TORONTO = {
+  ajax:          { km: 46.6,  min: 38  },
+  aurora:        { km: 49.3,  min: 40  },
+  barrie:        { km: 110,   min: 69  },
+  belleville:    { km: 187,   min: 117 },
+  bowmanville:   { km: 76.2,  min: 54  },
+  bradford:      { km: 78.6,  min: 53  },
+  brampton:      { km: 44.2,  min: 33  },
+  brantford:     { km: 103,   min: 68  },
+  brooklin:      { km: 62.7,  min: 46  },
+  burlington:    { km: 57.3,  min: 40  },
+  cambridge:     { km: 97.2,  min: 68  },
+  cobourg:       { km: 118,   min: 77  },
+  collingwood:   { km: 146,   min: 114 },
+  etobicoke:     { km: 13.1,  min: 13  },
+  georgetown:    { km: 54.8,  min: 45  },
+  grimsby:       { km: 84.2,  min: 52  },
+  guelph:        { km: 93.3,  min: 63  },
+  hamilton:      { km: 68.1,  min: 47  },
+  kingston:      { km: 261,   min: 160 },
+  kitchener:     { km: 107,   min: 70  },
+  lindsay:       { km: 132,   min: 92  },
+  london:        { km: 191,   min: 116 },
+  markham:       { km: 29.7,  min: 29  },
+  midland:       { km: 159,   min: 104 },
+  milton:        { km: 55.8,  min: 43  },
+  mississauga:   { km: 27.7,  min: 29  },
+  newmarket:     { km: 54.8,  min: 43  },
+  niagara_falls: { km: 128,   min: 77  },
+  oakville:      { km: 37.7,  min: 29  },
+  orangeville:   { km: 82.2,  min: 60  },
+  orillia:       { km: 144,   min: 92  },
+  oshawa:        { km: 60.2,  min: 47  },
+  peterborough:  { km: 138,   min: 93  },
+  pickering:     { km: 39.6,  min: 35  },
+  richmond_hill: { km: 36.6,  min: 36  },
+  scarborough:   { km: 25.8,  min: 26  },
+  st_catharines: { km: 112,   min: 68  },
+  stratford:     { km: 149,   min: 98  },
+  vaughan:       { km: 44.4,  min: 33  },
+  waterloo:      { km: 115,   min: 72  },
+  welland:       { km: 134,   min: 81  },
+  whitby:        { km: 55.2,  min: 44  },
+  woodstock:     { km: 142,   min: 87  },
+};
+
+// ─── ALL LOCATIONS ────────────────────────────────────────────────────────────
+let LOCATIONS = [
+
+  // ── GREATER TORONTO AREA (416 / 905) ────────────────────────────────────────
+  { id: "toronto",          name: "Toronto",           lat: 43.6532, lng: -79.3832 },
+  { id: "etobicoke",        name: "Etobicoke",         lat: 43.6435, lng: -79.5656 },
+  { id: "scarborough",      name: "Scarborough",       lat: 43.7764, lng: -79.2318 },
+  { id: "north_york",       name: "North York",        lat: 43.7615, lng: -79.4111 },
+  { id: "east_york",        name: "East York",         lat: 43.6915, lng: -79.3220 },
+
+  // ── YORK REGION ──────────────────────────────────────────────────────────────
+  { id: "vaughan",          name: "Vaughan",           lat: 43.8372, lng: -79.4982 },
+  { id: "markham",          name: "Markham",           lat: 43.8599, lng: -79.3350 },
+  { id: "richmond_hill",    name: "Richmond Hill",     lat: 43.8688, lng: -79.4137 },
+  { id: "aurora",           name: "Aurora",            lat: 44.0065, lng: -79.4504 },
+  { id: "newmarket",        name: "Newmarket",         lat: 44.0592, lng: -79.4613 },
+  { id: "king_city",        name: "King City",         lat: 43.9344, lng: -79.5343 },
+  { id: "stouffville",      name: "Stouffville",       lat: 43.9705, lng: -79.2492 },
+  { id: "keswick",          name: "Keswick",           lat: 44.2344, lng: -79.4668 },
+  { id: "east_gwillimbury", name: "East Gwillimbury",  lat: 44.0939, lng: -79.4515 },
+
+  // ── PEEL REGION ───────────────────────────────────────────────────────────────
+  { id: "mississauga",      name: "Mississauga",       lat: 43.5890, lng: -79.6441 },
+  { id: "brampton",         name: "Brampton",          lat: 43.7315, lng: -79.7624 },
+  { id: "caledon",          name: "Caledon",           lat: 43.8667, lng: -79.8667 },
+
+  // ── HALTON REGION ─────────────────────────────────────────────────────────────
+  { id: "oakville",         name: "Oakville",          lat: 43.4675, lng: -79.6877 },
+  { id: "burlington",       name: "Burlington",        lat: 43.3255, lng: -79.7990 },
+  { id: "milton",           name: "Milton",            lat: 43.5183, lng: -79.8774 },
+  { id: "georgetown",       name: "Georgetown",        lat: 43.6488, lng: -79.9206 },
+  { id: "acton",            name: "Acton",             lat: 43.6309, lng: -80.0451 },
+
+  // ── DURHAM REGION ─────────────────────────────────────────────────────────────
+  { id: "oshawa",           name: "Oshawa",            lat: 43.8976, lng: -78.8659 },
+  { id: "whitby",           name: "Whitby",            lat: 43.8975, lng: -78.9429 },
+  { id: "ajax",             name: "Ajax",              lat: 43.8509, lng: -79.0204 },
+  { id: "pickering",        name: "Pickering",         lat: 43.8384, lng: -79.0868 },
+  { id: "brooklin",         name: "Brooklin",          lat: 43.9667, lng: -78.9470 },
+  { id: "bowmanville",      name: "Bowmanville",       lat: 43.9119, lng: -78.6876 },
+  { id: "uxbridge",         name: "Uxbridge",          lat: 44.1061, lng: -79.1301 },
+  { id: "port_perry",       name: "Port Perry",        lat: 44.1062, lng: -78.9468 },
+  { id: "port_hope",        name: "Port Hope",         lat: 43.9522, lng: -78.2963 },
+
+  // ── HAMILTON / WENTWORTH ──────────────────────────────────────────────────────
+  { id: "hamilton",         name: "Hamilton",          lat: 43.2557, lng: -79.8711 },
+  { id: "stoney_creek",     name: "Stoney Creek",      lat: 43.2222, lng: -79.7319 },
+  { id: "ancaster",         name: "Ancaster",          lat: 43.2178, lng: -79.9826 },
+  { id: "dundas",           name: "Dundas",            lat: 43.2692, lng: -79.9592 },
+  { id: "caledonia",        name: "Caledonia",         lat: 43.0725, lng: -79.9531 },
+  { id: "dunnville",        name: "Dunnville",         lat: 42.9042, lng: -79.6219 },
+  { id: "hagersville",      name: "Hagersville",       lat: 42.9611, lng: -80.0544 },
+
+  // ── NIAGARA REGION ────────────────────────────────────────────────────────────
+  { id: "st_catharines",    name: "St. Catharines",    lat: 43.1594, lng: -79.2469 },
+  { id: "niagara_falls",    name: "Niagara Falls",     lat: 43.1066, lng: -79.0687 },
+  { id: "welland",          name: "Welland",           lat: 42.9922, lng: -79.2483 },
+  { id: "grimsby",          name: "Grimsby",           lat: 43.1978, lng: -79.5604 },
+  { id: "thorold",          name: "Thorold",           lat: 43.1167, lng: -79.2000 },
+  { id: "fort_erie",        name: "Fort Erie",         lat: 42.9097, lng: -79.0166 },
+  { id: "port_colborne",    name: "Port Colborne",     lat: 42.8872, lng: -79.2537 },
+  { id: "beamsville",       name: "Beamsville",        lat: 43.1667, lng: -79.4667 },
+  { id: "niagara_on_the_lake", name: "Niagara-on-the-Lake", lat: 43.2553, lng: -79.0711 },
+  { id: "pelham",           name: "Pelham",            lat: 43.0437, lng: -79.3372 },
+
+  // ── WATERLOO REGION ───────────────────────────────────────────────────────────
+  { id: "kitchener",        name: "Kitchener",         lat: 43.4516, lng: -80.4925 },
+  { id: "waterloo",         name: "Waterloo",          lat: 43.4819, lng: -80.5261 },
+  { id: "cambridge",        name: "Cambridge",         lat: 43.3616, lng: -80.3144 },
+  { id: "elmira",           name: "Elmira",            lat: 43.5951, lng: -80.5582 },
+  { id: "new_hamburg",      name: "New Hamburg",       lat: 43.3808, lng: -80.7089 },
+  { id: "ayr",              name: "Ayr",               lat: 43.2845, lng: -80.4560 },
+
+  // ── BRANT / HALDIMAND / NORFOLK ───────────────────────────────────────────────
+  { id: "brantford",        name: "Brantford",         lat: 43.1394, lng: -80.2644 },
+  { id: "paris",            name: "Paris",             lat: 43.2000, lng: -80.3833 },
+  { id: "simcoe",           name: "Simcoe",            lat: 42.8386, lng: -80.3038 },
+  { id: "tillsonburg",      name: "Tillsonburg",       lat: 42.8623, lng: -80.7299 },
+
+  // ── OXFORD / ELGIN ────────────────────────────────────────────────────────────
+  { id: "woodstock",        name: "Woodstock",         lat: 43.1307, lng: -80.7470 },
+  { id: "ingersoll",        name: "Ingersoll",         lat: 43.0384, lng: -80.8827 },
+  { id: "st_thomas",        name: "St. Thomas",        lat: 42.7767, lng: -81.1963 },
+  { id: "aylmer",           name: "Aylmer",            lat: 42.7714, lng: -80.9836 },
+  { id: "port_stanley",     name: "Port Stanley",      lat: 42.6657, lng: -81.2151 },
+
+  // ── MIDDLESEX ─────────────────────────────────────────────────────────────────
+  { id: "london",           name: "London",            lat: 42.9849, lng: -81.2453 },
+  { id: "strathroy",        name: "Strathroy",         lat: 42.9580, lng: -81.6198 },
+  { id: "glencoe",          name: "Glencoe",           lat: 42.7469, lng: -81.7124 },
+  { id: "st_marys",         name: "St. Marys",         lat: 43.2590, lng: -81.1413 },
+  { id: "dorchester",       name: "Dorchester",        lat: 42.9916, lng: -81.0631 },
+
+  // ── PERTH / HURON ─────────────────────────────────────────────────────────────
+  { id: "stratford",        name: "Stratford",         lat: 43.3700, lng: -80.9822 },
+  { id: "listowel",         name: "Listowel",          lat: 43.7344, lng: -80.9553 },
+  { id: "mitchell",         name: "Mitchell",          lat: 43.4667, lng: -81.1944 },
+  { id: "seaforth",         name: "Seaforth",          lat: 43.5375, lng: -81.3967 },
+  { id: "goderich",         name: "Goderich",          lat: 43.7444, lng: -81.7123 },
+  { id: "clinton",          name: "Clinton",           lat: 43.6139, lng: -81.5367 },
+  { id: "exeter",           name: "Exeter",            lat: 43.3570, lng: -81.4801 },
+  { id: "wingham",          name: "Wingham",           lat: 43.8880, lng: -81.3110 },
+
+  // ── BRUCE / GREY ──────────────────────────────────────────────────────────────
+  { id: "owen_sound",       name: "Owen Sound",        lat: 44.5667, lng: -80.9435 },
+  { id: "wiarton",          name: "Wiarton",           lat: 44.7393, lng: -81.1377 },
+  { id: "meaford",          name: "Meaford",           lat: 44.5981, lng: -80.5877 },
+  { id: "collingwood",      name: "Collingwood",       lat: 44.5001, lng: -80.2169 },
+  { id: "kincardine",       name: "Kincardine",        lat: 44.1755, lng: -81.6397 },
+  { id: "port_elgin",       name: "Port Elgin",        lat: 44.4351, lng: -81.3865 },
+  { id: "hanover",          name: "Hanover",           lat: 44.1500, lng: -81.0333 },
+  { id: "walkerton",        name: "Walkerton",         lat: 44.1298, lng: -81.1415 },
+  { id: "durham_on",        name: "Durham",            lat: 44.1745, lng: -80.8176 },
+  { id: "grand_bend",       name: "Grand Bend",        lat: 43.3159, lng: -81.7480 },
+
+  // ── LAMBTON ───────────────────────────────────────────────────────────────────
+  { id: "sarnia",           name: "Sarnia",            lat: 42.9993, lng: -82.3088 },
+  { id: "petrolia",         name: "Petrolia",          lat: 42.8789, lng: -82.1417 },
+  { id: "forest",           name: "Forest",            lat: 43.1017, lng: -82.0044 },
+  { id: "wallaceburg",      name: "Wallaceburg",       lat: 42.5952, lng: -82.3833 },
+
+  // ── ESSEX / CHATHAM-KENT ──────────────────────────────────────────────────────
+  { id: "windsor",          name: "Windsor",           lat: 42.3149, lng: -83.0364 },
+  { id: "chatham",          name: "Chatham",           lat: 42.4048, lng: -82.1909 },
+  { id: "leamington",       name: "Leamington",        lat: 42.0531, lng: -82.5985 },
+  { id: "kingsville",       name: "Kingsville",        lat: 42.0367, lng: -82.7339 },
+  { id: "essex",            name: "Essex",             lat: 42.1755, lng: -82.8272 },
+  { id: "amherstburg",      name: "Amherstburg",       lat: 42.1003, lng: -83.1077 },
+  { id: "tilbury",          name: "Tilbury",           lat: 42.2627, lng: -82.4419 },
+  { id: "ridgetown",        name: "Ridgetown",         lat: 42.4453, lng: -81.8763 },
+
+  // ── SIMCOE COUNTY ─────────────────────────────────────────────────────────────
+  { id: "barrie",           name: "Barrie",            lat: 44.3894, lng: -79.6903 },
+  { id: "orillia",          name: "Orillia",           lat: 44.5978, lng: -79.4197 },
+  { id: "midland",          name: "Midland",           lat: 44.7510, lng: -79.8829 },
+  { id: "penetanguishene",  name: "Penetanguishene",   lat: 44.7686, lng: -79.9341 },
+  { id: "wasaga_beach",     name: "Wasaga Beach",      lat: 44.5201, lng: -80.0158 },
+  { id: "alliston",         name: "Alliston",          lat: 44.1538, lng: -79.8652 },
+  { id: "bradford",         name: "Bradford",          lat: 44.1110, lng: -79.5794 },
+  { id: "innisfil",         name: "Innisfil",          lat: 44.3001, lng: -79.5839 },
+  { id: "beeton",           name: "Beeton",            lat: 44.0854, lng: -79.7840 },
+  { id: "cookstown",        name: "Cookstown",         lat: 44.1876, lng: -79.6904 },
+  { id: "angus",            name: "Angus",             lat: 44.3128, lng: -79.8898 },
+  { id: "elmvale",          name: "Elmvale",           lat: 44.5783, lng: -79.8704 },
+  { id: "stayner",          name: "Stayner",           lat: 44.4167, lng: -80.0833 },
+  { id: "tottenham",        name: "Tottenham",         lat: 44.0219, lng: -79.8118 },
+  { id: "orangeville",      name: "Orangeville",       lat: 43.9198, lng: -80.0943 },
+
+  // ── MUSKOKA / PARRY SOUND ─────────────────────────────────────────────────────
+  { id: "bracebridge",      name: "Bracebridge",       lat: 45.0381, lng: -79.3081 },
+  { id: "gravenhurst",      name: "Gravenhurst",       lat: 44.9179, lng: -79.3742 },
+  { id: "huntsville",       name: "Huntsville",        lat: 45.3281, lng: -79.2175 },
+  { id: "parry_sound",      name: "Parry Sound",       lat: 45.3481, lng: -80.0361 },
+  { id: "port_carling",     name: "Port Carling",      lat: 45.1167, lng: -79.5833 },
+  { id: "bala",             name: "Bala",              lat: 44.9756, lng: -79.6171 },
+  { id: "magnetawan",       name: "Magnetawan",        lat: 45.6610, lng: -79.6276 },
+
+  // ── KAWARTHA LAKES / HALIBURTON ───────────────────────────────────────────────
+  { id: "lindsay",          name: "Lindsay",           lat: 44.3566, lng: -78.7408 },
+  { id: "fenelon_falls",    name: "Fenelon Falls",     lat: 44.5421, lng: -78.7348 },
+  { id: "bobcaygeon",       name: "Bobcaygeon",        lat: 44.5333, lng: -78.5499 },
+  { id: "minden",           name: "Minden",            lat: 44.9267, lng: -78.7305 },
+  { id: "haliburton",       name: "Haliburton",        lat: 45.0511, lng: -78.5268 },
+
+  // ── NORTHUMBERLAND / PETERBOROUGH ────────────────────────────────────────────
+  { id: "peterborough",     name: "Peterborough",      lat: 44.3091, lng: -78.3197 },
+  { id: "cobourg",          name: "Cobourg",           lat: 43.9596, lng: -78.1677 },
+  { id: "campbellford",     name: "Campbellford",      lat: 44.3050, lng: -77.7978 },
+  { id: "havelock",         name: "Havelock",          lat: 44.4367, lng: -77.8817 },
+
+  // ── HASTINGS / PRINCE EDWARD ──────────────────────────────────────────────────
+  { id: "belleville",       name: "Belleville",        lat: 44.1634, lng: -77.3831 },
+  { id: "trenton",          name: "Trenton",           lat: 44.0954, lng: -77.5793 },
+  { id: "picton",           name: "Picton",            lat: 44.0077, lng: -77.1365 },
+  { id: "bancroft",         name: "Bancroft",          lat: 45.0533, lng: -77.8561 },
+  { id: "madoc",            name: "Madoc",             lat: 44.5021, lng: -77.4691 },
+  { id: "stirling",         name: "Stirling",          lat: 44.3000, lng: -77.5425 },
+
+  // ── KINGSTON / FRONTENAC ──────────────────────────────────────────────────────
+  { id: "kingston",         name: "Kingston",          lat: 44.2334, lng: -76.4930 },
+  { id: "napanee",          name: "Napanee",           lat: 44.2497, lng: -76.9497 },
+  { id: "gananoque",        name: "Gananoque",         lat: 44.3297, lng: -76.1641 },
+
+  // ── LEEDS / GRENVILLE / LANARK ───────────────────────────────────────────────
+  { id: "brockville",       name: "Brockville",        lat: 44.5896, lng: -75.6857 },
+  { id: "smiths_falls",     name: "Smiths Falls",      lat: 44.9004, lng: -76.0181 },
+  { id: "perth_on",         name: "Perth",             lat: 44.9000, lng: -76.2500 },
+  { id: "carleton_place",   name: "Carleton Place",    lat: 45.1378, lng: -76.1337 },
+  { id: "almonte",          name: "Almonte",           lat: 45.2226, lng: -76.1908 },
+  { id: "prescott",         name: "Prescott",          lat: 44.7153, lng: -75.5183 },
+  { id: "kemptville",       name: "Kemptville",        lat: 45.0185, lng: -75.6387 },
+  { id: "morrisburg",       name: "Morrisburg",        lat: 44.9047, lng: -75.1870 },
+
+  // ── RENFREW / UPPER OTTAWA VALLEY ────────────────────────────────────────────
+  { id: "pembroke",         name: "Pembroke",          lat: 45.8256, lng: -77.1069 },
+  { id: "petawawa",         name: "Petawawa",          lat: 45.8926, lng: -77.2819 },
+  { id: "renfrew",          name: "Renfrew",           lat: 45.4783, lng: -76.6772 },
+  { id: "arnprior",         name: "Arnprior",          lat: 45.4337, lng: -76.3570 },
+  { id: "deep_river",       name: "Deep River",        lat: 46.1019, lng: -77.4880 },
+
+  // ── OTTAWA AREA ───────────────────────────────────────────────────────────────
+  { id: "ottawa",           name: "Ottawa",            lat: 45.4215, lng: -75.6972 },
+  { id: "rockland",         name: "Rockland",          lat: 45.5503, lng: -75.2921 },
+  { id: "hawkesbury",       name: "Hawkesbury",        lat: 45.6072, lng: -74.5992 },
+  { id: "cornwall",         name: "Cornwall",          lat: 45.0253, lng: -74.7360 },
+
+  // ── NORTHERN ONTARIO ──────────────────────────────────────────────────────────
+  { id: "sudbury",          name: "Sudbury",           lat: 46.4917, lng: -80.9930 },
+  { id: "elliot_lake",      name: "Elliot Lake",       lat: 46.3836, lng: -82.6515 },
+  { id: "espanola",         name: "Espanola",          lat: 46.2567, lng: -81.7675 },
+  { id: "blind_river",      name: "Blind River",       lat: 46.1831, lng: -82.9690 },
+  { id: "north_bay",        name: "North Bay",         lat: 46.3091, lng: -79.4608 },
+  { id: "temiskaming",      name: "Temiskaming Shores", lat: 47.5207, lng: -79.6808 },
+  { id: "kirkland_lake",    name: "Kirkland Lake",     lat: 48.1500, lng: -80.0333 },
+  { id: "sault_ste_marie",  name: "Sault Ste. Marie",  lat: 46.5136, lng: -84.3358 },
+  { id: "wawa",             name: "Wawa",              lat: 47.9936, lng: -84.7762 },
+  { id: "kapuskasing",      name: "Kapuskasing",       lat: 49.4167, lng: -82.4333 },
+  { id: "timmins",          name: "Timmins",           lat: 48.4758, lng: -81.3305 },
+  { id: "thunder_bay",      name: "Thunder Bay",       lat: 48.3809, lng: -89.2477 },
+  { id: "dryden",           name: "Dryden",            lat: 49.7837, lng: -92.8340 },
+  { id: "kenora",           name: "Kenora",            lat: 49.7668, lng: -94.4892 },
+  { id: "fort_frances",     name: "Fort Frances",      lat: 48.6070, lng: -93.4002 },
+  { id: "sioux_lookout",    name: "Sioux Lookout",     lat: 50.0977, lng: -91.9178 },
+
+  // ── QUEBEC ────────────────────────────────────────────────────────────────────
+  { id: "montreal",         name: "Montreal",          lat: 45.5017, lng: -73.5673 },
+  { id: "quebec_city",      name: "Quebec City",       lat: 46.8139, lng: -71.2080 },
+  { id: "laval",            name: "Laval",             lat: 45.6066, lng: -73.7124 },
+  { id: "gatineau",         name: "Gatineau",          lat: 45.4765, lng: -75.7013 },
+  { id: "sherbrooke",       name: "Sherbrooke",        lat: 45.4042, lng: -71.8929 },
+
+  // ── WESTERN CANADA ───────────────────────────────────────────────────────────
+  { id: "winnipeg",         name: "Winnipeg",          lat: 49.8951, lng: -97.1384 },
+  { id: "regina",           name: "Regina",            lat: 50.4452, lng: -104.6189 },
+  { id: "saskatoon",        name: "Saskatoon",         lat: 52.1332, lng: -106.6700 },
+  { id: "calgary",          name: "Calgary",           lat: 51.0447, lng: -114.0719 },
+  { id: "edmonton",         name: "Edmonton",          lat: 53.5461, lng: -113.4938 },
+  { id: "vancouver",        name: "Vancouver",         lat: 49.2827, lng: -123.1207 },
+
+  // ── US — GREAT LAKES / NORTHEAST ─────────────────────────────────────────────
+  { id: "detroit",          name: "Detroit",           lat: 42.3314, lng: -83.0458 },
+  { id: "buffalo",          name: "Buffalo",           lat: 42.8864, lng: -78.8784 },
+  { id: "cleveland",        name: "Cleveland",         lat: 41.4993, lng: -81.6944 },
+  { id: "pittsburgh",       name: "Pittsburgh",        lat: 40.4406, lng: -79.9959 },
+  { id: "chicago",          name: "Chicago",           lat: 41.8781, lng: -87.6298 },
+  { id: "new_york",         name: "New York",          lat: 40.7128, lng: -74.0060 },
+  { id: "boston",           name: "Boston",            lat: 42.3601, lng: -71.0589 },
+  { id: "philadelphia",     name: "Philadelphia",      lat: 39.9526, lng: -75.1652 },
+  { id: "baltimore",        name: "Baltimore",         lat: 39.2904, lng: -76.6122 },
+  { id: "washington_dc",    name: "Washington DC",     lat: 38.9072, lng: -77.0369 },
+
+  // ── US — MIDWEST ──────────────────────────────────────────────────────────────
+  { id: "milwaukee",        name: "Milwaukee",         lat: 43.0389, lng: -87.9065 },
+  { id: "minneapolis",      name: "Minneapolis",       lat: 44.9778, lng: -93.2650 },
+  { id: "columbus",         name: "Columbus",          lat: 39.9612, lng: -82.9988 },
+  { id: "cincinnati",       name: "Cincinnati",        lat: 39.1031, lng: -84.5120 },
+  { id: "indianapolis",     name: "Indianapolis",      lat: 39.7684, lng: -86.1581 },
+  { id: "st_louis",         name: "St. Louis",         lat: 38.6270, lng: -90.1994 },
+  { id: "kansas_city",      name: "Kansas City",       lat: 39.0997, lng: -94.5786 },
+
+  // ── US — SOUTH ────────────────────────────────────────────────────────────────
+  { id: "atlanta",          name: "Atlanta",           lat: 33.7490, lng: -84.3880 },
+  { id: "charlotte",        name: "Charlotte",         lat: 35.2271, lng: -80.8431 },
+  { id: "nashville",        name: "Nashville",         lat: 36.1627, lng: -86.7816 },
+  { id: "miami",            name: "Miami",             lat: 25.7617, lng: -80.1918 },
+  { id: "houston",          name: "Houston",           lat: 29.7604, lng: -95.3698 },
+  { id: "dallas",           name: "Dallas",            lat: 32.7767, lng: -96.7970 },
+
+  // ── US — WEST ─────────────────────────────────────────────────────────────────
+  { id: "denver",           name: "Denver",            lat: 39.7392, lng: -104.9903 },
+  { id: "phoenix",          name: "Phoenix",           lat: 33.4484, lng: -112.0740 },
+  { id: "los_angeles",      name: "Los Angeles",       lat: 34.0522, lng: -118.2437 },
+  { id: "seattle",          name: "Seattle",           lat: 47.6062, lng: -122.3321 },
+  { id: "portland",         name: "Portland",          lat: 45.5051, lng: -122.6750 },
+  { id: "las_vegas",        name: "Las Vegas",         lat: 36.1699, lng: -115.1398 },
+];
+
+// ─── RATE CONSTANTS ───────────────────────────────────────────────────────────
+const BASE_RATE         = 42;    // $/hr labor
+const LOAD_UNLOAD_HRS   = 2;     // 1 hr load + 1 hr unload (single delivery)
+const LOAD_HRS          = 1;     // loading at origin
+const UNLOAD_HRS_MULTI  = 1;     // 1 hr per stop (multi-delivery)
+const BASE_CITY         = "mississauga";
+const TRUCK_TIME_FACTOR = 1.20;  // trucks are ~20% slower than cars
+
+// ─── FUEL — consumption rates (fixed) + live price (updated daily) ────────────
+const FUEL_L_PER_KM  = 0.40;    // L/km highway (≈40L/100km, heavy truck)
+const FUEL_L_PER_HR  = 7.5;     // L/hr urban local (≈25L/100km at 30 km/h)
+let   g_dieselPrice  = 2.00;    // $/L CAD
+let   g_baseRate     = 42;      // $/hr labour — overridable
+let   g_fuelLPerKm  = 0.40;    // L/km highway — overridable
+let   g_fuelLPerHr  = 7.5;     // L/hr local   — overridable
+// Derived at runtime:
+//   LONG_FUEL_KM  = FUEL_L_PER_KM × g_dieselPrice
+//   LOCAL_FUEL_HR = FUEL_L_PER_HR  × g_dieselPrice
+
+// ─── DISTANCE MATH ────────────────────────────────────────────────────────────
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function estRoadKm(sl) {
+  if (sl < 15)  return Math.round(sl * 1.30);
+  if (sl < 35)  return Math.round(sl * 1.28);
+  if (sl < 60)  return Math.round(sl * 1.22);
+  if (sl < 100) return Math.round(sl * 1.16);
+  if (sl < 150) return Math.round(sl * 1.12);
+  return Math.round(sl * 1.08);
+}
+function estDriveMin(km) {
+  if (km < 20)  return Math.round((km/52)*60);
+  if (km < 45)  return Math.round((km/70)*60);
+  if (km < 75)  return Math.round((km/78)*60);
+  if (km < 120) return Math.round((km/86)*60);
+  return Math.round((km/93)*60);
+}
+// Returns route with truck-adjusted drive time (+20%)
+function getRoute(origId, destId) {
+  if (origId === destId) return null;
+  if (origId === "toronto" && FROM_TORONTO[destId]) {
+    const r = FROM_TORONTO[destId];
+    return { km: r.km, min: Math.round(r.min * TRUCK_TIME_FACTOR) };
+  }
+  if (destId === "toronto" && FROM_TORONTO[origId]) {
+    const r = FROM_TORONTO[origId];
+    return { km: r.km, min: Math.round(r.min * TRUCK_TIME_FACTOR) };
+  }
+  const o = LOCATIONS.find(l => l.id === origId);
+  const d = LOCATIONS.find(l => l.id === destId);
+  const sl = haversineKm(o.lat, o.lng, d.lat, d.lng);
+  const km = estRoadKm(sl);
+  return { km, min: Math.round(estDriveMin(km) * TRUCK_TIME_FACTOR), estimated: true };
+}
+
+// ─── COST CALCULATION ─────────────────────────────────────────────────────────
+// stopHrs = total stop time (load + unload) at this leg; 0 for deadhead
+function calcCost(km, min, stopHrs = LOAD_UNLOAD_HRS) {
+  const fuelKm    = g_fuelLPerKm * g_dieselPrice;    // $/km highway (live)
+  const fuelHr    = g_fuelLPerHr * g_dieselPrice;    // $/hr local   (live)
+  const driveHrs  = min / 60;
+  const totalHrs  = driveHrs + stopHrs;
+  const isLocal   = km <= 50;
+  const labor     = totalHrs * g_baseRate;
+  const fuel      = isLocal ? totalHrs * fuelHr : km * fuelKm;
+  const withFuel  = isLocal ? totalHrs * (g_baseRate + fuelHr) : labor + fuel;
+  return { isLocal, totalHrs, driveHrs, stopHrs, labor, fuel, withFuel, fuelKm, fuelHr, baseRate: g_baseRate };
+}
+
+// Full multi-stop trip calculator
+function calcTripResult(originId, destIds) {
+  const isMulti   = destIds.length > 1;
+  const unloadHrs = isMulti ? UNLOAD_HRS_MULTI : 1; // 30 min/stop if multi, 1 hr if single
+
+  const deliveryLegs = [];
+  let prev = originId;
+
+  for (let i = 0; i < destIds.length; i++) {
+    const route = getRoute(prev, destIds[i]);
+    if (!route) { prev = destIds[i]; continue; }
+    const stopHrs   = (i === 0 ? LOAD_HRS : 0) + unloadHrs;
+    const costs     = calcCost(route.km, route.min, stopHrs);
+    const fromLoc   = LOCATIONS.find(l => l.id === prev);
+    const toLoc     = LOCATIONS.find(l => l.id === destIds[i]);
+    deliveryLegs.push({
+      from: prev, to: destIds[i],
+      fromName: fromLoc?.name ?? prev, toName: toLoc?.name ?? destIds[i],
+      route, costs, stopHrs,
+    });
+    prev = destIds[i];
+  }
+
+  const lastDest  = destIds[destIds.length - 1];
+  const retRoute  = lastDest !== BASE_CITY ? getRoute(lastDest, BASE_CITY) : null;
+  const retCosts  = retRoute ? calcCost(retRoute.km, retRoute.min, 0) : null;
+
+  const deliveryTotal = deliveryLegs.reduce((s, l) => s + l.costs.withFuel, 0);
+  const fullTotal     = deliveryTotal + (retCosts?.withFuel ?? 0);
+
+  return { deliveryLegs, retRoute, retCosts, deliveryTotal, fullTotal, isMulti };
+}
+
+// ─── FORMATTERS ───────────────────────────────────────────────────────────────
+const fmt$ = n => "$" + n.toFixed(2);
+function fmtTime(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} hr`;
+  return `${h} hr ${m} min`;
+}
+
+// ─── SEARCHABLE SELECT ────────────────────────────────────────────────────────
+function CitySelect({ value, onChange, label, icon }) {
+  const [query, setQuery]  = useState("");
+  const [open, setOpen]    = useState(false);
+  const [hiIdx, setHiIdx]  = useState(0);
+  const inputRef           = useRef(null);
+  const listRef            = useRef(null);
+  const selected           = LOCATIONS.find(l => l.id === value);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return LOCATIONS;
+    return LOCATIONS.filter(l => l.name.toLowerCase().includes(q));
+  }, [query]);
+
+  useEffect(() => { setHiIdx(0); }, [query]);
+
+  function pick(id) {
+    onChange(id); setQuery(""); setOpen(false); inputRef.current?.blur();
+  }
+  function onKey(e) {
+    if (!open) { if (e.key === "ArrowDown" || e.key === "Enter") setOpen(true); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHiIdx(i => Math.min(i+1, filtered.length-1)); }
+    if (e.key === "ArrowUp")   { e.preventDefault(); setHiIdx(i => Math.max(i-1, 0)); }
+    if (e.key === "Enter")     { if (filtered[hiIdx]) pick(filtered[hiIdx].id); }
+    if (e.key === "Escape")    { setOpen(false); setQuery(""); }
+  }
+  useEffect(() => {
+    if (open && listRef.current) listRef.current.children[hiIdx]?.scrollIntoView({ block: "nearest" });
+  }, [hiIdx, open]);
+
+  return (
+    <div style={{ position: "relative", flex: 1 }}>
+      <label style={{ display: "block", color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+        textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 6 }}>{icon} {label}</label>
+      <input
+        ref={inputRef}
+        value={open ? query : (selected?.name ?? "")}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => { setQuery(""); setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={onKey}
+        placeholder="Type city name…"
+        style={{ width: "100%", boxSizing: "border-box", padding: "10px 14px",
+          background: "#F5F5F7", color: "#1D1D1F",
+          border: `1.5px solid ${open ? "#D4541C" : "transparent"}`,
+          borderRadius: 10, fontSize: 14, outline: "none",
+          fontFamily: "inherit", transition: "border-color 0.2s, background 0.2s",
+          background: open ? "#FFFFFF" : "#F5F5F7" }}
+      />
+      {open && (
+        <div ref={listRef} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+          background: "#FFFFFF", border: "none", borderRadius: 14,
+          maxHeight: 220, overflowY: "auto", zIndex: 999,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)" }}>
+          {filtered.length === 0
+            ? <div style={{ padding: "12px 16px", color: "#8A8A8E", fontSize: 13 }}>No matches</div>
+            : filtered.map((loc, i) => (
+              <div key={loc.id} onMouseDown={() => pick(loc.id)}
+                style={{ padding: "10px 16px", cursor: "pointer", fontSize: 13,
+                  background: i === hiIdx ? "#F5F5F7" : "transparent",
+                  color: loc.id === value ? "#D4541C" : "#1D1D1F",
+                  fontWeight: loc.id === value ? 600 : 400,
+                  transition: "background 0.1s" }}>
+                {loc.id === value ? "· " : ""}{loc.name}
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── COST CARD ────────────────────────────────────────────────────────────────
+function CostCard({ title, amount, sub, accent, green }) {
+  const color = green ? "#1C7C3E" : accent ? "#D4541C" : "#0071E3";
+  const bg    = green ? "#F2FFF5" : accent ? "#FFF4EC" : "#F5F5F7";
+  const glow  = (accent || green) ? `0 0 0 1px ${color}22` : "none";
+  return (
+    <div style={{ background: bg, borderRadius: 16, padding: "16px 18px", boxShadow: glow }}>
+      <div style={{ color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+        textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 7 }}>{title}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color, letterSpacing: "-0.5px", lineHeight: 1 }}>{amount}</div>
+      {sub && <div style={{ color: "#6E6E73", fontSize: 11, marginTop: 5 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ─── MARGIN TABLE ─────────────────────────────────────────────────────────────
+const TIER_COLORS  = { 20: "#DC2626", 30: "#B45309", 40: "#15803D" };
+const TIER_BORDERS = { 20: "#FCA5A5", 30: "#FDE68A", 40: "#86EFAC" };
+const TIER_BG      = { 20: "#FEF2F2", 30: "#FFFBEB", 40: "#F0FDF4" };
+
+function MarginTable({ cost }) {
+  const [customQuote, setCustomQuote] = useState("");
+  const customNum    = parseFloat(customQuote);
+  const customValid  = !isNaN(customNum) && customNum > 0;
+  const customMargin = customValid ? (customNum - cost) / customNum * 100 : null;
+  const isRainbow    = customMargin !== null && customMargin > 40;
+
+  const marginColor = customMargin === null ? "#6E6E73"
+    : customMargin < 0  ? "#DC2626"
+    : customMargin < 20 ? "#DC2626"
+    : customMargin < 30 ? "#D97706"
+    : "#15803D"; // 30%+ green (rainbow takes over above 40%)
+
+  return (
+    <>
+      <style>{`
+        @keyframes sb-rainbow {
+          0%   { color: #ff4444; }
+          16%  { color: #ff9900; }
+          33%  { color: #ffee00; }
+          50%  { color: #44dd44; }
+          66%  { color: #44aaff; }
+          83%  { color: #aa44ff; }
+          100% { color: #ff4444; }
+        }
+        .sb-rainbow { animation: sb-rainbow 1.4s linear infinite; }
+        @keyframes sb-rainbow-border {
+          0%   { border-color: #ff4444; }
+          16%  { border-color: #ff9900; }
+          33%  { border-color: #ffee00; }
+          50%  { border-color: #44dd44; }
+          66%  { border-color: #44aaff; }
+          83%  { border-color: #aa44ff; }
+          100% { border-color: #ff4444; }
+        }
+        .sb-rainbow-border { animation: sb-rainbow-border 1.4s linear infinite; }
+      `}</style>
+
+      <div style={{ background: "#F5F5F7",
+        borderRadius: 16, padding: "16px 18px", marginBottom: 14 }}>
+        <div style={{ color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+          textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 12 }}>
+          Suggested Charge
+        </div>
+
+        {/* Preset margin tiles */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 12 }}>
+          {[20, 30, 40].map(pct => {
+            const price = cost / (1 - pct / 100);
+            const col   = TIER_COLORS[pct];
+            return (
+              <div key={pct} style={{ background: TIER_BG[pct], borderRadius: 12,
+                padding: "12px 14px", textAlign: "center",
+                boxShadow: `0 0 0 1px ${TIER_BORDERS[pct]}` }}>
+                <div style={{ color: col, fontSize: 10, fontWeight: 600,
+                  textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 }}>{pct}%</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: col, letterSpacing: "-0.3px" }}>{fmt$(price)}</div>
+                <div style={{ color: "#8A8A8E", fontSize: 10, marginTop: 3 }}>+{fmt$(price - cost)}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Custom quote input */}
+        <div className={isRainbow ? "sb-rainbow-border" : ""}
+          style={{ background: "#FFFFFF", borderRadius: 12, padding: "13px 15px",
+            boxShadow: isRainbow ? "none" : "0 0 0 1px rgba(0,0,0,0.07)" }}>
+          <div style={{ color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+            textTransform: "uppercase", letterSpacing: 0.7, marginBottom: 9 }}>
+            Custom Quote
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                color: "#8A8A8E", fontSize: 14, pointerEvents: "none" }}>$</span>
+              <input
+                type="number"
+                value={customQuote}
+                onChange={e => setCustomQuote(e.target.value)}
+                placeholder="Enter your quote…"
+                style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px 9px 26px",
+                  background: "#F5F5F7", color: "#1D1D1F", borderRadius: 10,
+                  fontSize: 14, outline: "none", fontFamily: "inherit",
+                  border: `1.5px solid ${customValid && !isRainbow ? marginColor : "transparent"}`,
+                  transition: "border-color 0.2s" }}
+              />
+            </div>
+            <div style={{ minWidth: 110, textAlign: "right" }}>
+              {customValid ? (
+                <>
+                  <div className={isRainbow ? "sb-rainbow" : ""}
+                    style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.5px",
+                      color: isRainbow ? undefined : marginColor, lineHeight: 1 }}>
+                    {customMargin.toFixed(1)}%
+                  </div>
+                  <div style={{ fontSize: 11, color: "#8A8A8E", marginTop: 3 }}>
+                    {customMargin >= 0
+                      ? `+${fmt$(customNum - cost)} profit`
+                      : `${fmt$(customNum - cost)} loss`}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: "#8A8A8E" }}>— %</div>
+              )}
+            </div>
+          </div>
+          {customValid && customMargin !== null && (
+            <div className={isRainbow ? "sb-rainbow" : ""}
+              style={{ marginTop: 8, fontSize: 11,
+                color: isRainbow ? undefined
+                  : customMargin < 20 ? "#DC2626"
+                  : customMargin < 30 ? "#D97706"
+                  : "#15803D" }}>
+              {customMargin < 0   ? "Below cost — losing money on this load."
+              : customMargin < 10 ? "Very thin — less than 10% margin."
+              : customMargin < 20 ? "Below 20% target margin."
+              : customMargin < 30 ? "Good — between 20–30% margin."
+              : customMargin < 40 ? "Strong — between 30–40% margin."
+              :                     "Outstanding — above 40% margin!"}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── BREAKDOWN TABLE ──────────────────────────────────────────────────────────
+function Breakdown({ costs, km, label = "" }) {
+  const stopLabel = costs.stopHrs === LOAD_UNLOAD_HRS ? "Load + Unload"
+    : costs.stopHrs === LOAD_HRS ? "Loading only"
+    : costs.stopHrs === UNLOAD_HRS_MULTI ? "Unloading (1 hr)"
+    : costs.stopHrs === LOAD_HRS + UNLOAD_HRS_MULTI ? "Load + Unload (1 hr each)"
+    : `Stop time`;
+  const rows = [];
+  rows.push({ l: "Drive time",        d: fmtTime(Math.round(costs.driveHrs * 60)), v: null });
+  if (costs.stopHrs > 0) {
+    rows.push({ l: stopLabel, d: `${costs.stopHrs % 1 === 0 ? costs.stopHrs : costs.stopHrs.toFixed(1)} hrs`, v: null });
+  }
+  rows.push({ l: "Total billable hrs", d: `${costs.totalHrs.toFixed(2)} hrs`, v: null, bold: true });
+  rows.push(null);
+  const fuelKm = costs.fuelKm ?? (FUEL_L_PER_KM * g_dieselPrice);
+  const fuelHr = costs.fuelHr ?? (FUEL_L_PER_HR  * g_dieselPrice);
+  rows.push({ l: "Labor (no fuel)",    d: `${costs.totalHrs.toFixed(2)} × $${(costs.baseRate ?? g_baseRate).toFixed(2)}`, v: fmt$(costs.labor) });
+  rows.push(costs.isLocal
+    ? { l: "Fuel (local /hr)", d: `${costs.totalHrs.toFixed(2)} × $${fuelHr.toFixed(2)}`,  v: fmt$(costs.fuel) }
+    : { l: "Fuel (per km)",    d: `${km} km × $${fuelKm.toFixed(3)}`,                       v: fmt$(costs.fuel) });
+  rows.push(null);
+  rows.push({ l: label || "Total w/ Fuel", d: "", v: fmt$(costs.withFuel), highlight: true });
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <tbody>
+        {rows.map((row, i) => row === null
+          ? <tr key={i}><td colSpan={3}><div style={{ borderTop: "1px solid #E5E7EB", margin: "2px 0" }}/></td></tr>
+          : (
+          <tr key={i} style={{ background: row.highlight ? "rgba(212,84,28,0.06)" : "transparent" }}>
+            <td style={{ padding: "8px 10px", color: row.bold || row.highlight ? "#1D1D1F" : "#6E6E73",
+              fontWeight: row.bold || row.highlight ? 700 : 400, borderRadius: row.highlight ? "6px 0 0 6px" : 0 }}>
+              {row.l}
+            </td>
+            <td style={{ padding: "8px 10px", color: "#8A8A8E", fontSize: 11, textAlign: "center" }}>{row.d}</td>
+            <td style={{ padding: "8px 10px", textAlign: "right", borderRadius: row.highlight ? "0 6px 6px 0" : 0,
+              fontWeight: row.bold || row.highlight ? 700 : 500,
+              color: row.highlight ? "#D4541C" : row.bold ? "#0071E3" : "#1D1D1F" }}>
+              {row.v ?? ""}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ─── CHAT NLP PARSER ──────────────────────────────────────────────────────────
+function parseCities(text) {
+  const t = text.toLowerCase();
+  const tNoSp = t.replace(/\s+/g, '');   // for "thunderbay" → "thunder bay" matching
+  const hits = [];
+  for (const loc of LOCATIONS) {
+    const n = loc.name.toLowerCase(), idx = t.indexOf(n);
+    if (idx !== -1) { hits.push({ ...loc, pos: idx }); continue; }
+    // Also try stripping spaces from both sides (catches "thunderbay", "stcatharines", etc.)
+    const nNoSp = n.replace(/\s+/g, '');
+    if (nNoSp.length >= 4) {
+      const nsIdx = tNoSp.indexOf(nNoSp);
+      if (nsIdx !== -1) hits.push({ ...loc, pos: nsIdx });
+    }
+  }
+  const deduped = hits.sort((a, b) => b.name.length - a.name.length).filter((loc, _, arr) =>
+    !arr.some(other => other.id !== loc.id &&
+      other.pos <= loc.pos && other.pos + other.name.length >= loc.pos + loc.name.length)
+  );
+  return deduped.sort((a, b) => a.pos - b.pos);
+}
+
+// ─── LIVE GEOCODING (3-provider cascade + OSRM) ──────────────────────────────
+async function fetchWithTimeout(url, opts = {}, ms = 5000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { ...opts, signal: ctrl.signal });
+    clearTimeout(id);
+    return res;
+  } catch (e) { clearTimeout(id); throw e; }
+}
+
+async function geocodeCity(name) {
+  const q = encodeURIComponent(name.trim());
+
+  // Provider 1: Nominatim (OpenStreetMap) — best for North America
+  try {
+    const res = await fetchWithTimeout(
+      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=3&addressdetails=1`,
+      { headers: { 'Accept-Language': 'en-US,en' } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      // Prefer city/town/village results over administrative regions
+      const best = data.find(r => ['city','town','village','municipality'].includes(r.type))
+                || data[0];
+      if (best) {
+        return { name: best.display_name.split(',')[0].trim(), lat: parseFloat(best.lat), lng: parseFloat(best.lon) };
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Provider 2: Photon (Komoot) — fast, global
+  try {
+    const res = await fetchWithTimeout(`https://photon.komoot.io/api/?q=${q}&limit=1`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.features?.length) {
+        const f = data.features[0];
+        const [lng, lat] = f.geometry.coordinates;
+        const p = f.properties;
+        return { name: p.name || p.city || p.county || name.trim(), lat, lng };
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Provider 3: geocode.maps.co — free, no key, reliable fallback
+  try {
+    const res = await fetchWithTimeout(`https://geocode.maps.co/search?q=${q}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.length) {
+        const r = data[0];
+        return { name: r.display_name.split(',')[0].trim(), lat: parseFloat(r.lat), lng: parseFloat(r.lon) };
+      }
+    }
+  } catch { /* exhausted all providers */ }
+
+  return null;
+}
+
+async function getOSRMRoute(lat1, lng1, lat2, lng2) {
+  try {
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`
+    );
+    const data = await res.json();
+    if (data.code !== 'Ok' || !data.routes.length) return null;
+    const r = data.routes[0];
+    return {
+      km:   Math.round(r.distance / 100) / 10,
+      min:  Math.round((r.duration / 60) * TRUCK_TIME_FACTOR),
+      live: true,
+    };
+  } catch { return null; }
+}
+
+// ─── FUZZY CITY MATCHING ──────────────────────────────────────────────────────
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = [];
+  for (let i = 0; i <= m; i++) { dp[i] = [i]; }
+  for (let j = 1; j <= n; j++) { dp[0][j] = j; }
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1]
+               : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// Returns the best LOCATIONS match for a query string, or null if none good enough.
+// score=1.0 = exact, score≥0.82 = auto-correct, score≥0.52 = suggest to user.
+function findFuzzyMatch(query) {
+  const q = query.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  if (!q) return null;
+  let best = null, bestScore = 0;
+  for (const loc of LOCATIONS) {
+    const name = loc.name.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+    if (name.includes(q) || q.includes(name)) return { loc, score: 1.0 };
+    // Full-string Levenshtein score
+    const dist = levenshtein(q, name);
+    let score = 1 - dist / Math.max(q.length, name.length, 1);
+    // Word-level boost: if a word in the query closely matches a word in the name
+    const qWords = q.split(/\s+/), nWords = name.split(/\s+/);
+    for (const qw of qWords) {
+      if (qw.length < 3) continue;
+      for (const nw of nWords) {
+        if (nw.length < 3) continue;
+        const ws = 1 - levenshtein(qw, nw) / Math.max(qw.length, nw.length);
+        if (ws > 0.72) score = Math.max(score, ws * 0.88);
+      }
+    }
+    if (score > bestScore) { bestScore = score; best = { loc, score }; }
+  }
+  return bestScore >= 0.52 ? best : null;
+}
+
+// ── Resolve a single city string to a location object (fuzzy → geocode) ───────
+async function resolveCity(raw, cities, allRaws, resolvedSoFar) {
+  const known = cities.find(c => raw.toLowerCase().includes(c.name.toLowerCase()));
+  if (known) return { loc: LOCATIONS.find(l => l.id === known.id) || known, name: known.name, id: known.id, isCustom: false };
+
+  const fuzzy = findFuzzyMatch(raw);
+
+  // High confidence: auto-correct silently
+  if (fuzzy?.score >= 0.82) {
+    const loc = LOCATIONS.find(l => l.id === fuzzy.loc.id) || fuzzy.loc;
+    return { loc, name: fuzzy.loc.name, id: fuzzy.loc.id, isCustom: false, autoCorrect: raw.trim() };
+  }
+
+  // Medium confidence: return a suggestion (caller surfaces "Did you mean…")
+  if (fuzzy?.score >= 0.52)
+    return { suggest: true, input: raw.trim(), city: fuzzy.loc.name, loc: fuzzy.loc };
+
+  // Fall back to live geocoding
+  const geo = await geocodeCity(raw);
+  if (geo) {
+    const geoId = n => 'geo_' + n.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return { loc: geo, name: geo.name, id: geoId(geo.name), isCustom: true };
+  }
+
+  // Last-resort fuzzy
+  if (fuzzy)
+    return { suggest: true, input: raw.trim(), city: fuzzy.loc.name, loc: fuzzy.loc };
+
+  return { error: true, raw: raw.trim() };
+}
+
+async function buildChatResponseAsync(text) {
+  const geoId = n => 'geo_' + n.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+  // Step 1: Try known local cities first (instant, no network)
+  const cities = parseCities(text);
+  if (cities.length >= 2) {
+    const orig = cities[0];
+    const dests = cities.slice(1);
+    const trip = calcTripResult(orig.id, dests.map(d => d.id));
+    if (trip.deliveryLegs.length) return { type: 'result', orig, dests };
+  }
+
+  // Step 2: Split on "to" — supports multi-destination:
+  //   "Toronto to Hamilton, London and Windsor"
+  const toMatch = text.trim().match(/^(.+?)\s+to\s+(.+?)(?:\s*\?)?$/i);
+  if (!toMatch) {
+    return {
+      type: 'error',
+      msg: cities.length === 1
+        ? `Found ${cities[0].name} but need a destination. Try: "Hamilton to London, Windsor".`
+        : `Couldn't identify cities. Try: "Brampton to Barrie, Sudbury".`,
+    };
+  }
+
+  const [, fromRaw, toBlock] = toMatch;
+  // Split destinations by comma or " and "
+  const toRaws = toBlock.split(/,|\band\b/i).map(s => s.trim()).filter(Boolean);
+
+  // Resolve origin
+  const origResolved = await resolveCity(fromRaw, cities, toRaws, []);
+  if (origResolved.suggest)
+    return { type: 'suggest', input: origResolved.input, city: origResolved.city,
+             correctedQuery: `${origResolved.city} to ${toBlock.trim()}` };
+  if (origResolved.error)
+    return { type: 'error', msg: `Couldn't find origin "${origResolved.raw}". Try a different spelling.` };
+
+  // Resolve each destination in parallel
+  const destResults = await Promise.all(toRaws.map(r => resolveCity(r, cities, [], [])));
+
+  // Surface first suggestion or error
+  for (let i = 0; i < destResults.length; i++) {
+    const dr = destResults[i];
+    if (dr.suggest) {
+      const otherParts = toRaws.map((r, j) => j === i ? dr.city : r).join(', ');
+      return { type: 'suggest', input: dr.input, city: dr.city,
+               correctedQuery: `${fromRaw.trim()} to ${otherParts}` };
+    }
+    if (dr.error)
+      return { type: 'error', msg: `Couldn't find destination "${dr.raw}". Try a different spelling.` };
+  }
+
+  // Track silent auto-corrections
+  const autoCorrects = [];
+  if (origResolved.autoCorrect) autoCorrects.push(`"${origResolved.autoCorrect}" → ${origResolved.name}`);
+  destResults.forEach((dr, i) => {
+    if (dr.autoCorrect) autoCorrects.push(`"${dr.autoCorrect}" → ${dr.name}`);
+  });
+
+  const fromLoc  = origResolved.loc;
+  const fromName = origResolved.name;
+
+  return {
+    type: 'result',
+    autoCorrects,
+    orig: { name: fromName, id: origResolved.id, lat: fromLoc.lat, lng: fromLoc.lng, isCustom: origResolved.isCustom },
+    dests: destResults.map(dr => ({
+      name: dr.name, id: dr.id, lat: dr.loc.lat, lng: dr.loc.lng, isCustom: dr.isCustom,
+    })),
+    trip,
+  };
+}
+
+const SUGGESTIONS = [
+  "Mississauga to Toronto",
+  "Brampton to Kingston",
+  "Toronto to Hamilton, London",
+  "Ottawa to Sudbury, Thunder Bay",
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ROUTE MAP (Leaflet — dark tiles + OSRM road geometry)
+// ═══════════════════════════════════════════════════════════════════════════════
+function RouteMap({ origin, destinations }) {
+  const containerRef = useRef(null);
+  const mapRef       = useRef(null);
+  const layerRef     = useRef(null);
+  const [ready, setReady] = useState(!!window.L);
+
+  // ── Load Leaflet CSS + JS once ────────────────────────────────────────────
+  useEffect(() => {
+    if (window.L) { setReady(true); return; }
+    if (!document.querySelector('link[href*="leaflet"]')) {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+      document.head.appendChild(css);
+    }
+    const js = document.createElement('script');
+    js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    js.onload = () => setReady(true);
+    document.head.appendChild(js);
+  }, []);
+
+  // ── Init map once Leaflet is ready ────────────────────────────────────────
+  useEffect(() => {
+    if (!ready || !containerRef.current || mapRef.current) return;
+    const L = window.L;
+    const map = L.map(containerRef.current, { zoomControl: true })
+                 .setView([44.0, -79.5], 7);
+
+    // OSM tiles (always accessible) — CSS invert filter makes them dark
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // Invert tiles to match dark UI (leaves markers/polylines unaffected)
+    const tp = map.getPane('tilePane');
+    // No filter — OSM tiles look great on light backgrounds
+
+    mapRef.current   = map;
+    layerRef.current = L.layerGroup().addTo(map);
+    // Force Leaflet to re-measure the container after the browser paints it
+    setTimeout(() => map.invalidateSize(), 100);
+  }, [ready]);
+
+  // ── Draw / update route whenever origin or destinations change ────────────
+  useEffect(() => {
+    if (!mapRef.current || !layerRef.current || !ready) return;
+    const L = window.L;
+    let cancelled = false;
+
+    const updateMap = async () => {
+      layerRef.current.clearLayers();
+
+      // Build ordered stops: origin → each dest → return base (if different)
+      const stopIds = [origin, ...destinations];
+      const lastDest = destinations[destinations.length - 1];
+      if (lastDest && lastDest !== BASE_CITY) stopIds.push(BASE_CITY);
+
+      const locs = stopIds.map(id => LOCATIONS.find(l => l.id === id)).filter(Boolean);
+      if (locs.length < 1) return;
+
+      // Custom pin icon factory
+      const pinIcon = (color) => L.divIcon({
+        className: '',
+        html: `<div style="background:${color};width:16px;height:16px;border-radius:50%;
+                border:2.5px solid #fff;box-shadow:0 0 0 2px ${color}55,0 2px 8px rgba(0,0,0,0.8);"></div>`,
+        iconSize: [16, 16], iconAnchor: [8, 8],
+      });
+
+      // Add markers
+      locs.forEach((loc, i) => {
+        const isOrigin = i === 0;
+        const isReturn = i === locs.length - 1 && loc.id === BASE_CITY && lastDest !== BASE_CITY;
+        const color    = isOrigin ? '#15803D' : isReturn ? '#DC2626' : '#D4541C';
+        const tipLabel = isReturn ? `${loc.name} (Return Base)` : loc.name;
+        L.marker([loc.lat, loc.lng], { icon: pinIcon(color) })
+         .bindTooltip(tipLabel, { permanent: locs.length <= 4, direction: 'top',
+           className: 'map-tip' })
+         .addTo(layerRef.current);
+      });
+
+      if (locs.length < 2) {
+        mapRef.current.setView([locs[0].lat, locs[0].lng], 9);
+        return;
+      }
+
+      // Straight-line dashes as placeholder while road geometry loads
+      const dashes = locs.slice(0, -1).map((from, i) => {
+        const to = locs[i + 1];
+        return L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+          color: '#D4541C', weight: 2, opacity: 0.35, dashArray: '6, 9',
+        }).addTo(layerRef.current);
+      });
+
+      // Fit map to all points — invalidateSize first so Leaflet knows the container dimensions
+      mapRef.current.invalidateSize();
+      const bounds = L.latLngBounds(locs.map(l => [l.lat, l.lng])).pad(0.18);
+      mapRef.current.fitBounds(bounds);
+
+      // Fetch actual OSRM road geometry for each leg in parallel
+      const geometries = await Promise.all(
+        locs.slice(0, -1).map(async (from, i) => {
+          const to = locs[i + 1];
+          try {
+            const res = await fetchWithTimeout(
+              `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson`,
+              {}, 7000
+            );
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (data.code !== 'Ok' || !data.routes[0]?.geometry?.coordinates) return null;
+            return data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+          } catch { return null; }
+        })
+      );
+
+      if (cancelled || !layerRef.current) return;
+
+      // Remove placeholder dashes
+      dashes.forEach(d => layerRef.current.removeLayer(d));
+
+      // Draw road geometry (or straight fallback if OSRM failed for a leg)
+      geometries.forEach((coords, i) => {
+        const from = locs[i], to = locs[i + 1];
+        if (coords) {
+          L.polyline(coords, { color: '#D4541C', weight: 3, opacity: 0.85 })
+           .addTo(layerRef.current);
+        } else {
+          L.polyline([[from.lat, from.lng], [to.lat, to.lng]], {
+            color: '#D4541C', weight: 2, opacity: 0.55, dashArray: '6, 9',
+          }).addTo(layerRef.current);
+        }
+      });
+
+      // Re-fit to the actual drawn route bounds so road curves are fully visible
+      try {
+        const routeBounds = layerRef.current.getBounds();
+        if (routeBounds.isValid()) {
+          mapRef.current.invalidateSize();
+          mapRef.current.fitBounds(routeBounds.pad(0.12));
+        }
+      } catch { /* layer may be empty if all geometries failed */ }
+    };
+
+    updateMap();
+    return () => { cancelled = true; };
+  }, [origin, destinations, ready]);
+
+  return (
+    <div style={{ background: "#FFFFFF",
+      borderRadius: 20, overflow: "hidden", marginBottom: 14,
+      boxShadow: "0 2px 20px rgba(0,0,0,0.06)" }}>
+      <style>{`
+        .leaflet-tooltip.map-tip {
+          background:#FFFFFF; border:1px solid #E5E7EB; color:#2D2A26;
+          font-size:12px; font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; padding:4px 10px;
+          border-radius:6px; box-shadow:0 2px 10px rgba(0,0,0,0.1);
+          white-space:nowrap;
+        }
+        .leaflet-tooltip.map-tip::before { border-top-color:#E5E7EB; }
+        .leaflet-container { background:#F4F4F2; }
+        .leaflet-control-attribution { font-size:9px !important; opacity:0.7 !important;
+          background:rgba(255,255,255,0.9) !important; color:#6B7280 !important; }
+        .leaflet-control-attribution a { color:#D4541C !important; }
+        .leaflet-bar a { background:#FFFFFF !important; color:#2D2A26 !important;
+          border-color:#E5E7EB !important; }
+        .leaflet-bar a:hover { background:#F3F4F6 !important; }
+      `}</style>
+      <div style={{ padding: "12px 16px 8px", color: "#8A8A8E", fontSize: 10,
+        fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8,
+        borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+        Route Map
+        <span style={{ marginLeft: 8, color: "#0071E3", fontSize: 9, textTransform: "none",
+          fontWeight: 400, letterSpacing: 0 }}>
+          via OpenStreetMap
+        </span>
+      </div>
+      {!ready
+        ? <div style={{ height: 340, display: "flex", alignItems: "center",
+            justifyContent: "center", background: "#F5F5F7", color: "#6E6E73", fontSize: 13 }}>
+            Loading map…
+          </div>
+        : <div ref={containerRef} style={{ height: 340 }} />
+      }
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN APP
+// ═══════════════════════════════════════════════════════════════════════════════
+// ─── LIVE DIESEL PRICE FETCH ───────────────────────────────────────────────────
+async function fetchTorontoDieselPrice() {
+  const PROXY = 'https://api.allorigins.win/get?url=';
+
+  // Source 1: NRCan (Natural Resources Canada) weekly retail fuel prices
+  try {
+    const url = PROXY + encodeURIComponent('https://www2.nrcan.gc.ca/ene/site/fuel.nsf/eng/nm-087.html');
+    const res = await fetchWithTimeout(url, {}, 9000);
+    if (res.ok) {
+      const { contents } = await res.json();
+      // NRCan table: city rows, columns = Regular | Premium | E10 | Diesel | ...
+      // Diesel prices listed in cents/L (e.g. 189.9)
+      // Match Toronto row then grab diesel column (4th numeric cell after city name)
+      const torontoSection = contents.match(/Toronto[\s\S]{0,600}?(?=<tr|$)/i)?.[0] ?? '';
+      const cells = [...torontoSection.matchAll(/<td[^>]*>\s*([\d]{2,4}\.?\d*)\s*<\/td>/gi)];
+      // Diesel is typically the 4th price column (index 3)
+      const raw = cells[3]?.[1] ?? cells[2]?.[1] ?? cells[1]?.[1];
+      if (raw) {
+        const price = parseFloat(raw) / 100; // cents → dollars
+        if (price > 0.80 && price < 4.50) return { price, source: 'NRCan', time: new Date().toLocaleTimeString() };
+      }
+    }
+  } catch { /* fall through */ }
+
+  // Source 2: GasBuddy Toronto diesel page via allorigins
+  try {
+    const url = PROXY + encodeURIComponent('https://www.gasbuddy.com/GasPriceCharts?countryCode=CA&city=Toronto&province=ON&fuel=5');
+    const res = await fetchWithTimeout(url, {}, 9000);
+    if (res.ok) {
+      const { contents } = await res.json();
+      // GasBuddy shows average price as digits like "189.3" (cents) or "1.893" (dollars)
+      const m = contents.match(/average[^"]*"([\d]{3,4}\.?\d*)"|"averagePrice"\s*:\s*([\d.]+)/i);
+      if (m) {
+        let price = parseFloat(m[1] ?? m[2]);
+        if (price > 50) price = price / 100; // cents to dollars
+        if (price > 0.80 && price < 4.50) return { price: Math.round(price * 1000) / 1000, source: 'GasBuddy', time: new Date().toLocaleTimeString() };
+      }
+    }
+  } catch { /* fall through */ }
+
+  return null; // all sources failed — user can set manually
+}
+
+function TruckCostCalc() {
+  const [origin,        setOrigin]        = useState("mississauga");
+  const [destinations,  setDestinations]  = useState(["mississauga"]);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [messages,      setMessages]      = useState([{
+    from: "bot",
+    text: "Hi! Type a route below — e.g. \"Mississauga to Kingston\" — and I'll update the map, dropdowns, and cost estimate automatically."
+  }]);
+  const [chatInput,   setChatInput]   = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
+  // ── Adjustable cost rates ────────────────────────────────────────────────────
+  const [baseRate,    setBaseRate]    = useState(42);
+  const [fuelLPerKm,  setFuelLPerKm]  = useState(0.40);
+  const [fuelLPerHr,  setFuelLPerHr]  = useState(7.5);
+
+  // ── Custom quote (margin calc) ─────────────────────────────────────────────
+  const [customQuote, setCustomQuote] = useState("");
+
+  // ── Diesel price state ──────────────────────────────────────────────────────
+  const [dieselPrice,  setDieselPrice]  = useState(2.00);   // $/L CAD
+  const [dieselInput,  setDieselInput]  = useState("2.00"); // text input mirror
+  const [fuelMeta,     setFuelMeta]     = useState(null);   // { source, time }
+  const [fuelLoading,  setFuelLoading]  = useState(false);
+
+  // Keep module-level var in sync so calcCost picks it up on every render
+  g_dieselPrice = dieselPrice;
+
+  async function refreshFuelPrice() {
+    setFuelLoading(true);
+    const result = await fetchTorontoDieselPrice();
+    if (result) {
+      setDieselPrice(result.price);
+      setDieselInput(result.price.toFixed(3));
+      setFuelMeta(result);
+    }
+    setFuelLoading(false);
+  }
+
+  // Auto-fetch on mount
+  useEffect(() => { refreshFuelPrice(); }, []);
+
+  const chatEndRef = useRef(null);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  function addStop() {
+    setDestinations(d => [...d, d[d.length - 1] === "toronto" ? "mississauga" : "toronto"]);
+  }
+  function removeStop(i) { setDestinations(d => d.filter((_, idx) => idx !== i)); }
+  function updateStop(i, val) { setDestinations(d => d.map((v, idx) => idx === i ? val : v)); }
+  function swap() {
+    if (destinations.length === 1) { const t = origin; setOrigin(destinations[0]); setDestinations([t]); }
+  }
+
+  async function sendChat(text) {
+    if (!text.trim() || chatLoading) return;
+    setChatLoading(true);
+    setChatInput("");
+    setMessages(m => [...m, { from: "user", text }, { from: "bot", loading: true }]);
+    let resp;
+    try {
+      // Hard 18-second cap — prevents any geocoding/OSRM call from freezing the UI forever
+      resp = await Promise.race([
+        buildChatResponseAsync(text),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 18000)),
+      ]);
+    } catch (err) {
+      const msg = err?.message === 'timeout'
+        ? "Route lookup timed out. Check your spelling and try again."
+        : "Something went wrong. Please try again.";
+      setMessages(m => [...m.slice(0, -1), { from: "bot", error: true, text: msg }]);
+      setChatLoading(false);
+      return;
+    }
+
+    if (resp.type === 'result') {
+      const { orig, dests } = resp;
+
+      // Register geocoded cities into LOCATIONS so the map + dropdowns can resolve them
+      if (orig.isCustom && !LOCATIONS.find(l => l.id === orig.id))
+        LOCATIONS.push({ id: orig.id, name: orig.name, lat: orig.lat, lng: orig.lng });
+      (dests || []).forEach(dest => {
+        if (dest.isCustom && !LOCATIONS.find(l => l.id === dest.id))
+          LOCATIONS.push({ id: dest.id, name: dest.name, lat: dest.lat, lng: dest.lng });
+      });
+
+      // Sync route builder dropdowns + map
+      setOrigin(orig.id);
+      setDestinations((dests || []).map(d => d.id));
+
+      // Confirmation — include any silent auto-corrections
+      const destNames = (dests || []).map(d => d.name).join(' → ');
+      const corrNote = resp.autoCorrects?.length
+        ? `\nAuto-corrected: ${resp.autoCorrects.join(', ')}`
+        : '';
+      setMessages(m => [...m.slice(0, -1), {
+        from: "bot", confirmed: true,
+        text: `Route set: ${orig.name} → ${destNames}. Map and cost updated.${corrNote}`,
+      }]);
+    } else if (resp.type === 'suggest') {
+      setMessages(m => [...m.slice(0, -1), { from: "bot", suggest: resp }]);
+    } else {
+      setMessages(m => [...m.slice(0, -1), {
+        from: "bot", error: true,
+        text: resp.msg,
+      }]);
+    }
+
+    setChatLoading(false);
+  }
+
+  // Reset breakdown when route or rates change
+  const result = useMemo(() => {
+    g_dieselPrice = dieselPrice;  // sync live globals before calc
+    g_baseRate    = baseRate;
+    g_fuelLPerKm  = fuelLPerKm;
+    g_fuelLPerHr  = fuelLPerHr;
+    setShowBreakdown(false);
+    if (!destinations.length) return null;
+    return calcTripResult(origin, destinations);
+  }, [origin, destinations, dieselPrice, baseRate, fuelLPerKm, fuelLPerHr]);
+
+  const origName = LOCATIONS.find(l => l.id === origin)?.name ?? "";
+  const baseName = LOCATIONS.find(l => l.id === BASE_CITY)?.name ?? "Mississauga";
+
+  return (
+    <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", minHeight: "100vh",
+      background: "#F5F5F7", color: "#1D1D1F", padding: "20px 16px" }}>
+      <div style={{ maxWidth: 1300, margin: "0 auto" }}>
+
+        {/* ── HEADER ──────────────────────────────────────────────────── */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 14, marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #E5E7EB" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <img src="logo.png" alt="Bungee Supply Chain" style={{ height: 44, width: "auto" }} />
+            <div>
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#1D1D1F" }}>
+                Truck Cost Calculator
+              </h1>
+              <p style={{ margin: 0, color: "#6E6E73", fontSize: 11 }}>
+                100+ cities across North America · Base: {baseName} · Drive times +20% for trucks
+              </p>
+            </div>
+          </div>
+          <a href="index.html" style={{ fontSize: 13, color: "#D4541C", textDecoration: "none",
+            fontWeight: 600, whiteSpace: "nowrap" }}>← Back to website</a>
+        </div>
+
+        {/* ── FUEL PRICE + RATE OVERRIDES — one line ── */}
+        <div style={{ background: "#FFFFFF", borderRadius: 14, marginBottom: 14,
+          boxShadow: "0 1px 12px rgba(0,0,0,0.06)", display: "flex",
+          alignItems: "center", flexWrap: "wrap", overflow: "hidden" }}>
+
+          {/* Label + status */}
+          <div style={{ padding: "10px 18px", borderRight: "1px solid rgba(0,0,0,0.05)" }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#1D1D1F" }}>Toronto Diesel</span>
+            <span style={{ fontSize: 10, color: "#8A8A8E", marginLeft: 8 }}>
+              {fuelLoading ? "fetching…" : fuelMeta ? `${fuelMeta.source} · ${fuelMeta.time}` : "manual"}
+            </span>
+          </div>
+
+          {/* Rate inputs — values used directly in cost calculations */}
+          <div style={{ padding: "6px 16px", marginLeft: "auto", display: "flex",
+            alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+
+            {/* Diesel price */}
+            {[
+              { label: "/L diesel", value: dieselInput, step: "0.001", min: 0.5, max: 5, width: 80,
+                onChange: e => { setDieselInput(e.target.value); const v = parseFloat(e.target.value); if (v > 0.5 && v < 5) { setDieselPrice(v); setFuelMeta(null); } } },
+              { label: "L/km", value: fuelLPerKm, step: "0.01", min: 0.1, max: 1.5, width: 68,
+                onChange: e => { const v = parseFloat(e.target.value); if (v > 0.05 && v < 2) setFuelLPerKm(v); } },
+              { label: "L/hr", value: fuelLPerHr, step: "0.5", min: 1, max: 30, width: 68,
+                onChange: e => { const v = parseFloat(e.target.value); if (v > 0 && v < 50) setFuelLPerHr(v); } },
+              { label: "$/hr labour", value: baseRate, step: "1", min: 20, max: 200, width: 72,
+                onChange: e => { const v = parseFloat(e.target.value); if (v > 0 && v < 500) setBaseRate(v); } },
+            ].map(({ label, value, step, min, max, width, onChange }) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <input type="number" step={step} min={min} max={max}
+                  value={typeof value === "number" ? value : value}
+                  onChange={onChange}
+                  style={{ width, padding: "4px 6px", background: "#F5F5F7",
+                    color: "#1D1D1F", border: "1.5px solid transparent", borderRadius: 7,
+                    fontSize: 12, outline: "none", fontFamily: "inherit", textAlign: "right" }} />
+                <span style={{ fontSize: 10, color: "#8A8A8E", whiteSpace: "nowrap" }}>{label}</span>
+              </div>
+            ))}
+
+            <button onClick={refreshFuelPrice} disabled={fuelLoading}
+              style={{ background: "none", border: "none", borderRadius: 7, padding: "4px 8px",
+                color: fuelLoading ? "#8A8A8E" : "#0071E3", fontSize: 12, fontWeight: 500,
+                cursor: fuelLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+              {fuelLoading ? "…" : "Refresh"}
+            </button>
+          </div>
+        </div>
+
+        {/* ── RESULTS BAR — always visible ── */}
+        {(() => {
+          const cqNum     = parseFloat(customQuote);
+          const cqValid   = !isNaN(cqNum) && cqNum > 0 && result;
+          const cqMargin  = cqValid ? (cqNum - result.fullTotal) / cqNum * 100 : null;
+          const cqRainbow = cqMargin !== null && cqMargin > 40;
+          const cqColor   = cqMargin === null ? "#6E6E73"
+            : cqMargin < 20 ? "#DC2626" : cqMargin < 30 ? "#D97706" : "#15803D";
+          return (
+            <div style={{ background: "#FFFFFF", borderRadius: 18, marginBottom: 14,
+              boxShadow: "0 2px 20px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+
+              {/* Route name + distances */}
+              <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(0,0,0,0.05)",
+                display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: result ? "#1D1D1F" : "#8A8A8E", letterSpacing: "-0.3px" }}>
+                  {result
+                    ? `${origName}${result.deliveryLegs.map(l => ` → ${l.toName}`).join("")}${result.retRoute ? ` → ${baseName}` : ""}`
+                    : "Select an origin and destination to see costs"}
+                </span>
+                {result && (
+                  <span style={{ fontSize: 11, color: "#8A8A8E" }}>
+                    {result.deliveryLegs.map((leg, i) =>
+                      `${leg.route.km} km · ${fmtTime(leg.route.min)}${leg.route.estimated ? " (est.)" : ""}`
+                    ).join(" + ")}
+                    {result.retRoute ? ` + ${result.retRoute.km} km return` : ""}
+                  </span>
+                )}
+                {result && (
+                  <button onClick={() => setShowBreakdown(v => !v)}
+                    style={{ marginLeft: "auto", background: "none", border: "none", padding: "2px 8px",
+                      fontSize: 11, color: "#8A8A8E", cursor: "pointer", fontFamily: "inherit", borderRadius: 6 }}>
+                    {showBreakdown ? "Hide breakdown" : "Show breakdown"}
+                  </button>
+                )}
+              </div>
+
+              {/* Metrics strip */}
+              <div style={{ display: "flex", alignItems: "stretch", flexWrap: "wrap" }}>
+                {/* Delivery / All Stops */}
+                <div style={{ padding: "14px 20px", borderRight: "1px solid rgba(0,0,0,0.05)", minWidth: 120 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#8A8A8E",
+                    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+                    {destinations.length === 1 ? "Delivery" : "All Stops"}
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.8px", lineHeight: 1,
+                    color: result ? "#D4541C" : "#D8D8DC" }}>{result ? fmt$(result.deliveryTotal) : "—"}</div>
+                  <div style={{ fontSize: 10, color: "#8A8A8E", marginTop: 3 }}>with fuel</div>
+                </div>
+                {/* Full Trip */}
+                <div style={{ padding: "14px 20px", borderRight: "1px solid rgba(0,0,0,0.05)", minWidth: 130 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#8A8A8E",
+                    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Full Trip</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.8px", lineHeight: 1,
+                    color: result ? "#1D1D1F" : "#D8D8DC" }}>{result ? fmt$(result.fullTotal) : "—"}</div>
+                  <div style={{ fontSize: 10, color: "#8A8A8E", marginTop: 3 }}>
+                    {result
+                      ? (result.retRoute ? `+${fmt$(result.retCosts.withFuel)} deadhead` : "dest = base")
+                      : "incl. return"}
+                  </div>
+                </div>
+                {/* Margin tiers */}
+                {[20, 30, 40].map(pct => {
+                  const price = result ? result.fullTotal / (1 - pct / 100) : null;
+                  const col   = TIER_COLORS[pct];
+                  return (
+                    <div key={pct} style={{ padding: "14px 18px",
+                      borderRight: "1px solid rgba(0,0,0,0.05)", flex: "1 1 110px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: "#8A8A8E",
+                        textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>{pct}% Margin</div>
+                      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.5px", lineHeight: 1,
+                        color: price ? col : "#D8D8DC" }}>{price ? fmt$(price) : "—"}</div>
+                      <div style={{ fontSize: 10, color: "#8A8A8E", marginTop: 3 }}>
+                        {price ? `+${fmt$(price - result.fullTotal)}` : "set route"}
+                      </div>
+                    </div>
+                  );
+                })}
+                {/* Custom quote */}
+                <div style={{ padding: "14px 20px", flex: "1 1 200px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "#8A8A8E",
+                    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Custom Quote</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ position: "relative", flex: 1, maxWidth: 150 }}>
+                      <span style={{ position: "absolute", left: 9, top: "50%",
+                        transform: "translateY(-50%)", color: "#8A8A8E", fontSize: 13,
+                        pointerEvents: "none" }}>$</span>
+                      <input type="number" value={customQuote} onChange={e => setCustomQuote(e.target.value)}
+                        placeholder={result ? "Your quote…" : "Set route first"}
+                        disabled={!result}
+                        className={cqRainbow ? "sb-rainbow-border" : ""}
+                        style={{ width: "100%", padding: "7px 8px 7px 22px",
+                          background: result ? "#F5F5F7" : "#FAFAFA",
+                          color: "#1D1D1F", fontFamily: "inherit", fontSize: 13, outline: "none",
+                          border: `1.5px solid ${cqValid && !cqRainbow ? cqColor : "transparent"}`,
+                          borderRadius: 9, opacity: result ? 1 : 0.5 }} />
+                    </div>
+                    {cqValid && result && (
+                      <div>
+                        <div className={cqRainbow ? "sb-rainbow" : ""}
+                          style={{ fontSize: 22, fontWeight: 700,
+                            color: cqRainbow ? undefined : cqColor, letterSpacing: "-0.5px", lineHeight: 1 }}>
+                          {cqMargin.toFixed(1)}%
+                        </div>
+                        <div className={cqRainbow ? "sb-rainbow" : ""}
+                          style={{ fontSize: 10, color: cqRainbow ? undefined : cqColor, marginTop: 2 }}>
+                          {cqMargin < 0 ? "Below cost" : cqMargin < 20 ? "Below target"
+                            : cqMargin < 30 ? "Good" : cqMargin < 40 ? "Strong" : "Outstanding"}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakdown tables */}
+              {showBreakdown && result && (
+                <div style={{ borderTop: "1px solid rgba(0,0,0,0.05)",
+                  padding: "14px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {result.deliveryLegs.map((leg, i) => (
+                    <div key={i} style={{ background: "#F5F5F7", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+                        textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                        Leg {i+1} · {leg.fromName} → {leg.toName}{leg.route.estimated ? " (est.)" : ""}
+                        <span style={{ marginLeft: 8, color: leg.costs.isLocal ? "#0071E3" : "#D4541C" }}>
+                          {leg.costs.isLocal ? "Local" : "Long dist."}
+                        </span>
+                      </div>
+                      <Breakdown costs={leg.costs} km={leg.route.km} />
+                    </div>
+                  ))}
+                  {result.retRoute && (
+                    <div style={{ background: "#F5F5F7", borderRadius: 12, padding: "12px 14px" }}>
+                      <div style={{ color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+                        textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                        Deadhead Return · {result.deliveryLegs[result.deliveryLegs.length-1].toName} → {baseName}
+                        <span style={{ marginLeft: 8, color: result.retCosts.isLocal ? "#0071E3" : "#D4541C" }}>
+                          {result.retCosts.isLocal ? "Local" : "Long dist."}
+                        </span>
+                      </div>
+                      <Breakdown costs={result.retCosts} km={result.retRoute.km} label="Deadhead Total w/ Fuel" />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* SIDE-BY-SIDE: CHAT | ROUTE BUILDER */}
+        <div style={{ display: "flex", gap: 14, alignItems: "stretch", flexWrap: "wrap" }}>
+
+        {/* ─── CHAT PANEL ─────────────────────────────────────── */}
+        <div style={{ flex: "1 1 340px", minWidth: 300, background: "#FFFFFF",
+          borderRadius: 20, overflow: "hidden", marginBottom: 14, display: "flex", flexDirection: "column",
+          boxShadow: "0 2px 20px rgba(0,0,0,0.06)" }}>
+
+          {/* Section label */}
+          <div style={{ padding: "14px 16px 6px", color: "#8A8A8E", fontSize: 10,
+            fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.8,
+            borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+            Route Chat
+          </div>
+
+          {/* Message history */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px",
+            display: "flex", flexDirection: "column", gap: 10, minHeight: 260 }}>
+            {messages.map((msg, i) => (
+              <div key={i} style={{ display: "flex",
+                justifyContent: msg.from === "user" ? "flex-end" : "flex-start" }}>
+                {msg.from === "user"
+                  ? (
+                    <div style={{ background: "#D4541C", color: "#fff",
+                      borderRadius: "18px 18px 4px 18px",
+                      padding: "9px 14px", maxWidth: "75%", fontSize: 13,
+                      lineHeight: 1.45, letterSpacing: "-0.1px" }}>{msg.text}</div>
+                  ) : msg.loading
+                    ? (
+                      <div style={{ background: "#F5F5F7", borderRadius: "18px 18px 18px 4px",
+                        padding: "10px 14px", fontSize: 13, color: "#6E6E73", display: "flex", gap: 8, alignItems: "center" }}>
+                        Searching OpenStreetMap…
+                      </div>
+                    ) : msg.suggest ? (
+                      <div style={{ background: "#FFF4EC", border: "none",
+                        borderRadius: "18px 18px 18px 4px", padding: "13px 15px",
+                        maxWidth: "85%", fontSize: 13,
+                        boxShadow: "0 1px 6px rgba(212,84,28,0.12)" }}>
+                        <div style={{ color: "#1D1D1F", marginBottom: 10, lineHeight: 1.5, fontWeight: 500 }}>
+                          Couldn't find <strong>"{msg.suggest.input}"</strong>. Did you mean:
+                        </div>
+                        <button
+                          onClick={() => sendChat(msg.suggest.correctedQuery)}
+                          style={{ background: "#D4541C", color: "#fff", border: "none",
+                            borderRadius: 20, padding: "7px 16px", fontSize: 12.5, fontWeight: 500,
+                            cursor: "pointer", letterSpacing: "-0.1px" }}>
+                          Use {msg.suggest.city}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{
+                        background: msg.error ? "#FFF2F2" : msg.confirmed ? "#F2FFF5" : "#F5F5F7",
+                        border: "none",
+                        borderRadius: "18px 18px 18px 4px",
+                        padding: "10px 14px", maxWidth: "80%", fontSize: 13,
+                        color: msg.error ? "#FF3B30" : msg.confirmed ? "#1C7C3E" : "#1D1D1F",
+                        whiteSpace: "pre-wrap", lineHeight: 1.5, letterSpacing: "-0.05px",
+                      }}>{msg.text}</div>
+                    )
+                }
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Suggestion chips */}
+          <div style={{ borderTop: "1px solid rgba(0,0,0,0.05)", padding: "8px 12px",
+            display: "flex", gap: 6, flexWrap: "wrap", background: "#FAFAFA" }}>
+            {SUGGESTIONS.map(s => (
+              <button key={s} onClick={() => sendChat(s)}
+                style={{ background: "#F5F5F7", border: "none", borderRadius: 20,
+                  padding: "5px 12px", fontSize: 10.5, color: "#6E6E73", cursor: "pointer",
+                  transition: "background 0.15s", fontFamily: "inherit" }}>{s}</button>
+            ))}
+          </div>
+
+          {/* Input bar */}
+          <div style={{ borderTop: "1px solid #E5E7EB", padding: 12, display: "flex", gap: 8 }}>
+            <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && sendChat(chatInput)}
+              disabled={chatLoading}
+              placeholder={chatLoading ? "Searching route…" : 'e.g. "Toronto to Hamilton, London, Windsor"'}
+              style={{ flex: 1, padding: "9px 13px", background: "#F5F5F7",
+                color: chatLoading ? "#8A8A8E" : "#1D1D1F",
+                border: "1.5px solid #D1D5DB", borderRadius: 8, fontSize: 13, outline: "none" }} />
+            <button onClick={() => sendChat(chatInput)} disabled={chatLoading}
+              style={{ background: chatLoading ? "#8A8A8E" : "#D4541C", border: "none", borderRadius: 8,
+                padding: "0 18px", color: "#fff", fontWeight: 700,
+                cursor: chatLoading ? "not-allowed" : "pointer", fontSize: 13, minWidth: 60 }}>
+              {chatLoading ? "…" : "Send"}
+            </button>
+          </div>
+        </div>
+
+        {/* ─── ROUTE BUILDER PANEL ────────────────────────────── */}
+        <div style={{ flex: "1 1 340px", minWidth: 300 }}>
+
+        {/* MAP — fixed at top so it never shifts */}
+        <RouteMap origin={origin} destinations={destinations} />
+
+        <div style={{ background: "#FFFFFF",
+          borderRadius: 18, padding: "18px 18px", marginBottom: 14,
+          boxShadow: "0 2px 20px rgba(0,0,0,0.06)" }}>
+          <div style={{ color: "#8A8A8E", fontSize: 10, fontWeight: 600,
+            textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 14 }}>
+            Build Route
+            <span style={{ fontWeight: 400, marginLeft: 8, color: "#8A8A8E", textTransform: "none", letterSpacing: 0 }}>— or use chat above</span>
+          </div>
+
+          {/* Origin */}
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
+            <CitySelect value={origin} onChange={setOrigin} label="Origin" />
+            {destinations.length === 1 && (
+              <div style={{ paddingBottom: 2 }}>
+                <button onClick={swap}
+                  style={{ background: "#F5F5F7", border: "none", borderRadius: "50%",
+                    width: 36, height: 36, cursor: "pointer", fontSize: 16, color: "#D4541C",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "background 0.15s" }}>
+                  ⇄
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Destination stops */}
+          {destinations.map((destId, idx) => (
+            <div key={idx} style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
+              <CitySelect
+                value={destId}
+                onChange={v => updateStop(idx, v)}
+                label={destinations.length === 1 ? "Destination" : `Stop ${idx + 1}`}
+                
+              />
+              {destinations.length > 1 && (
+                <div style={{ paddingBottom: 2 }}>
+                  <button onClick={() => removeStop(idx)}
+                    style={{ background: "#FF3B30", border: "none", borderRadius: "50%",
+                      width: 34, height: 34, cursor: "pointer", fontSize: 13, color: "#fff",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      transition: "opacity 0.15s" }}>
+                    ×
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Add stop */}
+          <button onClick={addStop}
+            style={{ background: "transparent", border: "1.5px dashed #D8D8DC", borderRadius: 12,
+              color: "#8A8A8E", fontSize: 12, padding: "9px 14px", cursor: "pointer",
+              width: "100%", marginTop: 4, fontFamily: "inherit", transition: "border-color 0.15s" }}>
+            + Add Destination Stop
+          </button>
+
+          {destinations.length > 1 && (
+            <div style={{ marginTop: 10, padding: "7px 11px", background: "rgba(249,115,22,0.06)",
+              border: "1px solid rgba(249,115,22,0.2)", borderRadius: 8, color: "#6E6E73", fontSize: 11 }}>
+              Multi-stop: 1 hr load at origin · 1 hr unload per stop
+            </div>
+          )}
+        </div>
+
+
+                </div>{/* end route builder flex column */}
+
+        </div>{/* end side-by-side flex row */}
+
+        <p style={{ textAlign: "center", color: "#E5E7EB", fontSize: 10, marginTop: 4 }}>
+          Distances to/from Toronto verified via Google Maps · Inter-city routes estimated ±10%
+          · Drive times +20% truck factor · Base: Mississauga
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── CHAT RESULT CARD ─────────────────────────────────────────────────────────
+function ChatResult({ result, baseName }) {
+  const [expanded,    setExpanded]    = useState(false);
+  const [customQuote, setCustomQuote] = useState("");
+
+  if (result.type === "error") {
+    return (
+      <div style={{ background: "#1f1010", border: "1px solid #c2410c", borderRadius: "14px 14px 14px 4px",
+        padding: "12px 14px", maxWidth: "80%", fontSize: 13, color: "#DC2626" }}>
+        {result.msg}
+      </div>
+    );
+  }
+
+  const { orig, dest, trip } = result;
+  const leg = trip.deliveryLegs[0];
+
+  return (
+    <div style={{ background: "#F5F5F7", border: "1px solid #E5E7EB",
+      borderRadius: "14px 14px 14px 4px", padding: "14px 16px", maxWidth: "85%", minWidth: 300 }}>
+      <style>{`
+        @keyframes sb-rainbow { 0%{color:#ff4444}16%{color:#ff9900}33%{color:#ffee00}50%{color:#44dd44}66%{color:#44aaff}83%{color:#aa44ff}100%{color:#ff4444} }
+        .sb-rainbow { animation: sb-rainbow 1.4s linear infinite; }
+        @keyframes sb-rainbow-border { 0%{border-color:#ff4444}16%{border-color:#ff9900}33%{border-color:#ffee00}50%{border-color:#44dd44}66%{border-color:#44aaff}83%{border-color:#aa44ff}100%{border-color:#ff4444} }
+        .sb-rainbow-border { animation: sb-rainbow-border 1.4s linear infinite; }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#1D1D1F" }}>{orig.name} → {dest.name}</div>
+          <div style={{ fontSize: 11, color: "#6E6E73", marginTop: 2 }}>
+            {leg.route.km} km · {fmtTime(leg.route.min)} drive
+            {leg.route.live ? "" : leg.route.estimated ? " · (est.)" : " · (verified)"}
+          </div>
+          {trip.liveSearch && (
+            <div style={{ fontSize: 10, color: "#0071E3", marginTop: 2 }}>
+              Live route · OpenStreetMap
+            </div>
+          )}
+        </div>
+        <span style={{ background: leg.costs.isLocal ? "#1d4ed8" : "#D4541C",
+          borderRadius: 12, padding: "4px 10px", fontSize: 10, fontWeight: 700 }}>
+          {leg.costs.isLocal ? "LOCAL" : "LONG DIST."}
+        </span>
+      </div>
+
+      {/* Cost pair */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <div style={{ background: "#FFFFFF", borderRadius: 8, padding: "10px 12px",
+          border: "1px solid #D4541C" }}>
+          <div style={{ color: "#6E6E73", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5 }}>One Way · With Fuel</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#D4541C" }}>{fmt$(leg.costs.withFuel)}</div>
+        </div>
+        <div style={{ background: "#FFFFFF", borderRadius: 8, padding: "10px 12px",
+          border: "1px solid #E5E7EB" }}>
+          <div style={{ color: "#6E6E73", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.5 }}>Full Trip · With Fuel</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#D4541C" }}>{fmt$(trip.fullTotal)}</div>
+        </div>
+      </div>
+
+      {/* Margin tiles — color coded */}
+      {(() => {
+        const cost = trip.fullTotal;
+        const customNum    = parseFloat(customQuote);
+        const customValid  = !isNaN(customNum) && customNum > 0;
+        const customMargin = customValid ? (customNum - cost) / customNum * 100 : null;
+        const isRainbow    = customMargin !== null && customMargin > 40;
+        const marginColor  = customMargin === null ? "#6E6E73"
+          : customMargin < 20 ? "#DC2626"
+          : customMargin < 30 ? "#D97706"
+          : "#15803D";
+        return (
+          <div style={{ marginBottom: 10 }}>
+            {/* Preset tiers */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 8 }}>
+              {[20, 30, 40].map(pct => {
+                const price = cost / (1 - pct / 100);
+                const col  = TIER_COLORS[pct];
+                const bord = TIER_BORDERS[pct];
+                return (
+                  <div key={pct} style={{ background: TIER_BG[pct], borderRadius: 7, padding: "9px 10px",
+                    textAlign: "center", border: `1px solid ${bord}` }}>
+                    <div style={{ color: col, fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                      letterSpacing: 0.5, marginBottom: 3 }}>{pct}% Margin</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: col }}>{fmt$(price)}</div>
+                    <div style={{ color: "#8A8A8E", fontSize: 10, marginTop: 2 }}>+{fmt$(price - cost)}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Custom quote */}
+            <div className={isRainbow ? "sb-rainbow-border" : ""}
+              style={{ background: "#FFFFFF", borderRadius: 7, padding: "10px 12px",
+                border: `1px solid ${isRainbow ? "transparent" : "#E5E7EB"}` }}>
+              <div style={{ color: "#6E6E73", fontSize: 9, fontWeight: 700,
+                textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 7 }}>
+                Custom Quote — What margin am I at?
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ position: "relative", flex: 1 }}>
+                  <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)",
+                    color: "#6E6E73", fontSize: 13, pointerEvents: "none" }}>$</span>
+                  <input
+                    type="number"
+                    value={customQuote}
+                    onChange={e => setCustomQuote(e.target.value)}
+                    placeholder="Enter your quote…"
+                    style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px 8px 22px",
+                      background: "#FFFFFF", color: "#1D1D1F", borderRadius: 6, fontSize: 13,
+                      outline: "none", border: `1px solid ${customValid && !isRainbow ? marginColor : "#E5E7EB"}` }}
+                  />
+                </div>
+                <div style={{ minWidth: 90, textAlign: "right" }}>
+                  {customValid ? (
+                    <>
+                      <div className={isRainbow ? "sb-rainbow" : ""}
+                        style={{ fontSize: 22, fontWeight: 800,
+                          color: isRainbow ? undefined : marginColor, lineHeight: 1 }}>
+                        {customMargin.toFixed(1)}%
+                      </div>
+                      <div style={{ fontSize: 10, color: "#8A8A8E", marginTop: 2 }}>
+                        {customMargin >= 0
+                          ? `+${fmt$(customNum - cost)} profit`
+                          : `${fmt$(customNum - cost)} loss`}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "#8A8A8E" }}>— %</div>
+                  )}
+                </div>
+              </div>
+              {customValid && customMargin !== null && (
+                <div className={isRainbow ? "sb-rainbow" : ""}
+                  style={{ marginTop: 6, fontSize: 11,
+                    color: isRainbow ? undefined
+                      : customMargin < 20 ? "#DC2626"
+                      : customMargin < 30 ? "#D97706"
+                      : "#15803D" }}>
+                  {customMargin < 0   ? "Below cost — losing money on this load."
+                  : customMargin < 10 ? "Very thin — less than 10% margin."
+                  : customMargin < 20 ? "Below 20% target margin."
+                  : customMargin < 30 ? "Good — between 20–30% margin."
+                  : customMargin < 40 ? "Strong — between 30–40% margin."
+                  :                     "Outstanding — above 40% margin!"}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Expand */}
+      <button onClick={() => setExpanded(e => !e)}
+        style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 6,
+          color: "#6E6E73", fontSize: 11, padding: "5px 10px", cursor: "pointer", width: "100%" }}>
+        {expanded ? "▲ Hide breakdown" : "▼ Show breakdown"}
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E5E7EB" }}>
+          <div style={{ color: "#6E6E73", fontSize: 9, textTransform: "uppercase",
+            letterSpacing: 0.5, marginBottom: 8 }}>
+            Leg 1 — {orig.name} → {dest.name}
+          </div>
+          <Breakdown costs={leg.costs} km={leg.route.km} />
+          {trip.retRoute && trip.retCosts && (
+            <>
+              <div style={{ borderTop: "1px solid #E5E7EB", margin: "10px 0 8px" }} />
+              <div style={{ color: "#6E6E73", fontSize: 9, textTransform: "uppercase",
+                letterSpacing: 0.5, marginBottom: 8 }}>
+                Deadhead Return — {dest.name} → {baseName}
+              </div>
+              <Breakdown costs={trip.retCosts} km={trip.retRoute.km} label="Deadhead Total w/ Fuel" />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+    // ── MOUNT ─────────────────────────────────────────────────────────
+    const root = ReactDOM.createRoot(document.getElementById('app'));
+    root.render(React.createElement(TruckCostCalc));
+  </script>
+
+</body>
+</html>

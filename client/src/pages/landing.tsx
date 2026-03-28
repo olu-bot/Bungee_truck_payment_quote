@@ -19,6 +19,18 @@ import { collection, doc, setDoc } from "firebase/firestore";
 import { currencyForCountryCode, currencySymbol } from "@/lib/currency";
 import type { MeasurementUnit } from "@/lib/measurement";
 import { City, State, type ICity } from "country-state-city";
+import { publicAsset } from "@/lib/publicPath";
+import { isConnectGuestUser } from "@/lib/connectGuest";
+
+/** When hosted under `/connect/`, fix root-absolute `src`/`href` in embedded marketing HTML. */
+function prefixRootRelativeAssetUrls(html: string): string {
+  const base = import.meta.env.BASE_URL;
+  if (!base || base === "/") return html;
+  const b = base.endsWith("/") ? base : `${base}/`;
+  return html
+    .replace(/src="\/(?!\/)/g, `src="${b}`)
+    .replace(/href="\/(?!\/)/g, `href="${b}`);
+}
 
 /** User closed Google popup or dismissed it — not a sign-in failure */
 function isGooglePopupCancelled(err: unknown): boolean {
@@ -53,13 +65,56 @@ function isGooglePopupCancelled(err: unknown): boolean {
   );
 }
 
+function authErrorCode(err: unknown): string | undefined {
+  if (err && typeof err === "object" && "code" in err) {
+    const c = (err as { code: unknown }).code;
+    if (typeof c === "string" && c.startsWith("auth/")) return c;
+  }
+  return undefined;
+}
+
+/** Maps Firebase Auth codes to clear, actionable copy (no raw provider dumps). */
 function sanitizeAuthErrorMessage(
   err: unknown,
   fallback: string,
 ): string {
+  const code = authErrorCode(err);
+  if (code) {
+    switch (code) {
+      case "auth/unauthorized-domain":
+        return "Sign-in is blocked for this website. In Firebase Console → Authentication → Settings, add your site under Authorized domains (e.g. shipbungee.com and www.shipbungee.com).";
+      case "auth/operation-not-allowed":
+        return "This sign-in method is turned off. In Firebase Console → Authentication → Sign-in method, enable Email/Password and/or Google.";
+      case "auth/popup-blocked":
+        return "Your browser blocked the sign-in window. Allow popups for this site, or try again — we will use a full-page sign-in if needed.";
+      case "auth/too-many-requests":
+        return "Too many attempts. Wait a few minutes and try again.";
+      case "auth/network-request-failed":
+        return "Network error. Check your connection and try again.";
+      case "auth/invalid-api-key":
+        return "App sign-in is misconfigured (invalid API key). Contact support.";
+      case "auth/user-disabled":
+        return "This account has been disabled.";
+      case "auth/email-already-in-use":
+        return "An account already exists with this email. Try signing in instead.";
+      case "auth/weak-password":
+        return "Password is too weak. Use a stronger password.";
+      case "auth/invalid-email":
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+      case "auth/user-not-found":
+      case "auth/invalid-login-credentials":
+        return "Please check your email and password.";
+      case "auth/popup-closed-by-user":
+      case "auth/cancelled-popup-request":
+        return fallback;
+      default:
+        break;
+    }
+  }
+
   const raw = err instanceof Error ? err.message : String(err ?? "");
   const lower = raw.toLowerCase();
-  // Never surface provider/internal auth strings in production UI.
   if (
     lower.includes("firebase") ||
     lower.includes("auth/") ||
@@ -91,12 +146,20 @@ const SIGNUP_FLOW_STEPS = 2;
 
 // Cost profile creation now happens on /#/profiles after signup redirect
 
+function initialViewFromHash(): View {
+  if (typeof window === "undefined") return "landing";
+  let p = window.location.hash.replace(/^#/, "") || "/";
+  if (!p.startsWith("/")) p = `/${p}`;
+  p = (p.split("?")[0] || "/").replace(/\/$/, "") || "/";
+  return p === "/signup" ? "onboarding" : "landing";
+}
+
 export default function Landing() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user, login, loginWithGoogle, signup } = useFirebaseAuth();
-  const [view, setView] = useState<View>("landing");
+  const [view, setView] = useState<View>(initialViewFromHash);
   const [authMode, setAuthMode] = useState<AuthMode>("signup");
   const [signupStep, setSignupStep] = useState(1);
 
@@ -135,11 +198,28 @@ export default function Landing() {
     const after = marketingHtml.slice(index + block.length).replaceAll("$", sym);
     const localized = before + block + after;
     // Sanitize to prevent XSS — allows only safe HTML tags and attributes.
-    return DOMPurify.sanitize(localized, {
+    const safe = DOMPurify.sanitize(localized, {
       ADD_TAGS: ["section", "nav", "footer"],
       ADD_ATTR: ["data-action", "data-scroll", "data-testid", "data-billing-toggle"],
     });
+    return prefixRootRelativeAssetUrls(safe);
   }, [countryCode, user?.operatingCountryCode]);
+
+  const routePath = useMemo(() => {
+    const p = (location.split("?")[0] || "/").replace(/\/$/, "") || "/";
+    return p === "" ? "/" : p;
+  }, [location]);
+
+  /** Keep marketing vs auth UI aligned with hash when browsing as connect guest (browser back/forward). */
+  useEffect(() => {
+    if (!isConnectGuestUser(user)) return;
+    if (routePath === "/signup") {
+      setView("onboarding");
+    } else if (routePath === "/") {
+      setView("landing");
+      setSignupStep(1);
+    }
+  }, [routePath, user]);
 
   useEffect(() => {
     if (!user && isOnboardingActive()) setOnboardingActive(false);
@@ -173,7 +253,8 @@ export default function Landing() {
     setView("onboarding");
     setSignupStep(1);
     window.scrollTo(0, 0);
-  }, []);
+    setLocation("/signup");
+  }, [setLocation]);
 
   useEffect(() => {
     const root = marketingRef.current;
@@ -540,7 +621,7 @@ export default function Landing() {
     setCityManual("");
   }, [stateProvince]);
 
-  if (user && !isOnboardingActive()) return null;
+  if (user && !isConnectGuestUser(user) && !isOnboardingActive()) return null;
 
   const signupProgressPct =
     authMode === "signup" && signupStep <= SIGNUP_FLOW_STEPS
@@ -575,7 +656,7 @@ export default function Landing() {
             </div>
             <div className="top-bar-center">
               <div className="logo">
-                <img src="/lottie/BungeeConnect-logo.png" alt="Bungee Connect" className="logo-img" />
+                <img src={publicAsset("lottie/BungeeConnect-logo.png")} alt="Bungee Connect" className="logo-img" />
               </div>
             </div>
             <div className="top-bar-right">
@@ -1034,7 +1115,7 @@ export default function Landing() {
                 <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--muted-fg, #666)" }}>
                   <span className="req">*</span> I agree to the{" "}
                   <a
-                    href="/user-agreement.html"
+                    href={publicAsset("user-agreement.html")}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: "var(--orange)", fontWeight: 600, textDecoration: "underline" }}
@@ -1044,7 +1125,7 @@ export default function Landing() {
                   </a>{" "}
                   and{" "}
                   <a
-                    href="/privacy-policy.html"
+                    href={publicAsset("privacy-policy.html")}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: "var(--orange)", fontWeight: 600, textDecoration: "underline" }}

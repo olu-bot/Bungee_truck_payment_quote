@@ -20,6 +20,14 @@ function readEnv(name: string): string | undefined {
   return value ? value : undefined;
 }
 
+/** Stripe return URLs: SPA root + `#/profiles?...`. Use CONNECT_PUBLIC_PATH=connect when app lives at /connect/. */
+function checkoutSpaRoot(req: Request): string {
+  const host = req.get("host") || "localhost";
+  const origin = (readEnv("PUBLIC_APP_URL") || `${req.protocol}://${host}`).replace(/\/$/, "");
+  const seg = (readEnv("CONNECT_PUBLIC_PATH") || "").replace(/^\/+|\/+$/g, "");
+  return seg ? `${origin}/${seg}/` : `${origin}/`;
+}
+
 function premiumPriceEnv(period: BillingPeriod = "month"): string | undefined {
   if (period === "year") {
     return (
@@ -174,11 +182,6 @@ export function registerStripeRoutes(app: Express): void {
     }
 
     try {
-      const host = req.get("host") || "localhost";
-      const origin =
-        process.env.PUBLIC_APP_URL?.replace(/\/$/, "") ||
-        `${req.protocol}://${host}`;
-
       const customerEmail =
         typeof req.body?.customerEmail === "string" && req.body.customerEmail.includes("@")
           ? req.body.customerEmail
@@ -189,11 +192,12 @@ export function registerStripeRoutes(app: Express): void {
           ? req.body.clientReferenceId
           : undefined;
 
+      const spaRoot = checkoutSpaRoot(req);
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${origin}/#/profiles?checkout=success`,
-        cancel_url: `${origin}/#/profiles?checkout=cancel`,
+        success_url: `${spaRoot}#/profiles?checkout=success`,
+        cancel_url: `${spaRoot}#/profiles?checkout=cancel`,
         customer_email: customerEmail,
         client_reference_id: clientReferenceId,
         subscription_data: {
