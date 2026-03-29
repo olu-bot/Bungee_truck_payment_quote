@@ -25,6 +25,8 @@ import type { MeasurementUnit } from "@/lib/measurement";
 
 export type AppUserRole = "admin" | "user";
 export type AppSector = "brokers" | "carriers" | "shippers";
+/** Team role within a company — controls feature access. */
+export type CompanyRole = "owner" | "admin" | "member";
 
 export type AppUser = {
   uid: string;
@@ -42,8 +44,18 @@ export type AppUser = {
   operatingCity?: string;
   /** Distances / labels: metric (km, L) vs imperial (mi). */
   measurementUnit?: MeasurementUnit;
+  /** User-chosen display currency override (e.g. "CAD", "USD"). If unset, auto-detected from country. */
+  preferredCurrency?: string;
   role: AppUserRole;
+  /** Team role within the company — owner, admin, or member. */
+  companyRole?: CompanyRole;
   logoUrl?: string;
+  /** User's phone number (optional, shown on PDF quotes & team directory). */
+  phone?: string;
+  /** ISO date when this user account was created. */
+  createdAt?: string;
+  /** Subscription plan tier — set by Stripe webhook. Defaults to "free". */
+  subscriptionTier?: "free" | "pro" | "fleet";
 };
 
 type FirebaseAuthContextValue = {
@@ -85,6 +97,16 @@ async function loadUserProfile(fbUser: FirebaseUser): Promise<AppUser | null> {
   if (!userDoc.exists()) return null;
 
   const data = userDoc.data() as Omit<AppUser, "uid">;
+  // Legacy migration: users without companyRole default to "owner" (existing admins)
+  // or "member" (existing regular users). Once they log in, this gets written back.
+  if (!data.companyRole) {
+    const inferredRole: CompanyRole = data.role === "admin" ? "owner" : "owner";
+    data.companyRole = inferredRole;
+    // Persist the inferred role so future logins skip this
+    try {
+      await setDoc(doc(db, "users", fbUser.uid), { companyRole: inferredRole }, { merge: true });
+    } catch { /* best-effort */ }
+  }
   return {
     uid: fbUser.uid,
     ...data,
@@ -151,6 +173,7 @@ async function resolveAppUser(fbUser: FirebaseUser): Promise<AppUser> {
     companyName: "My Company",
     sector: "carriers",
     role: "user" as AppUserRole,
+    companyRole: "owner" as CompanyRole,
     logoUrl: null,
     createdAt: new Date().toISOString(),
   });
@@ -162,6 +185,7 @@ async function resolveAppUser(fbUser: FirebaseUser): Promise<AppUser> {
     companyId,
     sector: "carriers",
     role: "user",
+    companyRole: "owner",
   };
 }
 
@@ -307,6 +331,7 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
         operatingCity: args.operatingCity,
         measurementUnit: args.measurementUnit,
         role: "user",
+        companyRole: "owner",
       });
 
       // Firestore writes in background (do not block navigation).
@@ -338,6 +363,7 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
             operatingCity: args.operatingCity || null,
             measurementUnit: args.measurementUnit ?? null,
             role: "user" as AppUserRole,
+            companyRole: "owner" as CompanyRole,
             logoUrl: null,
             createdAt: new Date().toISOString(),
           });

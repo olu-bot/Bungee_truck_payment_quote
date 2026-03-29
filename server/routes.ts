@@ -219,12 +219,14 @@ async function getOSRMMultiRoute(
   return result;
 }
 
-async function geocodeRaw(query: string): Promise<{ lat: number; lng: number } | null> {
+async function geocodeRaw(query: string, countrycodes?: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-      { headers: { "User-Agent": "BungeeConnect/3.0" } },
-    );
+    let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+    // Bias results to specific countries (ISO 3166-1 alpha-2 codes, comma-separated)
+    if (countrycodes) {
+      url += `&countrycodes=${encodeURIComponent(countrycodes)}`;
+    }
+    const res = await fetch(url, { headers: { "User-Agent": "BungeeConnect/3.0" } });
     const data = await res.json();
     if (data.length > 0) {
       return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
@@ -242,9 +244,9 @@ async function geocodeRaw(query: string): Promise<{ lat: number; lng: number } |
  * e.g. "123 Industrial Rd, Suite 5, Toronto, ON" →
  *      try "Suite 5, Toronto, ON" → "Toronto, ON" → "ON"
  */
-async function geocodeLocationUncached(location: string): Promise<{ lat: number; lng: number } | null> {
-  // Try full address first
-  const full = await geocodeRaw(location);
+async function geocodeLocationUncached(location: string, countrycodes?: string): Promise<{ lat: number; lng: number } | null> {
+  // Try full address first (with country bias)
+  const full = await geocodeRaw(location, countrycodes);
   if (full) return full;
 
   // Fallback: try progressively shorter suffixes
@@ -252,20 +254,26 @@ async function geocodeLocationUncached(location: string): Promise<{ lat: number;
   for (let i = 1; i < parts.length; i++) {
     const candidate = parts.slice(i).join(", ");
     if (candidate.length >= 3) {
-      const result = await geocodeRaw(candidate);
+      const result = await geocodeRaw(candidate, countrycodes);
       if (result) return result;
     }
+  }
+
+  // Last resort: try without country bias in case it's a cross-border destination
+  if (countrycodes) {
+    const noBias = await geocodeRaw(location);
+    if (noBias) return noBias;
   }
 
   return null;
 }
 
-async function geocodeLocation(location: string): Promise<{ lat: number; lng: number } | null> {
-  const key = normalizeLocationKey(location);
+async function geocodeLocation(location: string, countrycodes?: string): Promise<{ lat: number; lng: number } | null> {
+  const key = normalizeLocationKey(location) + (countrycodes ? `|${countrycodes}` : "");
   if (!key) return null;
   const hit = cacheGet(geocodeCache, key);
   if (hit !== undefined) return hit;
-  const result = await geocodeLocationUncached(location);
+  const result = await geocodeLocationUncached(location, countrycodes);
   cacheSet(geocodeCache, key, result, result ? GEO_TTL_MS : GEO_MISS_TTL_MS);
   return result;
 }
@@ -451,7 +459,12 @@ const CITY_ALIASES: Record<string, string> = {
 };
 
 function fuzzyMatchCity(input: string): string | null {
-  const lower = input.trim().toLowerCase();
+  const trimmed = input.trim();
+  // If the input looks like a precise address (contains digits or commas),
+  // return it as-is so we geocode the full address instead of matching a city.
+  if (/\d/.test(trimmed) || trimmed.includes(",")) return trimmed;
+
+  const lower = trimmed.toLowerCase();
   if (CITY_ALIASES[lower]) return CITY_ALIASES[lower];
   for (const [key, val] of Object.entries(CITY_ALIASES)) {
     if (lower.startsWith(key) || key.startsWith(lower)) return val;
@@ -459,8 +472,7 @@ function fuzzyMatchCity(input: string): string | null {
   for (const [key, val] of Object.entries(CITY_ALIASES)) {
     if (levenshtein(lower, key) <= 2) return val;
   }
-  if (/\d/.test(input) || input.includes(",")) return input.trim();
-  return input.trim().split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
+  return trimmed.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 
 function levenshtein(a: string, b: string): number {
@@ -481,13 +493,22 @@ function levenshtein(a: string, b: string): number {
 }
 
 function parseChatMessage(message: string): string[] {
-  const normalized = message
+  // Replace arrow-style delimiters with a uniform separator
+  let normalized = message
     .replace(/→/g, " to ")
     .replace(/->/g, " to ")
     .replace(/>/g, " to ")
     .replace(/\band\s+then\b/gi, " to ")
-    .replace(/\bthen\b/gi, " to ")
-    .replace(/,/g, " to ");
+    .replace(/\bthen\b/gi, " to ");
+
+  // Only use commas as location separators when there are NO explicit "to"
+  // delimiters.  This preserves addresses that contain commas
+  // (e.g. "123 Main St, Toronto, ON to 456 Oak Ave, Montreal, QC").
+  const hasExplicitDelimiter = /\s+to\s+/i.test(normalized);
+  if (!hasExplicitDelimiter) {
+    normalized = normalized.replace(/,/g, " to ");
+  }
+
   const parts = normalized.split(/\s+to\s+/i).map(s => s.trim()).filter(s => s.length > 0);
   return parts.map(p => fuzzyMatchCity(p) || p);
 }
@@ -601,8 +622,11 @@ export async function registerRoutes(
   // === GEOCODE ===
   app.get("/api/geocode", async (req, res) => {
     const location = req.query.location as string;
+    const countrycodes = req.query.countrycodes as string | undefined;
     if (!location) return res.status(400).json({ error: "location required" });
-    const result = await geocodeLocation(location);
+    // Bias geocoding to US + Canada by default for trucking routes; override with specific country if provided
+    const bias = countrycodes || "us,ca";
+    const result = await geocodeLocation(location, bias);
     if (!result) return res.status(404).json({ error: "Location not found" });
     res.json(result);
   });
@@ -663,7 +687,7 @@ export async function registerRoutes(
     try {
       const input = calculateRouteSchema.parse(req.body);
       const profile = await storage.getCostProfile(input.profileId);
-      if (!profile) return res.status(400).json({ error: "Cost profile not found" });
+      if (!profile) return res.status(400).json({ error: "Equipment cost profile not found" });
 
       const result = calculateRouteCost(
         profile, input.stops, input.includeReturn, input.fuelPricePerLitre
@@ -897,7 +921,8 @@ export async function registerRoutes(
   // === CHATBOT ROUTE PARSING ===
   app.post("/api/chat-route", async (req, res) => {
     try {
-      const { message } = chatRouteSchema.parse(req.body);
+      const { message, dockTimeMinutes: clientDockTime } = chatRouteSchema.parse(req.body);
+      const dockTimeMin = clientDockTime ?? 60;
       const locations = parseChatMessage(message);
 
       if (locations.length < 2) {
@@ -910,7 +935,7 @@ export async function registerRoutes(
 
       // Geocode all locations in parallel, then compute legs with one multi-route request.
       const geocoded = await Promise.all(
-        locations.map(async (loc) => ({ loc, geo: await geocodeLocation(loc) })),
+        locations.map(async (loc) => ({ loc, geo: await geocodeLocation(loc, "us,ca") })),
       );
 
       const stopsWithGeo: any[] = geocoded.map(({ loc, geo }, i) => ({
@@ -919,7 +944,7 @@ export async function registerRoutes(
         location: loc,
         lat: geo?.lat,
         lng: geo?.lng,
-        dockTimeMinutes: 60,
+        dockTimeMinutes: dockTimeMin,
         distanceFromPrevKm: 0,
         driveMinutesFromPrev: 0,
       }));

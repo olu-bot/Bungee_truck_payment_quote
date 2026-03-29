@@ -30,6 +30,7 @@ export const pricingTiersSchema = z.object({
 
 export const chatRouteSchema = z.object({
   message: z.string().min(1),
+  dockTimeMinutes: z.number().optional(),
 });
 
 // ── Cost profile ─────────────────────────────────────────────────
@@ -50,6 +51,11 @@ export const insertCostProfileSchema = z.object({
   fuelConsumptionPer100km: z.number(),
   defaultDockTimeMinutes: z.number(),
   detentionRatePerHour: z.number(),
+  // ── Advanced fixed costs (optional — zero if not set) ──────────
+  monthlyTrailerLease: z.number().optional(),     // Trailer lease/payment
+  monthlyEldTelematics: z.number().optional(),    // ELD subscription, GPS, dashcam
+  monthlyAccountingOffice: z.number().optional(), // Bookkeeping, software, office
+  monthlyTireReserve: z.number().optional(),      // Tire wear reserve per month
   currency: z.string().optional(), // Currency the profile values were entered in (e.g. "USD", "CAD")
   createdAt: z.string().optional(),
 });
@@ -154,4 +160,8 @@ export type Quote = {
   wonRate?: number | null;
   /** Note recorded when marking won or lost (e.g. why we lost, who won, negotiation details) */
   statusNote?: string;
+  /** The price the customer wanted / competitor offered (recorded when marking as lost) */
+  lostTargetPrice?: number | null;
+  /** Total accessorial charges added in advanced quote mode */
+  accessorialTotal?: number | null;
 };

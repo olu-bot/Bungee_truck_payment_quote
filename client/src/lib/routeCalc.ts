@@ -13,7 +13,12 @@ function getFixedCostPerHour(p: CostProfile): number {
     Math.max(0, p.monthlyInsurance) +
     Math.max(0, p.monthlyMaintenance) +
     Math.max(0, p.monthlyPermitsPlates) +
-    Math.max(0, p.monthlyOther);
+    Math.max(0, p.monthlyOther) +
+    // Advanced fixed costs (optional — default to 0)
+    Math.max(0, p.monthlyTrailerLease ?? 0) +
+    Math.max(0, p.monthlyEldTelematics ?? 0) +
+    Math.max(0, p.monthlyAccountingOffice ?? 0) +
+    Math.max(0, p.monthlyTireReserve ?? 0);
   const days = Math.max(1, p.workingDaysPerMonth);
   const hours = Math.max(1, p.workingHoursPerDay);
   return monthlyFixed / (days * hours);

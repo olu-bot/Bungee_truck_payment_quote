@@ -245,6 +245,44 @@ export async function updateUserProfile(
   await updateDoc(ref, data);
 }
 
+// ─── Company Accessorial Policy ─────────────────────────────────────
+
+export type CompanyAccessorialPolicy = {
+  detentionRate: number;      // $/hr
+  stopOffRate: number;        // $ per extra stop
+  costInflationPct: number;   // % markup for hazmat, regulatory, etc.
+};
+
+const DEFAULT_ACCESSORIAL_POLICY: CompanyAccessorialPolicy = {
+  detentionRate: 75,
+  stopOffRate: 75,
+  costInflationPct: 0,
+};
+
+export async function getAccessorialPolicy(
+  companyId: string | undefined,
+): Promise<CompanyAccessorialPolicy> {
+  if (!firebaseConfigured || !companyId) return { ...DEFAULT_ACCESSORIAL_POLICY };
+  try {
+    const ref = doc(db, "companies", companyId);
+    const snap = await getDoc(ref);
+    const data = snap.data();
+    if (!data?.accessorialPolicy) return { ...DEFAULT_ACCESSORIAL_POLICY };
+    return { ...DEFAULT_ACCESSORIAL_POLICY, ...data.accessorialPolicy } as CompanyAccessorialPolicy;
+  } catch {
+    return { ...DEFAULT_ACCESSORIAL_POLICY };
+  }
+}
+
+export async function updateAccessorialPolicy(
+  companyId: string | undefined,
+  policy: Partial<CompanyAccessorialPolicy>,
+): Promise<void> {
+  if (!firebaseConfigured || !companyId) return;
+  const ref = doc(db, "companies", companyId);
+  await updateDoc(ref, { accessorialPolicy: policy });
+}
+
 // ─── Feedback (global collection) ──────────────────────────────────
 
 export type FeedbackTicket = {
@@ -392,7 +430,7 @@ export async function createQuote(
 export async function updateQuote(
   companyId: string | undefined,
   quoteId: string,
-  data: Partial<Pick<Quote, "customerNote" | "status" | "wonRate" | "statusNote" | "customerPrice" | "grossProfit" | "profitMarginPercent" | "marginValue" | "marginAmount">>
+  data: Partial<Pick<Quote, "customerNote" | "status" | "wonRate" | "statusNote" | "lostTargetPrice" | "customerPrice" | "grossProfit" | "profitMarginPercent" | "marginValue" | "marginAmount">>
 ): Promise<void> {
   requireSignedInScope(companyId);
   const ref = doc(db, "companies", companyId, "quotes", quoteId);
@@ -409,6 +447,32 @@ export async function deleteQuote(
   if (!existing.exists()) return false;
   await deleteDoc(ref);
   return true;
+}
+
+// ─── Chat Quote Logs (admin-only, not shown in user quote history) ─
+
+export async function createChatQuoteLog(
+  uid: string | undefined,
+  companyId: string | undefined,
+  data: Omit<Quote, "id" | "quoteNumber" | "createdAt">
+): Promise<Quote> {
+  if (!firebaseConfigured || !db || !uid) throw new Error("Sign in required.");
+  const logId = `cql_${id()}`;
+  const quoteNumber = `CQL-${Date.now().toString(36).toUpperCase()}`;
+  const createdAt = new Date().toISOString();
+  const entry: Quote & { userId: string; companyId: string } = {
+    ...data,
+    id: logId,
+    quoteNumber,
+    createdAt,
+    userId: uid,
+    companyId: companyId || uid,
+  } as Quote & { userId: string; companyId: string };
+  await setDoc(
+    doc(db, "chatQuoteLogs", logId),
+    omitUndefined(entry as unknown as Record<string, unknown>),
+  );
+  return entry;
 }
 
 // ─── Routes ───────────────────────────────────────────────────────
@@ -531,4 +595,227 @@ export async function authenticateTeamByPin(
 ): Promise<TeamMember | undefined> {
   const members = await getTeamMembers(companyId);
   return members.find((m) => m.pin === pin);
+}
+
+// ─── Invites ──────────────────────────────────────────────────────
+
+export type Invite = {
+  id: string;
+  email: string;
+  role: string; // CompanyRole value
+  invitedBy: string; // uid of inviter
+  inviterName: string;
+  companyName: string;
+  companyId: string;
+  status: "pending" | "accepted" | "revoked";
+  createdAt: string;
+  acceptedAt?: string;
+};
+
+export async function getInvites(companyId: string | undefined): Promise<Invite[]> {
+  if (!firebaseConfigured || !companyId) return [];
+  const snap = await getDocs(collection(db, "companies", companyId, "invites"));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...toRecord(d.data() as Record<string, unknown>) } as Invite))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function createInvite(
+  companyId: string | undefined,
+  data: Omit<Invite, "id">
+): Promise<Invite> {
+  requireSignedInScope(companyId);
+  const inviteId = `inv_${id()}`;
+  const invite: Invite = { ...data, id: inviteId };
+  await setDoc(doc(db, "companies", companyId, "invites", inviteId), invite);
+  return invite;
+}
+
+export async function revokeInvite(
+  companyId: string | undefined,
+  inviteId: string
+): Promise<boolean> {
+  if (!companyId) return false;
+  const ref = doc(db, "companies", companyId, "invites", inviteId);
+  const existing = await getDoc(ref);
+  if (!existing.exists()) return false;
+  await updateDoc(ref, { status: "revoked" });
+  return true;
+}
+
+export async function acceptInvite(
+  companyId: string | undefined,
+  inviteId: string,
+  uid: string
+): Promise<boolean> {
+  if (!companyId) return false;
+  const ref = doc(db, "companies", companyId, "invites", inviteId);
+  const existing = await getDoc(ref);
+  if (!existing.exists()) return false;
+  await updateDoc(ref, { status: "accepted", acceptedAt: new Date().toISOString(), acceptedByUid: uid });
+  return true;
+}
+
+/** Find a pending invite by email across a specific company. */
+export async function findPendingInviteByEmail(
+  companyId: string,
+  email: string
+): Promise<Invite | undefined> {
+  if (!firebaseConfigured || !companyId) return undefined;
+  const q = query(
+    collection(db, "companies", companyId, "invites"),
+    where("email", "==", email.toLowerCase()),
+    where("status", "==", "pending")
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return undefined;
+  const d = snap.docs[0];
+  return { id: d.id, ...toRecord(d.data() as Record<string, unknown>) } as Invite;
+}
+
+/** Get all company members (users who belong to a company). */
+export async function getCompanyMembers(companyId: string | undefined): Promise<Array<{
+  uid: string;
+  name: string;
+  email: string;
+  companyRole: string;
+  createdAt?: string;
+}>> {
+  if (!firebaseConfigured || !companyId) return [];
+  const q = query(collection(db, "users"), where("companyId", "==", companyId));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => {
+    const data = d.data() as Record<string, unknown>;
+    return {
+      uid: d.id,
+      name: (data.name as string) || "",
+      email: (data.email as string) || "",
+      companyRole: (data.companyRole as string) || "member",
+      createdAt: (data.createdAt as string) || undefined,
+    };
+  });
+}
+
+/** Update a user's company role. */
+export async function updateUserCompanyRole(
+  uid: string,
+  companyRole: string
+): Promise<void> {
+  if (!firebaseConfigured || !uid) return;
+  const ref = doc(db, "users", uid);
+  await updateDoc(ref, { companyRole });
+}
+
+/** Remove a user from a company (reset their companyId). */
+export async function removeUserFromCompany(uid: string): Promise<void> {
+  if (!firebaseConfigured || !uid) return;
+  const ref = doc(db, "users", uid);
+  await updateDoc(ref, { companyId: null, companyRole: null });
+}
+
+// ── PDF Quote Template Settings ──────────────────────────────────
+
+export type PdfTemplateSettings = {
+  /** Displayed on PDF header — defaults to user's company name if blank */
+  businessName: string;
+  /** Tagline or description under the business name */
+  tagline: string;
+  /** Contact phone shown on PDF */
+  contactPhone: string;
+  /** Contact email override (defaults to user.email) */
+  contactEmail: string;
+  /** Full business address (street, city, province/state, postal code) shown on PDF */
+  address: string;
+  /** Base64-encoded company logo (data URL) for the PDF header */
+  logoBase64: string;
+  /** Quote validity period in days */
+  validityDays: number;
+  /** Payment terms */
+  paymentTerms: string;
+  /** Free detention hours before charges apply */
+  freeDetentionHours: number;
+  /** Detention rate per hour */
+  detentionRate: number;
+  /** Whether to show fuel surcharge clause */
+  showFuelClause: boolean;
+  /** Whether to show accessorial charges clause */
+  showAccessorialClause: boolean;
+  /** Additional custom terms — one per line */
+  customTerms: string;
+  /** Footer note */
+  footerNote: string;
+};
+
+export const DEFAULT_PDF_TEMPLATE: PdfTemplateSettings = {
+  businessName: "",
+  tagline: "",
+  contactPhone: "",
+  contactEmail: "",
+  address: "",
+  logoBase64: "",
+  validityDays: 7,
+  paymentTerms: "Net 30",
+  freeDetentionHours: 2,
+  detentionRate: 75,
+  showFuelClause: true,
+  showAccessorialClause: true,
+  customTerms: "",
+  footerNote: "",
+};
+
+export async function getPdfTemplate(companyId: string | undefined): Promise<PdfTemplateSettings> {
+  if (!firebaseConfigured || !companyId) return { ...DEFAULT_PDF_TEMPLATE };
+  const snap = await getDoc(doc(db, "companies", companyId, "settings", "pdfTemplate"));
+  if (!snap.exists()) return { ...DEFAULT_PDF_TEMPLATE };
+  return { ...DEFAULT_PDF_TEMPLATE, ...(snap.data() as Partial<PdfTemplateSettings>) };
+}
+
+export async function savePdfTemplate(
+  companyId: string | undefined,
+  settings: PdfTemplateSettings,
+): Promise<void> {
+  requireSignedInScope(companyId);
+  await setDoc(
+    doc(db, "companies", companyId, "settings", "pdfTemplate"),
+    settings,
+  );
+}
+
+// ─── Quote Usage Tracking ────────────────────────────────────────
+
+/** Current YYYY-MM key for quota tracking. */
+function currentMonthKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export type QuoteUsage = { month: string; count: number };
+
+/** Read the current month's quote usage count for a company. */
+export async function getQuoteUsage(companyId: string | undefined): Promise<QuoteUsage> {
+  const month = currentMonthKey();
+  if (!firebaseConfigured || !companyId) return { month, count: 0 };
+  const ref = doc(db, "companies", companyId, "usage", "quoteUsage");
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return { month, count: 0 };
+  const data = snap.data() as QuoteUsage;
+  // If the stored month doesn't match current month, treat as 0 (new month)
+  if (data.month !== month) return { month, count: 0 };
+  return { month, count: data.count ?? 0 };
+}
+
+/** Increment the quote usage count. Returns new count. */
+export async function incrementQuoteUsage(companyId: string | undefined): Promise<number> {
+  requireSignedInScope(companyId);
+  const month = currentMonthKey();
+  const ref = doc(db, "companies", companyId, "usage", "quoteUsage");
+  const snap = await getDoc(ref);
+  let newCount = 1;
+  if (snap.exists()) {
+    const data = snap.data() as QuoteUsage;
+    // Reset if new month
+    newCount = data.month === month ? (data.count ?? 0) + 1 : 1;
+  }
+  await setDoc(ref, { month, count: newCount });
+  return newCount;
 }

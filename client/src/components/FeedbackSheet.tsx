@@ -39,7 +39,7 @@ const CATEGORIES: { id: FeedbackCategory; label: string }[] = [
 const AREAS: { value: string; label: string }[] = [
   { value: "", label: "Select an area (optional)" },
   { value: "quoting", label: "Route Quoting" },
-  { value: "cost-profile", label: "Cost Profiles" },
+  { value: "cost-profile", label: "Equipment Cost Profiles" },
   { value: "pricing", label: "Pricing / Margins" },
   { value: "ai-chatbot", label: "AI Chatbot" },
   { value: "team", label: "Team Management" },
@@ -155,17 +155,17 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
         side="right"
         className="w-full sm:max-w-lg overflow-y-auto max-h-screen flex flex-col gap-0 p-0"
       >
-        <div className="p-6 pb-4 border-b border-border">
+        <div className="p-4 pb-4 border-b border-slate-200">
           <SheetHeader className="text-left space-y-1">
-            <SheetTitle>Help Us Build What You Need</SheetTitle>
-            <SheetDescription>
+            <SheetTitle className="text-sm font-semibold">Help Us Build What You Need</SheetTitle>
+            <SheetDescription className="text-xs text-slate-500">
               Your feedback shapes Bungee Connect. Report a bug, request a feature, or tell us how we can improve
               your quoting workflow.
             </SheetDescription>
           </SheetHeader>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
           {!success ? (
             <>
               <div className="flex flex-wrap justify-center gap-2">
@@ -177,8 +177,8 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                     className={cn(
                       "px-4 py-2 rounded-full text-xs font-semibold border transition-colors",
                       category === c.id
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-muted-foreground border-border hover:border-muted-foreground/50"
+                        ? "bg-orange-400 text-white border-orange-400"
+                        : "bg-white text-slate-500 border-slate-200 hover:border-slate-500/50"
                     )}
                   >
                     {c.label}
@@ -186,7 +186,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                 ))}
               </div>
 
-              <div className="rounded-xl border border-border bg-card p-4 space-y-4 shadow-sm">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4 shadow-sm">
                 <div className="space-y-2">
                   <Label htmlFor="feedback-name">Your Name</Label>
                   <Input
@@ -222,7 +222,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                     placeholder="Describe what you'd like to see, the problem you're facing, or the bug you encountered. The more detail, the better we can help."
                     className="min-h-[120px] resize-y"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-slate-500">
                     Be as specific as possible. Include steps to reproduce for bugs.
                   </p>
                 </div>
@@ -243,7 +243,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                         onClick={() => setPriority(id)}
                         className={cn(
                           "flex-1 min-w-[calc(50%-4px)] sm:flex-none sm:min-w-0 px-3 py-2.5 rounded-md border text-sm font-semibold transition-colors",
-                          priority === id ? activeCls : "border-border bg-background text-muted-foreground hover:border-muted-foreground/40"
+                          priority === id ? activeCls : "border-slate-200 bg-white text-slate-500 hover:border-slate-500/40"
                         )}
                       >
                         {label}
@@ -273,7 +273,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                 </div>
 
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
-                  <p className="text-xs text-muted-foreground order-2 sm:order-1">
+                  <p className="text-xs text-slate-500 order-2 sm:order-1">
                     Saved to your account. Admins are notified in the Feedback inbox.
                   </p>
                   <Button
@@ -288,14 +288,14 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
               </div>
             </>
           ) : (
-            <div className="rounded-xl border border-border bg-card p-8 text-center space-y-4 shadow-sm">
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center space-y-4 shadow-sm">
               <div className="mx-auto w-14 h-14 rounded-full bg-green-500/10 flex items-center justify-center">
                 <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-green-600" fill="none" strokeWidth="2.5">
                   <path d="M20 6L9 17l-5-5" />
                 </svg>
               </div>
-              <h2 className="text-xl font-bold">Thank you for your feedback!</h2>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-sm font-semibold">Thank you for your feedback!</h2>
+              <p className="text-sm text-slate-500">
                 We read every submission. You can track replies below when our team responds in the app or by email.
               </p>
               <Button type="button" variant="outline" onClick={resetForm}>
@@ -316,7 +316,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                         ? "bg-green-500/10 text-green-600"
                         : sub.category === "improvement"
                           ? "bg-amber-500/10 text-amber-600"
-                          : "bg-muted text-muted-foreground";
+                          : "bg-slate-50 text-slate-500";
                   const label =
                     sub.category === "feature"
                       ? "Feature"
@@ -328,7 +328,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                   return (
                     <li
                       key={sub.id}
-                      className="rounded-lg border border-border bg-card p-3 text-left space-y-2"
+                      className="rounded-lg border border-slate-200 bg-white p-3 text-left space-y-2"
                     >
                       <div className="flex items-start gap-3">
                         <span className={cn("px-2 py-0.5 rounded-full text-[11px] font-bold uppercase shrink-0", badgeClass)}>
@@ -336,7 +336,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-semibold">{sub.subject}</div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="text-xs text-slate-500">
                             {formatTicketDate(sub.createdAt)} · {sub.priority} priority
                             {sub.area ? ` · ${sub.area}` : ""}
                           </div>
@@ -346,8 +346,8 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
                         </span>
                       </div>
                       {sub.adminReply ? (
-                        <div className="rounded-md bg-muted/50 border border-border px-3 py-2 text-sm">
-                          <span className="text-xs font-semibold text-muted-foreground block mb-1">Team reply</span>
+                        <div className="rounded-md bg-slate-50/50 border border-slate-200 px-3 py-2 text-sm">
+                          <span className="text-xs font-semibold text-slate-500 block mb-1">Team reply</span>
                           <p className="whitespace-pre-wrap">{sub.adminReply}</p>
                         </div>
                       ) : null}
@@ -358,7 +358,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
             </div>
           )}
 
-          <div className="text-center text-xs text-muted-foreground border-t border-border pt-6 pb-2">
+          <div className="text-center text-xs text-slate-500 border-t border-slate-200 pt-6 pb-2">
             <a href="mailto:support@shipbungee.com" className="text-primary hover:underline">
               support@shipbungee.com
             </a>

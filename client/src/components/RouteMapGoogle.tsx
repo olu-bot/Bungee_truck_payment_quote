@@ -122,12 +122,15 @@ export function RouteMapGoogle({
   }
 
   return (
-    <iframe
-      title="Route map"
-      className="h-64 w-full rounded-md border border-border"
-      src={src}
-      referrerPolicy="no-referrer-when-downgrade"
-      loading="lazy"
-    />
+    <div className="h-64 w-full rounded-md border border-border overflow-hidden relative">
+      <iframe
+        title="Route map"
+        className="absolute w-full border-0"
+        style={{ top: "-120px", height: "calc(100% + 120px)" }}
+        src={src}
+        referrerPolicy="no-referrer-when-downgrade"
+        loading="lazy"
+      />
+    </div>
   );
 }

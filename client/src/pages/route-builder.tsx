@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
@@ -21,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { useQuoteUsage } from "@/hooks/use-quote-usage";
 import {
   MapPin,
   Plus,
@@ -38,11 +40,19 @@ import {
   AlertTriangle,
   Save,
   FileText,
+  Star,
+  FileDown,
+  Info,
 } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
 import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
 import { RouteMapGoogle } from "@/components/RouteMapGoogle";
 import { LocationSuggestInput } from "@/components/LocationSuggestInput";
+import { QuoteShareDialog } from "@/components/QuoteShareDialog";
+import { can } from "@/lib/permissions";
+import { favLaneLimit, canExportPdf, tierLabel } from "@/lib/subscription";
+import { UpgradeDialog } from "@/components/UpgradeDialog";
 import {
   currencyPerLitreLabel,
   currencySymbol,
@@ -60,6 +70,7 @@ import {
 } from "@/lib/measurement";
 import {
   getFuelPrices,
+  getFuelPricesSync,
   getFuelPriceForRouteBuilder,
   type FuelPriceData,
 } from "@/lib/fuelPriceService";
@@ -164,6 +175,13 @@ async function persistRouteBuilderQuote(
     customQuoteInput: string;
     customerNote?: string;
     chatUserMessage?: string;
+    accessorialTotal?: number;
+    surchargePercent?: number;
+    surchargeAmount?: number;
+    accessorialItems?: { label: string; amount: number }[];
+    payMode?: string;
+    dockTimeHrs?: number;
+    quoteMode?: string;
   },
 ): Promise<Quote> {
   const nonYard = stops.filter((s) => s.type !== "yard");
@@ -175,12 +193,18 @@ async function persistRouteBuilderQuote(
   const distMi = meta.calc.totalDistanceKm * 0.621371;
   const tier20 = meta.pricing.tiers[0];
 
+  // Accessorials are pass-throughs added to the final quote, not the cost base
+  const accTotal = meta.accessorialTotal ?? 0;
+  // carrierCost = base trip cost (inflation already included in accTotal by caller if applicable)
+  const carrierCostPersist = meta.calc.fullTripCost;
+
   // If user entered a custom quote, use that as the customer price
+  // Otherwise: tier price + accessorial pass-through
   const customAmt = parseFloat(meta.customQuoteInput);
   const hasCustomQuote = !isNaN(customAmt) && customAmt > 0;
-  const customerPrice = hasCustomQuote ? customAmt : (tier20?.price ?? meta.calc.fullTripCost);
-  const grossProfit = customerPrice - meta.calc.fullTripCost;
-  const profitMarginPercent = meta.calc.fullTripCost > 0 ? (grossProfit / meta.calc.fullTripCost) * 100 : 0;
+  const customerPrice = hasCustomQuote ? customAmt : ((tier20?.price ?? carrierCostPersist) + accTotal);
+  const grossProfit = customerPrice - accTotal - carrierCostPersist;
+  const profitMarginPercent = carrierCostPersist > 0 ? (grossProfit / carrierCostPersist) * 100 : 0;
 
   const snapshot: RouteBuilderSnapshot = {
     routeSummary: stops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
@@ -195,6 +219,12 @@ async function persistRouteBuilderQuote(
     deliveryCost: meta.calc.tripCost,
     deadheadCost: meta.calc.deadheadCost,
     fullTripCost: meta.calc.fullTripCost,
+    surchargePercent: meta.surchargePercent || undefined,
+    surchargeAmount: meta.surchargeAmount || undefined,
+    carrierCost: (meta.surchargeAmount ?? 0) > 0 ? carrierCostPersist + (meta.surchargeAmount ?? 0) : undefined,
+    accessorialTotal: accTotal > 0 ? accTotal : undefined,
+    accessorialItems: meta.accessorialItems?.length ? meta.accessorialItems : undefined,
+    allInCost: accTotal > 0 ? (carrierCostPersist + (meta.surchargeAmount ?? 0) + accTotal) : undefined,
     allInHourlyRate: meta.calc.allInHourlyRate,
     fuelPerKm: meta.calc.fuelPerKm,
     tiers: meta.pricing.tiers.map((t) => ({
@@ -206,6 +236,9 @@ async function persistRouteBuilderQuote(
     customQuoteInput: meta.customQuoteInput || undefined,
     customQuote: meta.pricing.customQuote ?? undefined,
     legs: meta.calc.legs,
+    payMode: meta.payMode,
+    dockTimeHrs: meta.dockTimeHrs,
+    quoteMode: meta.quoteMode,
     chatUserMessage: meta.chatUserMessage,
     customerNote: meta.customerNote?.trim() || "",
   };
@@ -220,7 +253,8 @@ async function persistRouteBuilderQuote(
     pricingMode: "route_builder",
     carrierCost: laborSum,
     fuelSurcharge: fuelSum,
-    totalCarrierCost: meta.calc.fullTripCost,
+    totalCarrierCost: carrierCostPersist,
+    accessorialTotal: accTotal > 0 ? accTotal : null,
     marginType: "percentage",
     marginValue: profitMarginPercent,
     marginAmount: grossProfit,
@@ -234,6 +268,178 @@ async function persistRouteBuilderQuote(
   });
 }
 
+// ── Module-level constants ──────────────────────────────────────────
+const FUEL_STORAGE_KEY = "bungee_custom_fuel_price";
+
+// ── Portal component for header controls ────────────────────────────
+// Uses useEffect + useState to wait for the portal target to appear in the DOM,
+// which avoids the stale-null problem with the IIFE approach.
+function RouteControlsPortal({
+  selectedProfileId,
+  setSelectedProfileId,
+  profiles,
+  fuelPrice,
+  setFuelPrice,
+  fuelPriceManual,
+  setFuelPriceManual,
+  fuelPriceRegion,
+  fuelPriceDate,
+  fuelPriceData,
+  measureUnit,
+  currency,
+  quoteMode,
+  setQuoteMode,
+}: {
+  selectedProfileId: string;
+  setSelectedProfileId: (id: string) => void;
+  profiles: CostProfile[];
+  fuelPrice: string;
+  setFuelPrice: (v: string) => void;
+  fuelPriceManual: boolean;
+  setFuelPriceManual: (v: boolean) => void;
+  fuelPriceRegion: string;
+  fuelPriceDate: string;
+  fuelPriceData: FuelPriceData | null;
+  measureUnit: string;
+  currency: SupportedCurrency;
+  quoteMode: "quick" | "advanced";
+  setQuoteMode: (mode: "quick" | "advanced") => void;
+}) {
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    // Continuously track the portal target element.
+    // The target is conditionally rendered in App.tsx (`{isHome && <div id="...">}`)
+    // and gets unmounted/remounted when the user navigates away from Home and back.
+    // Because RouteBuilder itself stays mounted (never unmounts), a one-shot effect
+    // would hold a stale reference to the old detached DOM node. Instead, we keep
+    // the MutationObserver running so it always picks up the latest element.
+    const sync = () => {
+      const el = document.getElementById("route-controls-portal");
+      setPortalTarget((prev) => {
+        // Only update state if the element actually changed (avoids unnecessary re-renders)
+        if (prev === el) return prev;
+        return el ?? null;
+      });
+    };
+
+    // Check immediately
+    sync();
+
+    // Keep watching for the element to appear/disappear (navigation)
+    const observer = new MutationObserver(sync);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  if (!portalTarget) return null;
+
+  const LITRES_PER_GAL = 3.78541;
+  const isImp = measureUnit === "imperial";
+  const internalVal = parseFloat(fuelPrice) || 0;
+  const displayVal = isImp
+    ? (Math.round(internalVal * LITRES_PER_GAL * 100) / 100).toString()
+    : fuelPrice;
+
+  return createPortal(
+    <>
+      <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
+        <SelectTrigger data-testid="select-profile" className="h-7 text-[11px] w-[150px]">
+          <SelectValue placeholder="Profile" />
+        </SelectTrigger>
+        <SelectContent>
+          {profiles.map((p) => (
+            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <div className="flex items-center gap-1">
+        <Fuel className="w-3 h-3 text-muted-foreground" />
+        <Input
+          data-testid="input-fuel-price"
+          type="number"
+          step="0.05"
+          min="0"
+          className="h-7 text-[11px] w-[60px]"
+          value={displayVal}
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (isImp) {
+              const galVal = parseFloat(raw);
+              if (!isNaN(galVal)) {
+                setFuelPrice(String(Math.round((galVal / LITRES_PER_GAL) * 1000) / 1000));
+              } else {
+                setFuelPrice(raw);
+              }
+            } else {
+              setFuelPrice(raw);
+            }
+            setFuelPriceManual(true);
+            try {
+              const valToStore = isImp
+                ? String(Math.round((parseFloat(raw) / LITRES_PER_GAL) * 1000) / 1000)
+                : raw;
+              localStorage.setItem(FUEL_STORAGE_KEY, JSON.stringify({ price: valToStore, savedAt: Date.now() }));
+            } catch { /* ignore */ }
+          }}
+        />
+        <span className="text-[11px] text-slate-500 whitespace-nowrap">
+          {currencySymbol(currency)}/{isImp ? "gal" : "L"}
+        </span>
+        {fuelPriceRegion && !fuelPriceManual && (
+          <span
+            className="text-[11px] text-slate-500 whitespace-nowrap hidden sm:inline cursor-help"
+            title={`${fuelPriceRegion} diesel price from U.S. Energy Information Administration (EIA) weekly report, updated ${fuelPriceDate}. Canadian prices estimated from US data + exchange rate. Refreshed daily.`}
+          >
+            {fuelPriceRegion} · EIA
+          </span>
+        )}
+        {fuelPriceManual && fuelPriceData && (
+          <button
+            type="button"
+            className="text-[11px] text-orange-500 hover:text-orange-600 whitespace-nowrap hidden sm:inline"
+            title="Reset to the latest regional fuel price from EIA weekly data"
+            onClick={() => {
+              setFuelPriceManual(false);
+              try { localStorage.removeItem(FUEL_STORAGE_KEY); } catch { /* ignore */ }
+            }}
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
+      {/* Quick Quote / Advanced toggle */}
+      <div className="inline-flex rounded-md border border-slate-300 overflow-hidden h-7 text-xs font-medium select-none">
+        <button
+          type="button"
+          onClick={() => setQuoteMode("quick")}
+          className={`px-3 flex items-center justify-center transition-colors ${
+            quoteMode === "quick"
+              ? "bg-slate-700 text-white"
+              : "bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Quick Quote
+        </button>
+        <button
+          type="button"
+          onClick={() => setQuoteMode("advanced")}
+          className={`px-3 flex items-center justify-center transition-colors border-l border-slate-200 ${
+            quoteMode === "advanced"
+              ? "bg-slate-700 text-white"
+              : "bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          Advanced
+        </button>
+      </div>
+    </>,
+    portalTarget
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────
 
 export default function RouteBuilder() {
@@ -243,8 +449,34 @@ export default function RouteBuilder() {
 
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [selectedYardId, setSelectedYardId] = useState("none");
-  const [includeReturn, setIncludeReturn] = useState(true);
-  const [fuelPrice, setFuelPrice] = useState("1.65");
+  const [includeReturn, setIncludeReturn] = useState(false);
+  // ── Persisted custom fuel price (kept for 1 week) ──────────
+  const FUEL_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+
+  function loadSavedFuel(): { price: string; manual: boolean } {
+    try {
+      const raw = localStorage.getItem(FUEL_STORAGE_KEY);
+      if (raw) {
+        const { price, savedAt } = JSON.parse(raw);
+        if (Date.now() - savedAt < FUEL_TTL_MS) {
+          return { price, manual: true };
+        }
+        localStorage.removeItem(FUEL_STORAGE_KEY);
+      }
+    } catch { /* ignore */ }
+    // Use best available EIA price from cache/defaults instead of a stale hardcoded value
+    try {
+      const sync = getFuelPricesSync();
+      const usAvg = sync.regions.find((r) => r.id === "us_average");
+      if (usAvg?.pricePerLitre) {
+        return { price: String(Math.round(usAvg.pricePerLitre * 100) / 100), manual: false };
+      }
+    } catch { /* ignore */ }
+    return { price: "1.65", manual: false };
+  }
+  const savedFuel = loadSavedFuel();
+
+  const [fuelPrice, setFuelPrice] = useState(savedFuel.price);
   const [defaultDockMinutes, setDefaultDockMinutes] = useState(180);
   const [payMode, setPayMode] = useState<PayMode>("perHour");
   const [payModeManualOverride, setPayModeManualOverride] = useState(false);
@@ -252,7 +484,7 @@ export default function RouteBuilder() {
   const [fuelPriceData, setFuelPriceData] = useState<FuelPriceData | null>(null);
   const [fuelPriceRegion, setFuelPriceRegion] = useState("");
   const [fuelPriceDate, setFuelPriceDate] = useState("");
-  const [fuelPriceManual, setFuelPriceManual] = useState(false);
+  const [fuelPriceManual, setFuelPriceManual] = useState(savedFuel.manual);
 
   // ── Build Route form ──────────────────────────────────────────
 
@@ -311,16 +543,69 @@ export default function RouteBuilder() {
     },
   ]);
 
+
+
   // ── Calculation results ───────────────────────────────────────
 
   const [routeCalc, setRouteCalc] = useState<RouteCalculation | null>(null);
   const [pricingAdvice, setPricingAdvice] = useState<PricingAdvice | null>(null);
-  const [showBreakdown] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [isSavingQuote, setIsSavingQuote] = useState(false);
+  const [lastSavedQuote, setLastSavedQuote] = useState<Quote | null>(null);
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isGeocodingRoute, setIsGeocodingRoute] = useState(false);
+  const [isSavingFav, setIsSavingFav] = useState(false);
+  const [favLaneIds, setFavLaneIds] = useState<Set<string>>(new Set());
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState({ title: "", description: "" });
+  const quoteUsage = useQuoteUsage();
+
+  // ── Quote Mode (Quick / Advanced) — persisted to localStorage ──
+  const QUOTE_MODE_KEY = "bungee_quote_mode";
+  const [quoteMode, setQuoteModeRaw] = useState<"quick" | "advanced">(() => {
+    try { const v = localStorage.getItem(QUOTE_MODE_KEY); if (v === "advanced") return "advanced"; } catch { /* ignore */ }
+    return "quick";
+  });
+  const setQuoteMode = useCallback((mode: "quick" | "advanced") => {
+    setQuoteModeRaw(mode);
+    try { localStorage.setItem(QUOTE_MODE_KEY, mode); } catch { /* ignore */ }
+  }, []);
+
+  // ── Accessorial Charges (one-time per-load, Advanced mode) ────
+  const [accessorials, setAccessorials] = useState({
+    detentionHours: 0,
+    detentionRate: 75,       // $/hr — default industry standard
+    lumperFee: 0,
+    stopOffCount: 0,
+    stopOffRate: 75,         // $ per extra stop
+    borderCrossing: 0,
+    tonu: 0,                 // Truck Ordered Not Used
+    customAccessorialLabel: "",
+    customAccessorialAmount: 0,
+    costInflationPct: 0,         // Hazmat, regulatory overhead, etc. — applied to base trip cost
+  });
+
+  const accessorialTotal = useMemo(() => {
+    if (quoteMode !== "advanced") return 0;
+    const flatCharges =
+      accessorials.detentionHours * accessorials.detentionRate +
+      accessorials.lumperFee +
+      accessorials.stopOffCount * accessorials.stopOffRate +
+      accessorials.borderCrossing +
+      accessorials.tonu +
+      accessorials.customAccessorialAmount;
+    return flatCharges;
+  }, [quoteMode, accessorials]);
+
+  /** Inflation surcharge applied to base trip cost (hazmat, regulatory, etc.) */
+  const costInflationAmount = useMemo(() => {
+    if (quoteMode !== "advanced" || !accessorials.costInflationPct) return 0;
+    const base = routeCalc?.fullTripCost ?? 0;
+    return Math.round(base * (accessorials.costInflationPct / 100) * 100) / 100;
+  }, [quoteMode, accessorials.costInflationPct, routeCalc?.fullTripCost]);
 
   // ── Queries ───────────────────────────────────────────────────
 
@@ -328,6 +613,25 @@ export default function RouteBuilder() {
   const isAdmin = user?.role === "admin";
   const scopeId = workspaceFirestoreId(user);
   const queryClient = useQueryClient();
+
+  // Update initial bot message example to match user's country once loaded
+  const chatExampleSetRef = useRef(false);
+  useEffect(() => {
+    if (chatExampleSetRef.current || !user?.operatingCountryCode) return;
+    const cc = user.operatingCountryCode.toUpperCase();
+    const isUS = cc === "US" || cc === "USA";
+    if (isUS) {
+      chatExampleSetRef.current = true;
+      setChatHistory((prev) => {
+        if (prev.length === 1 && prev[0].role === "bot") {
+          return [{ role: "bot", text: 'Hi! Type a route below \u2014 e.g. "Dallas to Atlanta" \u2014 and I\'ll update the map, dropdowns, and cost estimate automatically.' }];
+        }
+        return prev;
+      });
+    } else {
+      chatExampleSetRef.current = true;
+    }
+  }, [user?.operatingCountryCode]);
 
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
   const formatCurrency = useCallback(
@@ -348,6 +652,39 @@ export default function RouteBuilder() {
     queryFn: () => firebaseDb.getYards(scopeId),
     enabled: !!scopeId,
   });
+
+  // ── Company accessorial policy (company-wide defaults) ──────
+  const { data: companyAccessorialPolicy } = useQuery({
+    queryKey: ["firebase", "accessorial-policy", scopeId ?? ""],
+    queryFn: () => firebaseDb.getAccessorialPolicy(scopeId),
+    enabled: !!scopeId,
+  });
+
+  // Seed accessorial defaults from company policy when it loads
+  const policyApplied = useRef(false);
+  useEffect(() => {
+    if (!companyAccessorialPolicy || policyApplied.current) return;
+    policyApplied.current = true;
+    setAccessorials((prev) => ({
+      ...prev,
+      detentionRate: companyAccessorialPolicy.detentionRate,
+      stopOffRate: companyAccessorialPolicy.stopOffRate,
+      costInflationPct: companyAccessorialPolicy.costInflationPct,
+    }));
+  }, [companyAccessorialPolicy]);
+
+  // ── Favorite lanes (for star button) ──────────────────────────
+  const { data: savedLanes = [] } = useQuery({
+    queryKey: ["firebase", "lanes", scopeId ?? ""],
+    queryFn: () => firebaseDb.getLanes(scopeId),
+    enabled: !!scopeId,
+  });
+
+  // Build a set of "origin→destination" keys so we can check if the current route is already a fav
+  useEffect(() => {
+    const keys = new Set(savedLanes.map((l) => `${l.origin}→${l.destination}`));
+    setFavLaneIds(keys);
+  }, [savedLanes]);
 
   const selectedYard = useMemo(
     () => yards.find((y) => y.id === selectedYardId) ?? null,
@@ -571,6 +908,7 @@ export default function RouteBuilder() {
         await calculateRoute(built, undefined, {
           saveToHistory,
           chatUserMessage,
+          countQuote: true,
         });
       }
     } catch (err: any) {
@@ -583,6 +921,45 @@ export default function RouteBuilder() {
       setIsGeocodingRoute(false);
     }
   }
+
+  // ── Listen for favorite lane clicks from sidebar ─────────────
+  // Use refs so the event listener always calls the latest versions of these
+  // functions (they close over selectedProfileId, effectiveYard, etc.)
+  const populateFormRef = useRef(populateFormFromLocations);
+  populateFormRef.current = populateFormFromLocations;
+  const triggerRouteBuildRef = useRef(triggerRouteBuild);
+  triggerRouteBuildRef.current = triggerRouteBuild;
+  const calculateRouteRef = useRef(calculateRoute);
+  calculateRouteRef.current = calculateRoute;
+
+  useEffect(() => {
+    function handleLoadLane(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        origin: string;
+        destination: string;
+        cachedStops?: RouteStop[] | null;
+      };
+      const { origin, destination, cachedStops } = detail;
+      if (!origin || !destination) return;
+
+      // Always populate the form fields so they show the origin/destination
+      populateFormRef.current([origin, destination]);
+
+      if (cachedStops && cachedStops.length >= 2) {
+        // ── Fast path: use cached stops (skip geocoding + OSRM) ──
+        // Just set the pre-built stops and run cost calculation directly.
+        setStops(cachedStops);
+        stopsRef.current = cachedStops;
+        void calculateRouteRef.current(cachedStops);
+      } else {
+        // ── Slow path: no cache, do full geocode + route build ──
+        const newStops = populateFormRef.current([origin, destination]);
+        void triggerRouteBuildRef.current(newStops);
+      }
+    }
+    window.addEventListener("bungee:load-lane", handleLoadLane);
+    return () => window.removeEventListener("bungee:load-lane", handleLoadLane);
+  }, []);
 
   // Debounced recalc when fuel price, return toggle, or profile changes.
   // Uses stopsRef to always read the latest stops regardless of closure timing.
@@ -611,8 +988,22 @@ export default function RouteBuilder() {
     );
   }, [defaultDockMinutes]);
 
-  // ── Auto-detect pay mode based on total distance ─────────────
-  // >300 mi (~483 km) → per-mile, 50-300 mi → per-hour, <50 mi → per-hour
+  // When the yard selection changes and we already have a built route, rebuild
+  // stops so the yard (deadhead) leg is added/removed and recalculate.
+  const prevYardIdRef = useRef(effectiveYard?.id);
+  useEffect(() => {
+    const prevId = prevYardIdRef.current;
+    const newId = effectiveYard?.id;
+    prevYardIdRef.current = newId;
+    if (prevId === newId) return; // no change
+    const filled = formStops.filter((s) => s.location.trim());
+    if (filled.length < 2) return; // no route to rebuild
+    void triggerRouteBuild();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveYard?.id]);
+
+  // ── Auto-detect pay mode based on total TRIP distance (excludes deadhead) ──
+  // >300 mi (~483 km) → per-mile/km; ≤50 mi (~80 km) → per-hour; 50–300 → per-hour
   // User can manually override via toggle; override resets when new route is built
   const autoDetectPayMode = useCallback((totalDistanceKm: number): PayMode => {
     const totalMiles = totalDistanceKm / 1.609344;
@@ -625,16 +1016,26 @@ export default function RouteBuilder() {
   async function calculateRoute(
     routeStops: RouteStop[],
     returnDistance?: { distanceKm: number; durationMinutes: number } | null,
-    options?: { saveToHistory?: boolean; chatUserMessage?: string },
+    options?: { saveToHistory?: boolean; chatUserMessage?: string; countQuote?: boolean },
   ) {
     if (!selectedProfileId || routeStops.length < 2 || !scopeId) return;
     const fp = parseFloat(fuelPrice);
     if (isNaN(fp) || fp <= 0) return;
 
+    // ── Enforce monthly quote limit for free-tier users ──
+    if (quoteUsage.isAtLimit) {
+      setUpgradeReason({
+        title: "Monthly quote limit reached",
+        description: `You've used all ${quoteUsage.limit.toLocaleString()} free route quotes this month. Upgrade to Pro or Premium for unlimited quotes.`,
+      });
+      setUpgradeOpen(true);
+      return;
+    }
+
     setIsCalculating(true);
     try {
       const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
-      if (!rawProfile) throw new Error("Cost profile not found");
+      if (!rawProfile) throw new Error("Equipment cost profile not found");
 
       // Convert profile costs to the user's display currency
       const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
@@ -645,13 +1046,28 @@ export default function RouteBuilder() {
       // Auto-detect pay mode unless user manually overrode
       let effectivePayMode = payMode;
       if (!payModeManualOverride) {
-        // Only auto-detect on the non-deadhead distance (trip distance)
+        // Only auto-detect on the non-deadhead distance (trip distance, not individual legs)
         const tripDistKm = preCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0);
-        effectivePayMode = autoDetectPayMode(tripDistKm);
-        if (effectivePayMode !== payMode) setPayMode(effectivePayMode);
-        // Show local alert when trip < 50 miles
         const tripMiles = tripDistKm / 1.609344;
-        setShowLocalAlert(tripMiles < 50 && tripMiles > 0);
+        effectivePayMode = autoDetectPayMode(tripDistKm);
+
+        // >300 mi: auto-switch to per-mile/km — alert if per-mile rate is missing
+        if (tripMiles > 300) {
+          const perMileRate = profile.driverPayPerMile || 0;
+          if (perMileRate <= 0) {
+            // Per-mile rate not set — alert user, fall back to per-hour
+            effectivePayMode = "perHour";
+            toast({
+              title: `Per ${dLabel === "mi" ? "mile" : "km"} rate unavailable`,
+              description: `This trip is ${Math.round(tripMiles)} miles — per ${dLabel === "mi" ? "mile" : "km"} billing is recommended but your equipment cost profile has no per ${dLabel === "mi" ? "mile" : "km"} rate set. Using per hour instead. Update your cost profile to add a per ${dLabel === "mi" ? "mile" : "km"} rate.`,
+              variant: "destructive",
+            });
+          }
+        }
+
+        if (effectivePayMode !== payMode) setPayMode(effectivePayMode);
+        // Show local alert when trip ≤ 50 miles
+        setShowLocalAlert(tripMiles <= 50 && tripMiles > 0 && effectivePayMode !== "perHour");
       }
 
       const data = calculateRouteCost(
@@ -673,32 +1089,49 @@ export default function RouteBuilder() {
       ) as PricingAdvice;
       setPricingAdvice(pricing);
 
+      // Increment monthly quote usage counter (free-tier limit tracking)
+      // Only count when explicitly flagged — debounced recalcs from state
+      // changes (payMode, fuelPrice, etc.) should NOT consume a credit.
+      if (options?.countQuote && quoteUsage.limit !== -1) {
+        quoteUsage.increment().catch(() => {});
+      }
+
+      // Chat-generated routes: log to admin-only collection (not user quote history)
       if (options?.saveToHistory && data.fullTripCost > 0) {
         try {
-          const quote = await persistRouteBuilderQuote(scopeId, profile, routeStops, {
-            includeReturn,
-            fuelPricePerLitre: fp,
-            yardLabel: effectiveYard?.name ?? undefined,
-            calc: data,
-            pricing,
-            customQuoteInput: customQuoteAmount,
-            customerNote,
-            chatUserMessage: options.chatUserMessage,
+          const nonYard = routeStops.filter((s) => s.type !== "yard");
+          const chatOrigin = nonYard[0]?.location ?? routeStops[0]?.location ?? "";
+          const chatDest = nonYard[nonYard.length - 1]?.location ?? routeStops[routeStops.length - 1]?.location ?? "";
+          const distMi = data.totalDistanceKm * 0.621371;
+          await firebaseDb.createChatQuoteLog(user?.uid, scopeId, {
+            profileId: profile.id,
+            routeId: null,
+            origin: chatOrigin,
+            destination: chatDest,
+            truckType: profile.truckType,
+            distance: distMi,
+            pricingMode: "chat_route",
+            carrierCost: data.legs.reduce((s, l) => s + (l.fixedCost + l.driverCost), 0),
+            fuelSurcharge: data.legs.reduce((s, l) => s + l.fuelCost, 0),
+            totalCarrierCost: data.fullTripCost,
+            marginType: "percentage",
+            marginValue: 0,
+            marginAmount: 0,
+            customerPrice: data.fullTripCost,
+            grossProfit: 0,
+            profitMarginPercent: 0,
+            quoteSource: "chat_route",
+            routeSnapshotJson: JSON.stringify({
+              routeSummary: routeStops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
+              totalKm: data.totalDistanceKm,
+              totalMin: data.totalDriveMinutes,
+              chatUserMessage: options.chatUserMessage,
+            }),
+            customerNote: options.chatUserMessage ?? "",
+            status: "pending",
           });
-          queryClient.invalidateQueries({
-            queryKey: ["firebase", "quotes", scopeId ?? ""],
-          });
-          toast({
-            title: "Saved to history",
-            description: `${quote.origin} \u2192 ${quote.destination}`,
-          });
-        } catch (histErr: unknown) {
-          toast({
-            title: "Could not save to history",
-            description:
-              histErr instanceof Error ? histErr.message : "Sign in to save quotes.",
-            variant: "destructive",
-          });
+        } catch {
+          // Silent — admin log failure should not interrupt user flow
         }
       }
     } catch (err: unknown) {
@@ -725,14 +1158,16 @@ export default function RouteBuilder() {
     setPricingAdvice(data as PricingAdvice);
   }
 
-  // Refetch pricing when custom quote amount changes
+  // Refetch pricing when custom quote amount or inflation change
+  // NOTE: accessorials are NOT included — they are added to the final quote, not the cost base
   useEffect(() => {
-    if (!routeCalc || routeCalc.fullTripCost <= 0) return;
+    const cost = (routeCalc?.fullTripCost ?? 0) + costInflationAmount;
+    if (!routeCalc || cost <= 0) return;
     const timer = setTimeout(() => {
-      fetchPricingAdvice(routeCalc.fullTripCost);
+      fetchPricingAdvice(cost);
     }, 400);
     return () => clearTimeout(timer);
-  }, [customQuoteAmount]);
+  }, [customQuoteAmount, costInflationAmount]);
 
   // ── Manual Save Quote ────────────────────────────────────────
 
@@ -741,10 +1176,21 @@ export default function RouteBuilder() {
     const fp = parseFloat(fuelPrice);
     if (isNaN(fp) || fp <= 0) return;
 
+    // Require a valid quote amount before saving
+    const quoteAmt = parseFloat(customQuoteAmount);
+    if (!customQuoteAmount.trim() || isNaN(quoteAmt) || quoteAmt <= 0) {
+      toast({
+        title: "Enter your quote amount",
+        description: "Please enter a price in the \"Your Quote\" field before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSavingQuote(true);
     try {
       const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
-      if (!rawProfile) throw new Error("Cost profile not found");
+      if (!rawProfile) throw new Error("Equipment cost profile not found");
       const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
       const profile = convertCostProfileCurrency(rawProfile, profileCurrency, currency) as typeof rawProfile;
 
@@ -756,11 +1202,29 @@ export default function RouteBuilder() {
         pricing: pricingAdvice,
         customQuoteInput: customQuoteAmount,
         customerNote,
+        accessorialTotal,
+        surchargePercent: accessorials.costInflationPct || undefined,
+        surchargeAmount: costInflationAmount || undefined,
+        accessorialItems: (() => {
+          const items: { label: string; amount: number }[] = [];
+          const a = accessorials;
+          if (a.detentionHours > 0) items.push({ label: `Detention (${a.detentionHours}h × $${a.detentionRate})`, amount: a.detentionHours * a.detentionRate });
+          if (a.stopOffCount > 0) items.push({ label: `Stop-off (${a.stopOffCount} × $${a.stopOffRate})`, amount: a.stopOffCount * a.stopOffRate });
+          if (a.lumperFee > 0) items.push({ label: "Lumper", amount: a.lumperFee });
+          if (a.borderCrossing > 0) items.push({ label: "Border crossing", amount: a.borderCrossing });
+          if (a.tonu > 0) items.push({ label: "TONU", amount: a.tonu });
+          if (a.customAccessorialAmount > 0) items.push({ label: a.customAccessorialLabel || "Other", amount: a.customAccessorialAmount });
+          return items;
+        })(),
+        payMode,
+        dockTimeHrs: defaultDockMinutes / 60,
+        quoteMode,
       });
       queryClient.invalidateQueries({
         queryKey: ["firebase", "quotes", scopeId ?? ""],
       });
       setCustomerNote("");
+      setLastSavedQuote(quote);
       toast({
         title: "Quote saved",
         description: `${quote.quoteNumber} · ${quote.origin} → ${quote.destination}`,
@@ -773,6 +1237,73 @@ export default function RouteBuilder() {
       });
     } finally {
       setIsSavingQuote(false);
+    }
+  }
+
+  // ── Save / unsave favorite lane ──────────────────────────────
+  async function handleToggleFavLane() {
+    if (!routeCalc || !scopeId || stops.length < 2) return;
+    const nonYard = stops.filter((s) => s.type !== "yard");
+    const origin = nonYard[0]?.location ?? stops[0]?.location ?? "";
+    const destination = nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
+    if (!origin || !destination) return;
+
+    const key = `${origin}→${destination}`;
+    const isAlreadyFav = favLaneIds.has(key);
+
+    setIsSavingFav(true);
+    try {
+      if (isAlreadyFav) {
+        // Find and delete the matching lane
+        const match = savedLanes.find((l) => l.origin === origin && l.destination === destination);
+        if (match) {
+          await firebaseDb.deleteLane(scopeId, match.id);
+        }
+        toast({ title: "Lane removed from favorites" });
+      } else {
+        // Check favorite lane limit based on subscription tier
+        const limit = favLaneLimit(user);
+        if (limit !== -1 && savedLanes.length >= limit) {
+          setUpgradeReason({
+            title: "Favorite lane limit reached",
+            description: `Your ${tierLabel(user)} plan allows ${limit} favorite lanes. Upgrade for more.`,
+          });
+          setUpgradeOpen(true);
+          setIsSavingFav(false);
+          return;
+        }
+        const distMi = routeCalc.totalDistanceKm * 0.621371;
+        // Cache the fully-built stops (with lat/lng & distances) so reloading
+        // this lane later skips geocoding & OSRM API calls entirely.
+        const cachedStops = stops.map((s) => ({
+          id: s.id,
+          type: s.type,
+          location: s.location,
+          lat: s.lat ?? null,
+          lng: s.lng ?? null,
+          dockTimeMinutes: s.dockTimeMinutes ?? 0,
+          distanceFromPrevKm: s.distanceFromPrevKm ?? 0,
+          driveMinutesFromPrev: s.driveMinutesFromPrev ?? 0,
+        }));
+        await firebaseDb.createLane(scopeId, {
+          origin,
+          destination,
+          truckType: profiles.find((p) => p.id === selectedProfileId)?.truckType ?? "General",
+          fixedPrice: 0,
+          estimatedMiles: Math.round(distMi),
+          cachedStops,
+        } as any);
+        toast({ title: "Lane saved to favorites", description: `${origin} → ${destination}` });
+      }
+      queryClient.invalidateQueries({ queryKey: ["firebase", "lanes", scopeId ?? ""] });
+    } catch (err: unknown) {
+      toast({
+        title: "Could not update favorite",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingFav(false);
     }
   }
 
@@ -790,7 +1321,7 @@ export default function RouteBuilder() {
 
   const chatRouteMutation = useMutation({
     mutationFn: async (payload: { message: string; userMessage: string }) =>
-      processChatRoute(payload.message),
+      processChatRoute(payload.message, defaultDockMinutes),
     onSuccess: async (data: ChatRouteResult, variables) => {
       const userMessage = variables.userMessage;
       try {
@@ -801,9 +1332,14 @@ export default function RouteBuilder() {
             populateFormFromLocations(nonYard.map((s) => s.location));
           }
 
-          const hasDistances = parsed.some((s) => (s.distanceFromPrevKm ?? 0) > 0);
+          // Override server-hardcoded dockTimeMinutes with the user's UI Load/Unload value
+          const parsedWithDock = parsed.map((s) =>
+            s.type === "yard" ? s : { ...s, dockTimeMinutes: defaultDockMinutes }
+          );
+
+          const hasDistances = parsedWithDock.some((s) => (s.distanceFromPrevKm ?? 0) > 0);
           if (hasDistances) {
-            let allStops = [...parsed];
+            let allStops = [...parsedWithDock];
             // Routes start at pickup, not yard. Only append yard at end for return deadhead.
             if (effectiveYard && !parsed.some((s) => s.type === "yard")) {
               // Compute actual distance from last stop to yard
@@ -885,6 +1421,7 @@ export default function RouteBuilder() {
               await calculateRoute(stopsForCalcAndMap, data.returnDistance ?? undefined, {
                 saveToHistory: true,
                 chatUserMessage: userMessage,
+                countQuote: true,
               });
             }
           } else {
@@ -950,13 +1487,32 @@ export default function RouteBuilder() {
   const quickRoutes = useMemo(() => {
     const base = effectiveYard?.name || user?.operatingCity?.trim();
     if (!base) return [];
-    // Suggest 3 common route patterns from user's base
+    // Determine if user is US-based or Canada-based
+    const countryCode = user?.operatingCountryCode?.toUpperCase();
+    const isUS = countryCode === "US" || countryCode === "USA";
+    const isCA = countryCode === "CA" || countryCode === "CAN";
+    // Suggest top lanes relevant to user's country
+    if (isUS) {
+      return [
+        `${base} to Chicago`,
+        `${base} to Atlanta`,
+        `${base} to Dallas`,
+      ];
+    }
+    if (isCA) {
+      return [
+        `${base} to Toronto`,
+        `${base} to Montreal`,
+        `${base} to Vancouver`,
+      ];
+    }
+    // Fallback — use a mix
     return [
+      `${base} to Chicago`,
       `${base} to Toronto`,
-      `${base} to Montreal`,
-      `${base} to Vancouver`,
+      `${base} to Atlanta`,
     ];
-  }, [effectiveYard?.name, user?.operatingCity]);
+  }, [effectiveYard?.name, user?.operatingCity, user?.operatingCountryCode]);
 
   // ── Swap origin/destination ───────────────────────────────────
 
@@ -979,7 +1535,51 @@ export default function RouteBuilder() {
     const displayStops = includeReturn
       ? stops
       : stops.filter((s, i) => !(i === stops.length - 1 && s.type === "yard"));
-    const names = displayStops.map((s) => s.location).filter(Boolean);
+
+    // Province / state name → abbreviation for consistent display
+    const PROVINCE_ABBR: Record<string, string> = {
+      "ontario": "ON", "quebec": "QC", "british columbia": "BC",
+      "alberta": "AB", "manitoba": "MB", "saskatchewan": "SK",
+      "nova scotia": "NS", "new brunswick": "NB",
+      "prince edward island": "PE", "newfoundland and labrador": "NL",
+      "newfoundland": "NL", "northwest territories": "NT",
+      "nunavut": "NU", "yukon": "YT",
+      "california": "CA", "texas": "TX", "florida": "FL",
+      "new york": "NY", "illinois": "IL", "pennsylvania": "PA",
+      "ohio": "OH", "georgia": "GA", "michigan": "MI",
+      "north carolina": "NC", "new jersey": "NJ", "virginia": "VA",
+      "washington": "WA", "arizona": "AZ", "massachusetts": "MA",
+      "tennessee": "TN", "indiana": "IN", "missouri": "MO",
+      "maryland": "MD", "wisconsin": "WI", "colorado": "CO",
+      "minnesota": "MN", "oregon": "OR", "connecticut": "CT",
+    };
+
+    /** Normalize "Mississauga, Ontario, Canada" → "Mississauga, ON" */
+    function shortLocation(raw: string): string {
+      const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+      if (parts.length <= 1) return raw;
+      // Strip trailing "Canada" / "USA" / "United States" etc.
+      const country = parts[parts.length - 1]!.toLowerCase();
+      if (["canada", "usa", "united states", "us"].includes(country)) parts.pop();
+      if (parts.length <= 1) return parts.join(", ");
+      // Detect if first part is a street address (has digits or street keywords)
+      const first = parts[0] ?? "";
+      const isStreet = /\d/.test(first) || /\b(st|street|ave|avenue|rd|road|blvd|dr|drive|ln|lane|way|ct|court|hwy|highway)\b/i.test(first);
+      // Pick city: skip street-level part if present
+      const cityIdx = isStreet ? 1 : 0;
+      const city = parts[cityIdx] ?? first;
+      // Find and abbreviate province/state
+      const rest = parts.slice(cityIdx + 1);
+      for (const r of rest) {
+        const abbr = PROVINCE_ABBR[r.toLowerCase()];
+        if (abbr) return `${city}, ${abbr}`;
+        // Already abbreviated (2-3 chars)
+        if (/^[A-Za-z]{2,3}$/.test(r)) return `${city}, ${r.toUpperCase()}`;
+      }
+      return `${city}${rest.length > 0 ? ", " + rest[0] : ""}`;
+    }
+
+    const names = displayStops.map((s) => shortLocation(s.location)).filter(Boolean);
     return names.join(" \u2192 ");
   }, [stops, includeReturn]);
 
@@ -994,193 +1594,69 @@ export default function RouteBuilder() {
     return { totalKm, totalMin, deadheadKm };
   }, [routeCalc]);
 
+  // Is the current route already saved as a favorite lane?
+  const isFavLane = useMemo(() => {
+    if (stops.length < 2) return false;
+    const nonYard = stops.filter((s) => s.type !== "yard");
+    const origin = nonYard[0]?.location ?? stops[0]?.location ?? "";
+    const dest = nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
+    return favLaneIds.has(`${origin}→${dest}`);
+  }, [stops, favLaneIds]);
+
   // ── Derived pricing values (client-side fallbacks) ────────────
 
   const tripCost = routeCalc?.tripCost ?? 0;
   const deadheadCost = routeCalc?.deadheadCost ?? 0;
   const fullTripCost = routeCalc?.fullTripCost ?? 0;
+  /** Carrier cost = base trip + inflation surcharge (margin tiers apply to this) */
+  const carrierCost = fullTripCost + costInflationAmount;
+  /** All-in cost = carrier cost + accessorial pass-throughs (accessorials added after margin) */
+  const allInCost = carrierCost + accessorialTotal;
 
   // ── Render ────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="space-y-3" data-testid="route-builder-page">
       {/* No cost profile alert */}
       {profiles.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-orange-500 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-slate-900">No Cost Profile Found</p>
+            <p className="text-sm font-semibold text-slate-900">No Equipment Cost Profile Found</p>
             <p className="text-[13px] text-slate-600 mt-1 leading-relaxed">
-              Create a cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
+              Create an equipment cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
             </p>
             <a
               href="/#/profiles"
-              className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-md px-3.5 py-1.5 transition-colors"
+              className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 rounded-md px-3.5 py-1.5 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              Create Cost Profile
+              Create Equipment Cost Profile
             </a>
           </div>
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          Route Controls: Profile, Yard, Fuel, Deadhead (top of page)
+          Route Controls — portaled into the App header row
           ═══════════════════════════════════════════════════════════ */}
-      <div className="flex items-center gap-3.5 flex-wrap" data-testid="route-controls">
-        <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
-          <SelectTrigger data-testid="select-profile" className="h-8 text-xs w-auto min-w-[110px]">
-            <SelectValue placeholder="Profile" />
-          </SelectTrigger>
-          <SelectContent>
-            {profiles.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={selectedYardId} onValueChange={setSelectedYardId}>
-          <SelectTrigger data-testid="select-yard" className="h-8 text-xs w-auto min-w-[100px]">
-            <SelectValue placeholder="Yard" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">None</SelectItem>
-            {yards.map((y) => (
-              <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {(() => {
-          // fuelPrice is always stored in $/litre internally.
-          // For imperial users, display and edit in $/gallon (1 US gal = 3.78541 L).
-          const LITRES_PER_GAL = 3.78541;
-          const isImp = measureUnit === "imperial";
-          const internalVal = parseFloat(fuelPrice) || 0;
-          const displayVal = isImp
-            ? (Math.round(internalVal * LITRES_PER_GAL * 100) / 100).toString()
-            : fuelPrice;
-
-          return (
-            <div className="flex items-center gap-1">
-              <Fuel className="w-3.5 h-3.5 text-muted-foreground" />
-              <Input
-                data-testid="input-fuel-price"
-                type="number"
-                step="0.05"
-                min="0"
-                className="h-8 text-xs w-[70px]"
-                value={displayVal}
-                onChange={(e) => {
-                  const raw = e.target.value;
-                  if (isImp) {
-                    // Convert $/gal input → $/litre for storage
-                    const galVal = parseFloat(raw);
-                    if (!isNaN(galVal)) {
-                      setFuelPrice(String(Math.round((galVal / LITRES_PER_GAL) * 1000) / 1000));
-                    } else {
-                      setFuelPrice(raw);
-                    }
-                  } else {
-                    setFuelPrice(raw);
-                  }
-                  setFuelPriceManual(true);
-                }}
-              />
-              <span className="text-[11px] text-slate-500 whitespace-nowrap">
-                {currencySymbol(currency)}/{isImp ? "gal" : "L"}
-              </span>
-              {fuelPriceRegion && !fuelPriceManual && (
-                <span
-                  className="text-[11px] text-slate-500 whitespace-nowrap hidden sm:inline cursor-help"
-                  title={`${fuelPriceRegion} diesel price from U.S. Energy Information Administration (EIA) weekly report, updated ${fuelPriceDate}. Canadian prices estimated from US data + exchange rate. Refreshed daily.`}
-                >
-                  {fuelPriceRegion} · EIA
-                </span>
-              )}
-              {fuelPriceManual && fuelPriceData && (
-                <button
-                  type="button"
-                  className="text-[11px] text-orange-500 hover:text-orange-600 whitespace-nowrap hidden sm:inline"
-                  title="Reset to the latest regional fuel price from EIA weekly data"
-                  onClick={() => setFuelPriceManual(false)}
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-          );
-        })()}
-
-        <div className="flex items-center gap-1">
-          <span className="text-[11px] text-slate-500 whitespace-nowrap">Load/Unload</span>
-          <Input
-            data-testid="input-dock-time"
-            type="number"
-            step="0.5"
-            min="0"
-            className="h-8 text-xs w-[70px]"
-            value={defaultDockMinutes / 60}
-            onChange={(e) => {
-              const hrs = parseFloat(e.target.value);
-              if (!isNaN(hrs) && hrs >= 0) setDefaultDockMinutes(Math.round(hrs * 60));
-            }}
-          />
-          <span className="text-[11px] text-slate-500 whitespace-nowrap">hrs</span>
-        </div>
-
-        {effectiveYard && (
-          <div className="flex items-center gap-1.5">
-            <Switch
-              data-testid="switch-include-return"
-              checked={includeReturn}
-              onCheckedChange={setIncludeReturn}
-              className="scale-75"
-            />
-            <span className="text-xs text-muted-foreground">Deadhead</span>
-          </div>
-        )}
-
-        {/* Pay mode segmented toggle */}
-        <div
-          data-testid="switch-pay-mode"
-          className="inline-flex rounded-md border border-slate-200 overflow-hidden h-7 text-xs font-medium select-none"
-        >
-          <button
-            type="button"
-            onClick={() => {
-              setPayModeManualOverride(true);
-              setPayMode("perHour");
-              setShowLocalAlert(false);
-            }}
-            className={`px-3.5 flex items-center justify-center transition-colors ${
-              payMode === "perHour"
-                ? "bg-slate-900 text-white border-r border-slate-900"
-                : "bg-white text-slate-500 border-r border-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            Per Hour
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setPayModeManualOverride(true);
-              setPayMode("perMile");
-              if (routeCalc) {
-                const tripDistKm = routeCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0);
-                setShowLocalAlert(tripDistKm / 1.609344 < 50 && tripDistKm > 0);
-              }
-            }}
-            className={`px-3.5 flex items-center justify-center transition-colors ${
-              payMode === "perMile"
-                ? "bg-slate-900 text-white"
-                : "bg-white text-slate-500 hover:bg-slate-50"
-            }`}
-          >
-            Per {dLabel === "mi" ? "Mile" : "KM"}
-          </button>
-        </div>
-      </div>
+      <RouteControlsPortal
+        selectedProfileId={selectedProfileId}
+        setSelectedProfileId={setSelectedProfileId}
+        profiles={profiles}
+        fuelPrice={fuelPrice}
+        setFuelPrice={setFuelPrice}
+        fuelPriceManual={fuelPriceManual}
+        setFuelPriceManual={setFuelPriceManual}
+        fuelPriceRegion={fuelPriceRegion}
+        fuelPriceDate={fuelPriceDate}
+        fuelPriceData={fuelPriceData}
+        measureUnit={measureUnit}
+        currency={currency}
+        quoteMode={quoteMode}
+        setQuoteMode={setQuoteMode}
+      />
 
       {/* Quick Start Profile reminder */}
       {profiles.find((p) => p.id === selectedProfileId)?.name === "Quick Start Profile" && (
@@ -1188,7 +1664,7 @@ export default function RouteBuilder() {
           <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
           <p className="text-[13px] text-slate-600 leading-snug">
             You're using the <strong className="text-slate-800">Quick Start Profile</strong> with industry-average values. For accurate quotes,{" "}
-            <a href="/#/profiles" className="underline font-semibold text-orange-600 hover:text-orange-500">
+            <a href="/#/profiles?action=create" className="underline font-semibold text-orange-600 hover:text-orange-500">
               create your own profile
             </a>{" "}
             with your real costs.
@@ -1229,12 +1705,27 @@ export default function RouteBuilder() {
       {/* ═══════════════════════════════════════════════════════════
           SECTION 1: Route + Cost Card (sticky, always visible)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="sticky top-14 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-1 bg-background">
+      <div className="sticky top-14 md:top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-1 bg-background">
         <Card className="border-slate-200 shadow-sm" data-testid="route-cost-section">
           <CardContent className="p-3 sm:p-4 space-y-2.5">
-            {/* Row 1: Route name + stats */}
+            {/* Row 1: Star + Route name + stats */}
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2 min-w-0 flex-wrap flex-1">
+                {/* Favorite lane star button */}
+                <button
+                  type="button"
+                  data-testid="button-fav-lane"
+                  disabled={isSavingFav || stops.length < 2 || !routeCalc}
+                  onClick={handleToggleFavLane}
+                  title={isFavLane ? "Remove from favorite lanes" : "Save as favorite lane"}
+                  className={`shrink-0 p-0.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                    isFavLane
+                      ? "text-amber-500 hover:text-amber-600"
+                      : "text-slate-300 hover:text-amber-400"
+                  }`}
+                >
+                  <Star className={`w-4.5 h-4.5 ${isFavLane ? "fill-amber-400" : ""}`} />
+                </button>
                 <span className="text-[15px] font-semibold text-slate-900 truncate tracking-tight">
                   {routeSummaryText || effectiveYard?.name || user?.operatingCity || "New Route"}
                 </span>
@@ -1259,31 +1750,36 @@ export default function RouteBuilder() {
                 )}
               </div>
 
+              {/* Breakdown toggle removed — now inside the Advanced panel */}
             </div>
 
-            {/* Row 2: Pricing cards — with vertical dividers */}
+            {/* Row 2: Pricing cards — 4 columns with more room */}
             <div
-              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-0 divide-x divide-slate-100"
+              className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-slate-100"
               data-testid="pricing-row"
             >
-              {/* TOTAL COST */}
+              {/* CARRIER COST — base cost + surcharge only, no accessories */}
               <div className="space-y-1 pr-4 sm:pr-6">
                 <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                  Total Cost
+                  Carrier Cost
                 </div>
                 <div
-                  className="text-xl font-bold text-orange-600 tabular-nums tracking-tight"
+                  className="text-2xl font-bold text-orange-600 tabular-nums tracking-tight"
                   data-testid="pricing-trip-cost"
                 >
-                  {formatCurrency(includeReturn ? fullTripCost : tripCost)}
+                  {formatCurrency(includeReturn ? carrierCost : (tripCost + costInflationAmount))}
                 </div>
                 <div className="text-[11px] text-slate-400">
-                  {includeReturn && deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead` : "with fuel"}
+                  {costInflationAmount > 0 && <span>+{formatCurrency(costInflationAmount)} surcharge · </span>}
+                  {includeReturn && deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead · ` : ""}
+                  with fuel
                 </div>
               </div>
 
-              {/* Margin tiers — all orange to match total cost */}
-              {(pricingAdvice?.tiers || []).map((tier) => (
+              {/* Margin tiers — color-coded: 20% red, 30% default, 40% green */}
+              {(pricingAdvice?.tiers || []).map((tier) => {
+                  const tierColor = tier.label.startsWith("20%") ? "text-red-500" : tier.label.startsWith("40%") ? "text-green-600" : "text-orange-600";
+                  return (
                   <div
                     key={tier.label}
                     className="space-y-1 px-4 sm:px-6"
@@ -1292,13 +1788,13 @@ export default function RouteBuilder() {
                     <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
                       {tier.label}
                     </div>
-                    {fullTripCost > 0 ? (
+                    {carrierCost > 0 ? (
                       <>
-                        <div className="text-xl font-bold text-orange-600 tabular-nums tracking-tight">
-                          {formatCurrency(tier.price)}
+                        <div className={`text-2xl font-bold tabular-nums tracking-tight ${tierColor}`}>
+                          {formatCurrency(tier.price + accessorialTotal)}
                         </div>
                         <div className="text-[11px] text-slate-400">
-                          +{formatCurrency(tier.price - fullTripCost)}
+                          +{formatCurrency(tier.marginAmount)}{accessorialTotal > 0 ? ` +${formatCurrency(accessorialTotal)} acc.` : ""}
                         </div>
                       </>
                     ) : (
@@ -1308,7 +1804,8 @@ export default function RouteBuilder() {
                       </>
                     )}
                   </div>
-              ))}
+                  );
+              })}
               {/* Placeholders when no tiers yet */}
               {(!pricingAdvice?.tiers || pricingAdvice.tiers.length === 0) && (
                 <>
@@ -1321,42 +1818,42 @@ export default function RouteBuilder() {
                   ))}
                 </>
               )}
+            </div>
 
-              {/* Custom Quote */}
-              <div className="space-y-1 pl-4 sm:pl-6">
-                <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                  Custom Quote
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm text-slate-400">{currencySymbol(currency)}</span>
+            {/* Row 3: Your Quote + Note + Save — single row */}
+            <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100">
+              {/* Your Quote inline input */}
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium whitespace-nowrap">Your Quote</span>
+                <div className="flex items-center border border-slate-200 rounded-md overflow-hidden h-9">
+                  <span className="text-sm text-slate-400 pl-2 pr-0.5">{currencySymbol(currency)}</span>
                   <Input
                     data-testid="input-custom-quote"
                     type="number"
                     step="1"
-                    placeholder="Your quote"
-                    className="h-8 text-sm w-[110px] border-slate-200"
+                    placeholder="0"
+                    className="h-9 text-sm w-[90px] border-0 shadow-none focus-visible:ring-0 px-1"
                     value={customQuoteAmount}
                     onChange={(e) => setCustomQuoteAmount(e.target.value)}
                   />
                 </div>
+                {/* Margin % indicator */}
                 {pricingAdvice?.customQuote ? (
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm font-bold">
-                      {pricingAdvice.customQuote.marginPercent.toFixed(1)}%
-                    </span>
+                  <div className="flex items-center gap-0.5 ml-0.5">
+                    <span className="text-xs font-bold">{pricingAdvice.customQuote.marginPercent.toFixed(1)}%</span>
                     <span className={`text-[10px] ${marginQualityLabel(pricingAdvice.customQuote.marginPercent).color}`}>
                       {marginQualityLabel(pricingAdvice.customQuote.marginPercent).label}
                     </span>
                   </div>
-                ) : customQuoteAmount && fullTripCost > 0 ? (
+                ) : customQuoteAmount && carrierCost > 0 ? (
                   (() => {
                     const amt = parseFloat(customQuoteAmount);
                     if (!isNaN(amt) && amt > 0) {
-                      const pct = ((amt - fullTripCost) / fullTripCost) * 100;
+                      const pct = ((amt - accessorialTotal - carrierCost) / carrierCost) * 100;
                       const q = marginQualityLabel(pct);
                       return (
-                        <div className="flex items-center gap-1">
-                          <span className="text-sm font-bold">{pct.toFixed(1)}%</span>
+                        <div className="flex items-center gap-0.5 ml-0.5">
+                          <span className="text-xs font-bold">{pct.toFixed(1)}%</span>
                           <span className={`text-[10px] ${q.color}`}>{q.label}</span>
                         </div>
                       );
@@ -1365,143 +1862,386 @@ export default function RouteBuilder() {
                   })()
                 ) : null}
               </div>
-            </div>
-
-            {/* Row 3: Note + Save Quote */}
-            {routeCalc && routeCalc.fullTripCost > 0 && (
-              <div className="flex items-center gap-2.5 pt-1.5 border-t border-slate-100">
-                <div className="relative flex-1">
-                  <FileText className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  <Input
-                    data-testid="input-customer-note"
-                    placeholder="Note \u2014 RFQ#, customer, lane memo..."
-                    className="h-9 text-sm pl-8 border-slate-200"
-                    value={customerNote}
-                    onChange={(e) => setCustomerNote(e.target.value)}
-                  />
-                </div>
-                <Button
-                  data-testid="button-save-quote"
-                  size="sm"
-                  className="h-9 bg-slate-900 hover:bg-slate-800 text-white gap-1.5 shrink-0 px-4"
-                  disabled={isSavingQuote || !routeCalc || routeCalc.fullTripCost <= 0}
-                  onClick={handleSaveQuote}
-                >
-                  {isSavingQuote ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Save className="w-3.5 h-3.5" />
-                  )}
-                  Save Quote
-                </Button>
+              {/* Note field */}
+              <div className="relative flex-1">
+                <FileText className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                <Input
+                  data-testid="input-customer-note"
+                  placeholder={"Note \u2014 RFQ#, customer, lane memo..."}
+                  className="h-9 text-sm pl-8 border-slate-200"
+                  value={customerNote}
+                  onChange={(e) => setCustomerNote(e.target.value)}
+                  disabled={!routeCalc || carrierCost <= 0}
+                />
               </div>
-            )}
+              <Button
+                data-testid="button-save-quote"
+                size="sm"
+                className="h-9 w-[160px] bg-orange-400 hover:bg-orange-500 text-white gap-1.5 shrink-0 justify-center"
+                disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
+                onClick={handleSaveQuote}
+              >
+                {isSavingQuote ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                Save Quote
+              </Button>
+              {lastSavedQuote && can(user, "quote:sharePdf") && (
+                canExportPdf(user) ? (
+                  <Button
+                    data-testid="button-share-pdf"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50"
+                    onClick={() => setPdfDialogOpen(true)}
+                  >
+                    <FileDown className="w-3.5 h-3.5" />
+                    PDF
+                  </Button>
+                ) : (
+                  <Button
+                    data-testid="button-share-pdf"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 shrink-0 text-muted-foreground"
+                    onClick={() => {
+                      setUpgradeReason({
+                        title: "Upgrade to export branded PDFs",
+                        description: "Branded quote PDFs are available on Pro and Premium plans.",
+                      });
+                      setUpgradeOpen(true);
+                    }}
+                  >
+                    <FileDown className="w-3.5 h-3.5" />
+                    PDF
+                    <Badge variant="outline" className="text-[9px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
+                  </Button>
+                )
+              )}
+            </div>
 
           </CardContent>
         </Card>
       </div>
 
       {/* ═══════════════════════════════════════════════════════════
-          BREAKDOWN: Outside sticky so it flows normally, no overlap
+          ACCESSORIAL CHARGES (Advanced mode only)
           ═══════════════════════════════════════════════════════════ */}
-      {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
-        <div className="space-y-3" data-testid="leg-breakdown">
-          {routeCalc.legs.map((leg, i) => {
-            const isLocal = leg.isLocal ?? leg.distanceKm < 100;
-            const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
-            const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
-            return (
-              <Card key={i} className="border-slate-200" data-testid={`leg-card-${i}`}>
-                <CardContent className="py-3.5 px-4 space-y-2.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      {isDeadhead
-                        ? `Deadhead Return \u00B7 ${leg.from} \u2192 ${leg.to}`
-                        : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
-                    </span>
-                    {!isDeadhead && (
-                      <span className="text-[11px] font-bold text-orange-600 uppercase tracking-wide">
-                        {isLocal ? "Local" : "Long Dist."}
-                      </span>
-                    )}
-                  </div>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Drive time</span>
-                      <span>{`${Math.floor(leg.driveMinutes / 60)}h ${String(Math.round(leg.driveMinutes % 60)).padStart(2, "0")}m`}</span>
-                    </div>
-                    {!isDeadhead && leg.dockMinutes > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Load + Unload</span>
-                        <span>{(leg.dockMinutes / 60) % 1 === 0 ? (leg.dockMinutes / 60).toFixed(0) : (leg.dockMinutes / 60).toFixed(1)} hrs</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between font-medium">
-                      <span>Total billable hrs</span>
-                      <span>{billableHrs.toFixed(2)} hrs</span>
-                    </div>
-                    <Separator className="my-1" />
-                    {/* Fixed cost */}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Fixed Cost</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
-                        </span>
-                        <span className="font-medium">{formatCurrency(leg.fixedCost)}</span>
-                      </div>
-                    </div>
-                    {/* Driver cost — per-mile/km or per-hour */}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : " (per hour)"}
-                        {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {routeCalc.payMode === "perMile" ? (
-                            <>
-                              {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
-                              {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
-                            </>
-                          ) : (
-                            <>
-                              {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.allInHourlyRate - routeCalc.fixedCostPerHour)}/hr
-                              {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
-                            </>
-                          )}
-                        </span>
-                        <span className="font-medium">{formatCurrency(leg.driverCost)}</span>
-                      </div>
-                    </div>
-                    {/* Fuel cost */}
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs text-muted-foreground">
-                          {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
-                          {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
-                        </span>
-                        <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    className="flex justify-between items-center rounded-md px-3 py-2 -mx-1"
-                    style={{ backgroundColor: "rgba(234, 88, 12, 0.06)" }}
+      {quoteMode === "advanced" && routeCalc && routeCalc.fullTripCost > 0 && (
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="pt-3 pb-3 space-y-2.5">
+            {/* ── ROW 1: COST — pay mode, dock time, deadhead, surcharge, breakdown ── */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Cost</h4>
+                <div className="flex-1 border-t border-slate-100" />
+                {costInflationAmount > 0 && <span className="text-[11px] font-semibold text-slate-500">+{formatCurrency(costInflationAmount)} surcharge</span>}
+              </div>
+              <div className="flex items-center gap-4 flex-wrap">
+                {/* Pay mode toggle */}
+                <div
+                  data-testid="switch-pay-mode"
+                  className="inline-flex rounded-md border border-orange-300 overflow-hidden h-7 text-[11px] font-medium select-none"
+                >
+                  <button
+                    type="button"
+                    onClick={() => { setPayModeManualOverride(true); setPayMode("perHour"); setShowLocalAlert(false); }}
+                    className={`px-2.5 flex items-center transition-colors ${payMode === "perHour" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
+                  >Per Hour</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayModeManualOverride(true); setPayMode("perMile");
+                      if (routeCalc) { const km = routeCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0); setShowLocalAlert(km / 1.609344 < 50 && km > 0); }
+                    }}
+                    className={`px-2.5 flex items-center transition-colors border-l border-slate-200 ${payMode === "perMile" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
+                  >Per {dLabel === "mi" ? "Mile" : "KM"}</button>
+                </div>
+                {/* Breakdown toggle */}
+                {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && (
+                  <button
+                    type="button"
+                    data-testid="button-toggle-breakdown"
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 transition-colors"
+                    onClick={() => setShowBreakdown((prev) => !prev)}
                   >
-                    <span className="text-sm font-bold text-slate-800">{isDeadhead ? "Deadhead Total w/ Fuel" : "Total w/ Fuel"}</span>
-                    <span className="text-sm font-bold text-orange-600 tabular-nums">
-                      {formatCurrency(leg.legCost)}
-                    </span>
+                    {showBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    Breakdown
+                  </button>
+                )}
+                <div className="w-px h-5 bg-slate-200" />
+                {/* Dock time */}
+                <div className="flex items-center gap-1.5">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
+                        Dock Time
+                        <Info className="w-3 h-3 text-slate-300" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px] text-xs">
+                      Total loading and unloading time per stop. Applied to all stops in this quote.
+                    </TooltipContent>
+                  </Tooltip>
+                  <Input
+                    data-testid="input-dock-time"
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    className="h-7 text-xs w-[60px] text-center"
+                    value={defaultDockMinutes / 60}
+                    onChange={(e) => {
+                      const hrs = parseFloat(e.target.value);
+                      if (!isNaN(hrs) && hrs >= 0) setDefaultDockMinutes(Math.round(hrs * 60));
+                    }}
+                  />
+                  <span className="text-[11px] text-slate-400">hrs</span>
+                </div>
+                <div className="w-px h-5 bg-slate-200" />
+                {/* Deadhead toggle + Yard selector */}
+                <div className="flex items-center gap-1.5">
+                  <Switch
+                    data-testid="switch-include-return"
+                    checked={includeReturn}
+                    onCheckedChange={setIncludeReturn}
+                    className="scale-75"
+                    disabled={!effectiveYard}
+                  />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className={`text-[11px] flex items-center gap-0.5 cursor-help ${effectiveYard ? "text-slate-500" : "text-slate-300"}`}>
+                        Deadhead
+                        <Info className="w-3 h-3 text-slate-300" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px] text-xs">
+                      Empty return trip from final stop back to your yard. Select a yard to enable.
+                    </TooltipContent>
+                  </Tooltip>
+                  <Select value={selectedYardId} onValueChange={setSelectedYardId}>
+                    <SelectTrigger data-testid="select-yard" className="h-7 text-[11px] w-[140px]">
+                      <SelectValue placeholder="Select yard" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {yards.map((y) => (
+                        <SelectItem key={y.id} value={y.id}>{y.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-px h-5 bg-slate-200" />
+                {/* Surcharge */}
+                <div className="flex items-center gap-1.5">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
+                        Surcharge
+                        <Info className="w-3 h-3 text-slate-300" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[240px] text-xs">
+                      Percentage added to carrier base cost for hazmat handling, regulatory compliance, or special equipment. Industry standard is 5-15%.
+                    </TooltipContent>
+                  </Tooltip>
+                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-7">
+                    <Input type="number" min="0" max="100" step="0.5" className="h-7 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} />
+                    <span className="text-[10px] text-slate-400 px-1 border-l border-slate-200 bg-slate-50 h-full flex items-center">%</span>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── ROW 2: CHARGES — accessorial pass-throughs ── */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Charges</h4>
+                <div className="flex-1 border-t border-slate-100" />
+                {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600">+{formatCurrency(accessorialTotal)}</span>}
+                <a href="/#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600">Adjust Defaults</a>
+              </div>
+              <div className="grid grid-cols-6 gap-3">
+                {/* Detention */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                    Detention
+                    <Tooltip>
+                      <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px] text-xs">Wait time charged when loading or unloading exceeds the allotted free time window.</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="text-[10px] text-slate-400">× {formatCurrency(accessorials.detentionRate)}/hour</div>
+                  <Input type="number" min="0" step="0.5" className="h-8 text-xs text-center" placeholder="hours" value={accessorials.detentionHours || ""} onChange={(e) => setAccessorials((p) => ({ ...p, detentionHours: parseFloat(e.target.value) || 0 }))} />
+                </div>
+                {/* Extra Stops */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                    Stops
+                    <Tooltip>
+                      <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px] text-xs">Additional stop-off fee for multi-drop or multi-pickup loads beyond the standard origin/destination.</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="text-[10px] text-slate-400">× {formatCurrency(accessorials.stopOffRate)}/stop</div>
+                  <Input type="number" min="0" step="1" className="h-8 text-xs text-center" placeholder="# stops" value={accessorials.stopOffCount || ""} onChange={(e) => setAccessorials((p) => ({ ...p, stopOffCount: parseInt(e.target.value) || 0 }))} />
+                </div>
+                {/* Lumper */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                    Lumper
+                    <Tooltip>
+                      <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px] text-xs">Third-party labor fee for loading or unloading freight at warehouse facilities.</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="text-[10px] text-slate-400">&nbsp;</div>
+                  <Input type="number" min="0" step="10" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.lumperFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, lumperFee: parseFloat(e.target.value) || 0 }))} />
+                </div>
+                {/* Border */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                    Border
+                    <Tooltip>
+                      <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px] text-xs">Customs brokerage and border crossing fees for cross-border shipments (US/Canada).</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="text-[10px] text-slate-400">&nbsp;</div>
+                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.borderCrossing || ""} onChange={(e) => setAccessorials((p) => ({ ...p, borderCrossing: parseFloat(e.target.value) || 0 }))} />
+                </div>
+                {/* TONU */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                    TONU
+                    <Tooltip>
+                      <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px] text-xs">Truck Ordered Not Used. Compensation when a load is cancelled after the carrier has dispatched.</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="text-[10px] text-slate-400">&nbsp;</div>
+                  <Input type="number" min="0" step="50" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tonu || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tonu: parseFloat(e.target.value) || 0 }))} />
+                </div>
+                {/* Other (custom) */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700">Other</div>
+                  <div className="text-[10px] text-slate-400 leading-[16px]"><input type="text" className="w-full bg-transparent text-[10px] text-slate-400 leading-[16px] outline-none placeholder:text-slate-300" placeholder="Label" value={accessorials.customAccessorialLabel} onChange={(e) => setAccessorials((p) => ({ ...p, customAccessorialLabel: e.target.value }))} /></div>
+                  <Input type="number" min="0" step="10" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.customAccessorialAmount || ""} onChange={(e) => setAccessorials((p) => ({ ...p, customAccessorialAmount: parseFloat(e.target.value) || 0 }))} />
+                </div>
+              </div>
+            </div>
+
+            {/* ── BREAKDOWN: collapsed by default, toggled from header ── */}
+            {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
+              <div className="space-y-2.5 pt-1" data-testid="leg-breakdown">
+                {routeCalc.legs.map((leg, i) => {
+                  const isLocal = leg.isLocal ?? leg.distanceKm < 100;
+                  const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
+                  const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
+                  return (
+                    <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-3 space-y-2" data-testid={`leg-card-${i}`}>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                          {isDeadhead
+                            ? `Deadhead Return \u00B7 ${leg.from} \u2192 ${leg.to}`
+                            : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
+                        </span>
+                        {!isDeadhead && (
+                          <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wide">
+                            {isLocal ? "Local" : "Long Dist."}
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-0.5 text-[13px]">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground flex items-center gap-1">
+                            Drive time
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="w-3 h-3 text-slate-400 cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-[220px] text-xs">
+                                Google Maps may show longer times due to real-time traffic. Cost calculations use traffic-free estimates.
+                              </TooltipContent>
+                            </Tooltip>
+                          </span>
+                          <span>{`${Math.floor(leg.driveMinutes / 60)}h ${String(Math.round(leg.driveMinutes % 60)).padStart(2, "0")}m`}</span>
+                        </div>
+                        {!isDeadhead && leg.dockMinutes > 0 && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Load + Unload</span>
+                            <span>{(leg.dockMinutes / 60) % 1 === 0 ? (leg.dockMinutes / 60).toFixed(0) : (leg.dockMinutes / 60).toFixed(1)} hrs</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-medium">
+                          <span>Total billable hrs</span>
+                          <span>{billableHrs.toFixed(2)} hrs</span>
+                        </div>
+                        <Separator className="my-1" />
+                        {/* Fixed cost */}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Fixed Cost</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] text-muted-foreground">
+                              {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
+                            </span>
+                            <span className="font-medium">{formatCurrency(leg.fixedCost)}</span>
+                          </div>
+                        </div>
+                        {/* Driver cost — per-mile/km or per-hour */}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : " (per hour)"}
+                            {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] text-muted-foreground">
+                              {routeCalc.payMode === "perMile" ? (
+                                <>
+                                  {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
+                                  {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
+                                </>
+                              ) : (
+                                <>
+                                  {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.allInHourlyRate - routeCalc.fixedCostPerHour)}/hr
+                                  {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
+                                </>
+                              )}
+                            </span>
+                            <span className="font-medium">{formatCurrency(leg.driverCost)}</span>
+                          </div>
+                        </div>
+                        {/* Fuel cost */}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[11px] text-muted-foreground">
+                              {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
+                              {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
+                            </span>
+                            <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="flex justify-between items-center rounded-md px-3 py-1.5 -mx-1"
+                        style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
+                      >
+                        <span className="text-[13px] font-bold text-slate-800">{isDeadhead ? "Deadhead Total w/ Fuel" : "Total w/ Fuel"}</span>
+                        <span className="text-[13px] font-bold text-orange-600 tabular-nums">
+                          {formatCurrency(leg.legCost)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -1510,12 +2250,12 @@ export default function RouteBuilder() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {/* ── Left: Route Chat ─────────────────────────────────── */}
           <Card className="border-slate-200 flex flex-col" data-testid="chat-panel">
-            <CardHeader className="pb-2 shrink-0">
+            <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2 shrink-0">
               <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 Route Chat
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col flex-1 min-h-0 space-y-3">
+            <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
               {/* Chat messages — fills available space */}
               <div
                 className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
@@ -1527,7 +2267,7 @@ export default function RouteBuilder() {
                     className={`text-sm rounded-xl px-3.5 py-2.5 max-w-[85%] leading-relaxed ${
                       msg.role === "bot"
                         ? "bg-slate-100 text-slate-700"
-                        : "bg-orange-500 text-white ml-auto"
+                        : "bg-orange-400 text-white ml-auto"
                     }`}
                   >
                     {msg.text}
@@ -1579,7 +2319,7 @@ export default function RouteBuilder() {
                   data-testid="button-send-chat"
                   disabled={!chatMessage.trim() || chatRouteMutation.isPending}
                   onClick={() => sendChat(chatMessage)}
-                  className="shrink-0 bg-orange-500 hover:bg-orange-600 text-white px-5"
+                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-5"
                 >
                   Send
                 </Button>
@@ -1591,7 +2331,7 @@ export default function RouteBuilder() {
           <div className="space-y-3 flex flex-col">
             {/* Map */}
             <Card className="border-slate-200 overflow-hidden flex-1">
-              <CardHeader className="pb-1.5">
+              <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-1.5">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   Route Map
                   <span className="text-[10px] font-normal text-slate-400">
@@ -1601,7 +2341,7 @@ export default function RouteBuilder() {
               </CardHeader>
               <CardContent className="p-1.5">
                 <RouteMapGoogle
-                  stops={stops}
+                  stops={includeReturn ? stops : stops.filter(s => s.type !== "yard")}
                   fallbackCenter={effectiveYard?.address || effectiveYard?.name || user?.operatingCity}
                 />
               </CardContent>
@@ -1609,7 +2349,7 @@ export default function RouteBuilder() {
 
             {/* Build Route Form */}
             <Card className="border-slate-200 shrink-0">
-              <CardHeader className="pb-2">
+              <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   Build Route
                   <span className="text-[10px] font-normal text-slate-400">
@@ -1617,7 +2357,7 @@ export default function RouteBuilder() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3.5">
+              <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 space-y-3.5">
                 {/* Unified stops list with drag-and-drop */}
                 {formStops.map((stop, idx) => {
                   const isFirst = idx === 0;
@@ -1752,7 +2492,7 @@ export default function RouteBuilder() {
                 {/* Manual Build button */}
                 {formStops.filter((s) => s.location.trim()).length >= 2 && (
                   <Button
-                    className="w-full bg-orange-500 hover:bg-orange-600 text-white"
+                    className="w-full bg-orange-400 hover:bg-orange-500 text-white"
                     data-testid="button-build-route"
                     disabled={isGeocodingRoute || isCalculating}
                     onClick={() => void triggerRouteBuild(undefined, true)}
@@ -1770,5 +2510,24 @@ export default function RouteBuilder() {
           </div>
         </div>
       </div>
+
+
+      {/* PDF Share Dialog */}
+      {lastSavedQuote && (
+        <QuoteShareDialog
+          open={pdfDialogOpen}
+          onOpenChange={setPdfDialogOpen}
+          quote={lastSavedQuote}
+        />
+      )}
+
+      {/* Upgrade Dialog */}
+      <UpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        title={upgradeReason.title}
+        description={upgradeReason.description}
+      />
+    </>
   );
 }

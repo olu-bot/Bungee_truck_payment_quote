@@ -81,12 +81,10 @@ export function formatCurrencyAmount(value: number, currency: SupportedCurrency)
 }
 
 export function currencySymbol(currency: SupportedCurrency): string {
-  // Required mapping by operating country:
-  // - Canada: "CA$"
-  // - USA: "$"
+  // Currency badge in the header already shows "CAD" / "USD", so we use
+  // a plain "$" for both to keep dollar amounts compact.
   switch (currency) {
     case "CAD":
-      return "CA$";
     case "USD":
       return "$";
     default:

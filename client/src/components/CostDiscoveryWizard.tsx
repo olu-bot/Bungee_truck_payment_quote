@@ -44,7 +44,13 @@ import {
   CheckCircle2,
   Info,
   Lock,
+  HelpCircle,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import type { CostProfile } from "@shared/schema";
 import {
   formatCurrencyAmount,
@@ -86,6 +92,8 @@ type SectionDef = {
   title: string;
   icon: typeof Truck;
   fields: FieldDef[];
+  /** If true, section is hidden behind an "Advanced" toggle */
+  advanced?: boolean;
 };
 
 // ── Field definitions with inline hints ────────────────────────────
@@ -103,35 +111,35 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
           label: "Truck payment",
           suffix: "$", step: "any", icon: Truck,
           benchmarkKey: "monthlyTruckPayment",
-          hint: "Lease or finance payment for the tractor. $0 if owned outright.",
+          hint: "Monthly cost to lease or finance your tractor. Enter $0 if owned outright.",
         },
         {
           key: "monthlyInsurance",
           label: "Insurance",
           suffix: "$", step: "any", icon: Shield,
           benchmarkKey: "monthlyInsurance",
-          hint: "Total commercial coverage — liability, cargo, physical damage. Divide annual premium by 12.",
+          hint: "Total monthly commercial truck insurance premium — liability, cargo, and physical damage.",
         },
         {
           key: "monthlyMaintenance",
           label: "Maintenance & tires",
           suffix: "$", step: "any", icon: DollarSign,
           benchmarkKey: "monthlyMaintenance",
-          hint: "Last year's repair + tire costs ÷ 12. Ask your accountant if unsure.",
+          hint: "Average monthly budget for repairs, oil changes, tire replacements, and upkeep.",
         },
         {
           key: "monthlyPermitsPlates",
           label: "Permits & plates",
           suffix: "$", step: "any", icon: Shield,
           benchmarkKey: "monthlyPermitsPlates",
-          hint: "IRP, IFTA, UCR, and license plates — divide yearly total by 12.",
+          hint: "Annual regulatory costs (IRP, IFTA, UCR, plates) divided by 12 months.",
         },
         {
           key: "monthlyOther",
           label: "Other (ELD, parking, etc.)",
           suffix: "$", step: "any", icon: DollarSign,
           benchmarkKey: "monthlyOther",
-          hint: "ELD subscription, GPS, truck washes, scale fees, and other recurring costs.",
+          hint: "Monthly recurring costs not listed above — ELD, GPS, parking, truck washes, scale fees.",
         },
       ],
     },
@@ -145,14 +153,14 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
           label: "Working days / month",
           suffix: "days", step: "1", icon: Calendar,
           benchmarkKey: "workingDaysPerMonth",
-          hint: "Days the truck is actually hauling. Typically 20–22 for 5-day weeks, 26–28 for OTR teams.",
+          hint: "Days per month your truck is actively hauling freight. Exclude downtime and off-days.",
         },
         {
           key: "workingHoursPerDay",
           label: "Billable hours / day",
           suffix: "hrs", step: "0.5", icon: Clock,
           benchmarkKey: "workingHoursPerDay",
-          hint: "Average on-duty hours per day from your ELD. Most drivers average 9–11 hrs.",
+          hint: "Average daily on-duty hours when the truck is working, including drive and dock time.",
         },
       ],
     },
@@ -166,7 +174,7 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
           label: "Hourly rate",
           suffix: "$/hr", step: "0.50", icon: User,
           benchmarkKey: "driverPayPerHour",
-          hint: "Wage for local runs and waiting time. Owner-operators: what you pay yourself per hour.",
+          hint: "Hourly wage paid to the driver. Owner-operators: enter what you pay yourself per hour.",
         },
         {
           key: "driverPayPerMile",
@@ -174,7 +182,7 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
           suffix: isImperial ? "$/mi" : "$/km",
           step: "0.01", icon: User,
           benchmarkKey: "driverPayPerMile",
-          hint: `Used for OTR routes over 300 ${isImperial ? "mi" : "km"}. Leave 0 if you only pay hourly.`,
+          hint: `Mileage pay per ${isImperial ? "mile" : "km"} for over-the-road freight. Enter 0 if using hourly pay only.`,
           optional: true,
         },
         {
@@ -182,7 +190,7 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
           label: "Deadhead pay (%)",
           suffix: "%", step: "5", icon: User,
           benchmarkKey: "deadheadPayPercent",
-          hint: "% of loaded rate paid for empty miles. 100% = full pay, 80% = typical.",
+          hint: "Percentage of normal mileage pay given for empty return miles (e.g. 80 = 80%).",
           optional: true,
         },
       ],
@@ -199,8 +207,8 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
           step: "0.1", icon: Fuel,
           benchmarkKey: "fuelConsumptionLPer100km",
           hint: isImperial
-            ? "Average MPG when loaded. Check your dash or ELD. Typical: 5.5–7.5 MPG."
-            : "Average L/100km when loaded. Check your dash or ELD. Typical: 32–42 L/100km.",
+            ? "Your truck's average fuel efficiency in miles per gallon when loaded."
+            : "Your truck's average fuel consumption in liters per 100km when loaded.",
         },
       ],
     },
@@ -231,33 +239,33 @@ function EquipmentChips({
 }) {
   const isCustom = value === "__custom__";
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap gap-2">
         {EQUIPMENT_TYPES.map(({ key, label, Icon }) => (
           <button
             key={key}
             type="button"
             onClick={() => onChange(key)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors border cursor-pointer
               ${value === key
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                ? "bg-orange-400 text-white border-orange-400"
+                : "bg-white text-slate-600 border-slate-200 hover:border-orange-300 hover:text-orange-600"
               }`}
           >
-            <Icon className="w-3 h-3" />
+            <Icon className="w-3.5 h-3.5" />
             {label}
           </button>
         ))}
         <button
           type="button"
           onClick={() => onChange("__custom__")}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border
+          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium transition-colors border cursor-pointer
             ${isCustom
-              ? "bg-primary text-primary-foreground border-primary"
-              : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+              ? "bg-orange-400 text-white border-orange-400"
+              : "bg-white text-slate-600 border-slate-200 hover:border-orange-300 hover:text-orange-600"
             }`}
         >
-          <Truck className="w-3 h-3" />
+          <Truck className="w-3.5 h-3.5" />
           Other
         </button>
       </div>
@@ -266,7 +274,7 @@ function EquipmentChips({
           placeholder="e.g. Lowboy, Car Hauler, Conestoga..."
           value={customValue}
           onChange={(e) => onCustomChange(e.target.value)}
-          className="h-8 text-sm"
+          className="h-9 text-sm"
         />
       )}
     </div>
@@ -308,19 +316,19 @@ function LocationSelector({
   return (
     <div className="relative" ref={ref}>
       <div
-        className="flex items-center gap-2 border rounded-md px-3 py-2 cursor-pointer hover:border-primary transition-colors h-9"
+        className="flex items-center gap-2 border border-slate-200 rounded-md px-3 py-2 cursor-pointer hover:border-slate-400 transition-colors h-9"
         onClick={() => setOpen((v) => !v)}
       >
-        <MapPin className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className={`text-sm flex-1 ${selected ? "" : "text-muted-foreground"}`}>
+        <MapPin className="w-3.5 h-3.5 text-slate-500" />
+        <span className={`text-sm flex-1 ${selected ? "" : "text-slate-500"}`}>
           {selected ? `${selected.name} (${selected.code})` : "Select state / province..."}
         </span>
-        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+        <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
       </div>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full border rounded-md bg-background shadow-lg max-h-60 overflow-hidden">
-          <div className="p-2 border-b">
+        <div className="absolute z-50 mt-1.5 w-full border border-slate-200 rounded-xl bg-background shadow-lg max-h-60 overflow-hidden">
+          <div className="p-2 border-b border-slate-200">
             <Input
               placeholder="Search..."
               value={search}
@@ -331,10 +339,10 @@ function LocationSelector({
           </div>
           <div className="overflow-y-auto max-h-48">
             {filtered.length === 0 && (
-              <p className="text-xs text-muted-foreground p-3">No results</p>
+              <p className="text-xs text-slate-500 p-3">No results</p>
             )}
             {filtered.some((s) => s.country === "US") && (
-              <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50">
+              <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50">
                 United States
               </div>
             )}
@@ -342,16 +350,16 @@ function LocationSelector({
               <button
                 key={s.code}
                 type="button"
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted/80 transition-colors ${
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 transition-colors ${
                   value === s.code ? "bg-primary/10 text-primary font-medium" : ""
                 }`}
                 onClick={() => { onChange(s.code); setOpen(false); setSearch(""); }}
               >
-                {s.name} <span className="text-xs text-muted-foreground">({s.code})</span>
+                {s.name} <span className="text-xs text-slate-500">({s.code})</span>
               </button>
             ))}
             {filtered.some((s) => s.country === "CA") && (
-              <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/50">
+              <div className="px-2 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50">
                 Canada
               </div>
             )}
@@ -359,12 +367,12 @@ function LocationSelector({
               <button
                 key={s.code}
                 type="button"
-                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-muted/80 transition-colors ${
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 transition-colors ${
                   value === s.code ? "bg-primary/10 text-primary font-medium" : ""
                 }`}
                 onClick={() => { onChange(s.code); setOpen(false); setSearch(""); }}
               >
-                {s.name} <span className="text-xs text-muted-foreground">({s.code})</span>
+                {s.name} <span className="text-xs text-slate-500">({s.code})</span>
               </button>
             ))}
           </div>
@@ -389,7 +397,11 @@ function CostSummaryBar({
     (values.monthlyInsurance as number || 0) +
     (values.monthlyMaintenance as number || 0) +
     (values.monthlyPermitsPlates as number || 0) +
-    (values.monthlyOther as number || 0);
+    (values.monthlyOther as number || 0) +
+    (values.monthlyTrailerLease as number || 0) +
+    (values.monthlyEldTelematics as number || 0) +
+    (values.monthlyAccountingOffice as number || 0) +
+    (values.monthlyTireReserve as number || 0);
   const workingDays = (values.workingDaysPerMonth as number) || 22;
   const workingHours = (values.workingHoursPerDay as number) || 10;
   const monthlyHours = workingDays * workingHours;
@@ -400,29 +412,28 @@ function CostSummaryBar({
   const costPerMile = avgSpeedMph > 0 ? allInHourly / avgSpeedMph : 0;
 
   return (
-    <div className="sticky bottom-0 z-40 border-t bg-green-50/95 backdrop-blur px-4 py-3">
-      <div className="max-w-2xl mx-auto flex items-center justify-between gap-4 text-center">
-        <div className="flex-1">
-          <p className="text-[10px] text-green-600 font-medium">Monthly Fixed</p>
-          <p className="text-sm font-bold text-green-800">{formatMoney(monthlyFixed)}</p>
+    <div className="sticky bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-4 py-3">
+      <div className="max-w-2xl mx-auto">
+        <div className="grid grid-cols-4 gap-3 text-center">
+          <div className="space-y-0.5">
+            <p className="text-[11px] font-medium text-slate-500 tracking-wide uppercase">Monthly Fixed</p>
+            <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(monthlyFixed)}</p>
+          </div>
+          <div className="space-y-0.5 border-l border-slate-200 pl-3">
+            <p className="text-[11px] font-medium text-slate-500 tracking-wide uppercase">All-In Hourly</p>
+            <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(allInHourly)}/hr</p>
+          </div>
+          <div className="space-y-0.5 border-l border-slate-200 pl-3">
+            <p className="text-[11px] font-medium text-slate-500 tracking-wide uppercase">Est. Cost/{isImperial ? "Mile" : "KM"}</p>
+            <p className="text-sm font-bold text-slate-900 tabular-nums">~{formatMoney(isImperial ? costPerMile : costPerMile / 1.609)}</p>
+          </div>
+          <div className="space-y-0.5 border-l border-slate-200 pl-3">
+            <p className="text-[11px] font-medium text-slate-500 tracking-wide uppercase">Fixed/Hour</p>
+            <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(fixedPerHour)}/hr</p>
+          </div>
         </div>
-        <div className="w-px h-8 bg-green-200" />
-        <div className="flex-1">
-          <p className="text-[10px] text-green-600 font-medium">All-In Hourly</p>
-          <p className="text-sm font-bold text-green-800">{formatMoney(allInHourly)}/hr</p>
-        </div>
-        <div className="w-px h-8 bg-green-200" />
-        <div className="flex-1">
-          <p className="text-[10px] text-green-600 font-medium">Est. Cost/{isImperial ? "Mile" : "KM"}</p>
-          <p className="text-sm font-bold text-green-800">~{formatMoney(isImperial ? costPerMile : costPerMile / 1.609)}</p>
-        </div>
-        <div className="w-px h-8 bg-green-200" />
-        <div className="flex-1">
-          <p className="text-[10px] text-green-600 font-medium">Fixed/Hour</p>
-          <p className="text-sm font-bold text-green-800">{formatMoney(fixedPerHour)}/hr</p>
-        </div>
+        <p className="text-[10px] text-slate-400 text-center mt-2">* Excludes fuel — calculated per-route</p>
       </div>
-      <p className="text-[9px] text-green-600 text-center mt-1">* Excludes fuel — calculated per-route</p>
     </div>
   );
 }
@@ -441,6 +452,10 @@ function defaultWizardValues(): WizardValues {
     monthlyMaintenance: 0,
     monthlyPermitsPlates: 0,
     monthlyOther: 0,
+    monthlyTrailerLease: 0,
+    monthlyEldTelematics: 0,
+    monthlyAccountingOffice: 0,
+    monthlyTireReserve: 0,
     workingDaysPerMonth: 0,
     workingHoursPerDay: 0,
     driverPayPerHour: 0,
@@ -452,7 +467,10 @@ function defaultWizardValues(): WizardValues {
   };
 }
 
-const OPTIONAL_FIELDS = new Set(["driverPayPerMile", "deadheadPayPercent"]);
+const OPTIONAL_FIELDS = new Set([
+  "driverPayPerMile", "deadheadPayPercent",
+  "monthlyTrailerLease", "monthlyEldTelematics", "monthlyAccountingOffice", "monthlyTireReserve",
+]);
 
 export type CostDiscoveryWizardProps = {
   onSave: (data: Omit<CostProfile, "id">) => void | Promise<void>;
@@ -622,13 +640,17 @@ export function CostDiscoveryWizard({
     // Clamp all monetary values to >= 0 (no negatives)
     const clamp0 = (n: number) => Math.max(0, n);
     onSave({
-      name: (v.name as string) || "My Cost Profile",
+      name: (v.name as string) || "My Equipment Cost Profile",
       truckType: resolvedType || "dry_van",
       monthlyTruckPayment: clamp0(v.monthlyTruckPayment as number),
       monthlyInsurance: clamp0(v.monthlyInsurance as number),
       monthlyMaintenance: clamp0(v.monthlyMaintenance as number),
       monthlyPermitsPlates: clamp0(v.monthlyPermitsPlates as number),
       monthlyOther: clamp0(v.monthlyOther as number),
+      monthlyTrailerLease: clamp0((v.monthlyTrailerLease as number) || 0),
+      monthlyEldTelematics: clamp0((v.monthlyEldTelematics as number) || 0),
+      monthlyAccountingOffice: clamp0((v.monthlyAccountingOffice as number) || 0),
+      monthlyTireReserve: clamp0((v.monthlyTireReserve as number) || 0),
       workingDaysPerMonth: Math.max(1, workDays),
       workingHoursPerDay: Math.max(1, workHours),
       driverPayPerHour: clamp0(v.driverPayPerHour as number),
@@ -676,11 +698,11 @@ export function CostDiscoveryWizard({
   const moneyKeys = new Set(["$", "$/hr", "$/mi", "$/km"]);
 
   return (
-    <div className="space-y-4 pb-28" ref={formRef}>
+    <div className="space-y-3 pb-32" ref={formRef}>
       {/* Back / exit */}
       {onBack && (
-        <Button variant="ghost" size="sm" onClick={handleExitClick}>
-          <ArrowLeft className="w-4 h-4 mr-1" />
+        <Button variant="ghost" size="sm" className="gap-1.5 text-slate-600 hover:text-slate-900 transition-colors duration-200" onClick={handleExitClick}>
+          <ArrowLeft className="w-4 h-4" />
           {backLabel}
         </Button>
       )}
@@ -709,22 +731,25 @@ export function CostDiscoveryWizard({
       </Dialog>
 
       {/* ── Privacy / encryption banner (top) ──────── */}
-      <div className="flex items-center gap-3 rounded-lg px-4 py-3" style={{ background: "linear-gradient(135deg, #065f46 0%, #047857 100%)", color: "#fff" }}>
-        <Lock className="w-5 h-5 shrink-0 opacity-90" />
-        <span className="text-sm font-semibold">Your data is encrypted &amp; private. No one can access it — not even us.</span>
+      <div className="flex items-center gap-2.5 rounded-lg px-3.5 py-3" style={{ background: "linear-gradient(135deg, #065f46 0%, #047857 100%)", color: "#fff" }}>
+        <div className="flex items-center justify-center w-8 h-8 rounded-md bg-white/15 shrink-0">
+          <Lock className="w-4 h-4" />
+        </div>
+        <span className="text-[13px] font-semibold leading-snug">Your equipment cost profile is encrypted &amp; private. No one can access it — not even us.</span>
       </div>
 
       {/* ── Quick Start banner ───────────────────────── */}
-      <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-        <Zap className="w-5 h-5 text-primary shrink-0" />
+      <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3.5 py-3">
+        <div className="flex items-center justify-center w-8 h-8 rounded-md bg-orange-50 shrink-0">
+          <Zap className="w-4 h-4 text-orange-500" />
+        </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium">Don't have your numbers handy?</p>
-          <p className="text-xs text-muted-foreground">Start with industry defaults — you can fine-tune later.</p>
+          <p className="text-sm font-semibold text-slate-900">Don't have your numbers handy?</p>
+          <p className="text-xs text-slate-500 mt-0.5">Start with industry defaults — you can fine-tune later.</p>
         </div>
         <Button
           size="sm"
-          variant="outline"
-          className="shrink-0 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+          className="shrink-0 bg-orange-400 text-white hover:bg-orange-500 shadow-sm transition-all duration-200"
           disabled={isSaving}
           onClick={handleQuickProfile}
         >
@@ -733,23 +758,23 @@ export function CostDiscoveryWizard({
       </div>
 
       {/* ── Setup: Name, Equipment, Location ──────── */}
-      <Card>
-        <CardContent className="pt-5 space-y-4">
+      <Card className="border-slate-200">
+        <CardContent className="p-3 sm:p-4 space-y-4">
           {/* Profile name */}
           <div className="space-y-1.5">
-            <Label className="text-sm font-medium">Profile Name</Label>
+            <Label className="text-xs font-medium text-slate-600">Profile Name</Label>
             <Input
               placeholder="e.g. My Dry Van, Reefer Unit #3"
               value={values.name as string}
               onChange={(e) => setField("name", e.target.value)}
-              className="h-9"
+              className="h-9 text-sm border-slate-200 focus:border-slate-400 transition-colors"
             />
           </div>
 
           {/* Equipment + Location side by side on desktop */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Equipment Type</Label>
+              <Label className="text-xs font-medium text-slate-600">Equipment Type</Label>
               <EquipmentChips
                 value={values.truckType as string}
                 customValue={customEquipment}
@@ -762,7 +787,7 @@ export function CostDiscoveryWizard({
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-sm font-medium">Where are you based?</Label>
+              <Label className="text-xs font-medium text-slate-600">Where are you based?</Label>
               <LocationSelector
                 value={values.stateCode as string}
                 onChange={(code) => {
@@ -772,7 +797,7 @@ export function CostDiscoveryWizard({
                 }}
               />
               {region && (
-                <p className="text-[11px] text-purple-600 flex items-center gap-1">
+                <p className="text-[11px] text-orange-600 flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
                   {region.name} — costs auto-filled from regional averages
                 </p>
@@ -781,9 +806,9 @@ export function CostDiscoveryWizard({
           </div>
 
           {benchmarksApplied && estimate && (
-            <div className="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2">
-              <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-              <p className="text-xs text-green-700">
+            <div className="flex items-center gap-2.5 rounded-md bg-orange-50 border border-orange-200 px-3 py-2.5">
+              <CheckCircle2 className="w-4 h-4 text-orange-500 shrink-0" />
+              <p className="text-[13px] text-orange-700 leading-snug">
                 All fields pre-filled with regional averages for your equipment type. Adjust any values that differ for your operation.
               </p>
             </div>
@@ -795,78 +820,94 @@ export function CostDiscoveryWizard({
       {sections.map((section) => {
         const SectionIcon = section.icon;
         return (
-          <Card key={section.id}>
-            <CardContent className="pt-4 space-y-3">
-              <div className="flex items-center gap-2 mb-1">
-                <SectionIcon className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold">{section.title}</h3>
+          <Card key={section.id} className="border-slate-200">
+            <CardContent className="p-3 sm:p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center justify-center w-7 h-7 rounded-md bg-slate-50">
+                  <SectionIcon className="w-3.5 h-3.5 text-slate-600" />
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
+                {section.advanced && (
+                  <span className="text-[11px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-medium">Optional</span>
+                )}
               </div>
 
-              {section.fields.map((field) => {
-                const currentValue = values[field.key] as number;
-                const benchmark = getBenchmark(field.benchmarkKey);
-                const isMoney = moneyKeys.has(field.suffix ?? "");
-                const suffixLabel = isMoney
-                  ? localizeMoneySuffix(field.suffix ?? "", currency)
-                  : field.suffix ?? "";
+              <div className="space-y-3">
+                {section.fields.map((field) => {
+                  const currentValue = values[field.key] as number;
+                  const benchmark = getBenchmark(field.benchmarkKey);
+                  const isMoney = moneyKeys.has(field.suffix ?? "");
+                  const suffixLabel = isMoney
+                    ? localizeMoneySuffix(field.suffix ?? "", currency)
+                    : field.suffix ?? "";
 
-                return (
-                  <div key={field.key} className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs flex items-center gap-1.5 flex-1 min-w-0">
-                        <field.icon className="w-3 h-3 text-muted-foreground shrink-0" />
-                        <span className="truncate">{field.label}</span>
-                        {field.optional && (
-                          <span className="text-[10px] text-muted-foreground font-normal">(optional)</span>
+                  return (
+                    <div key={field.key} className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs font-medium text-slate-600 flex items-center gap-1.5 flex-1 min-w-0">
+                          <field.icon className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{field.label}</span>
+                          {field.optional && (
+                            <span className="text-[10px] font-normal text-slate-400">(optional)</span>
+                          )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button type="button" className="shrink-0 text-slate-300 hover:text-slate-500 transition-colors">
+                                <HelpCircle className="w-3.5 h-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[240px] text-xs">
+                              {field.hint}
+                            </TooltipContent>
+                          </Tooltip>
+                        </Label>
+                        {/* Benchmark chip */}
+                        {benchmark !== undefined && benchmark > 0 && (
+                          <button
+                            type="button"
+                            title="Click to use regional average"
+                            className="text-[11px] font-semibold text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-0.5 rounded-md transition-colors shrink-0 cursor-pointer"
+                            onClick={() => {
+                              setField(field.key, benchmark);
+                              setTouchedFields((prev) => {
+                                const next = new Set(prev);
+                                next.delete(field.key);
+                                return next;
+                              });
+                            }}
+                          >
+                            avg: {isMoney ? formatMoney(benchmark) : benchmark}{" "}
+                            {!isMoney && suffixLabel ? suffixLabel : ""}
+                          </button>
                         )}
-                      </Label>
-                      {/* Benchmark chip */}
-                      {benchmark !== undefined && benchmark > 0 && (
-                        <button
-                          type="button"
-                          title="Click to use regional average"
-                          className="text-[10px] text-purple-600 bg-purple-50 hover:bg-purple-100 px-1.5 py-0.5 rounded transition-colors shrink-0"
-                          onClick={() => {
-                            setField(field.key, benchmark);
-                            setTouchedFields((prev) => {
-                              const next = new Set(prev);
-                              next.delete(field.key);
-                              return next;
-                            });
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          step={field.step || "any"}
+                          min={field.optional ? 0 : (["workingDaysPerMonth", "workingHoursPerDay", "fuelConsumptionPer100km"].includes(field.key) ? 1 : 0)}
+                          className="h-9 text-sm flex-1 border-slate-200 focus:border-slate-400 transition-colors tabular-nums"
+                          value={currentValue || ""}
+                          placeholder={benchmark ? String(benchmark) : "0"}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const num = parseFloat(raw);
+                            if (!isNaN(num) && num >= 0) {
+                              setField(field.key, num);
+                            } else if (raw === "" || raw === "-") {
+                              setField(field.key, 0);
+                            }
+                            setTouchedFields((prev) => new Set(prev).add(field.key));
                           }}
-                        >
-                          avg: {isMoney ? formatMoney(benchmark) : benchmark}{" "}
-                          {!isMoney && suffixLabel ? suffixLabel : ""}
-                        </button>
-                      )}
+                        />
+                        <span className="text-xs font-medium text-slate-400 w-12 text-right shrink-0">
+                          {suffixLabel}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        step={field.step || "any"}
-                        min={field.optional ? 0 : (["workingDaysPerMonth", "workingHoursPerDay", "fuelConsumptionPer100km"].includes(field.key) ? 1 : 0)}
-                        className="h-8 text-sm flex-1"
-                        value={currentValue || ""}
-                        placeholder={benchmark ? String(benchmark) : "0"}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          const num = parseFloat(raw);
-                          if (!isNaN(num) && num >= 0) {
-                            setField(field.key, num);
-                          } else if (raw === "" || raw === "-") {
-                            setField(field.key, 0);
-                          }
-                          setTouchedFields((prev) => new Set(prev).add(field.key));
-                        }}
-                      />
-                      <span className="text-xs text-muted-foreground w-14 text-right shrink-0">
-                        {suffixLabel}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground leading-tight pl-0.5">{field.hint}</p>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
         );
@@ -875,27 +916,25 @@ export function CostDiscoveryWizard({
       {/* ── Save button ───────────────────────────── */}
       <div className="flex items-center justify-center gap-3 pt-2">
         <Button
-          size="lg"
-          className="gap-2 min-w-[200px]"
+          size="default"
+          className="gap-2 min-w-[200px] h-10 text-sm font-semibold bg-orange-400 hover:bg-orange-500 text-white shadow-sm hover:shadow-md transition-all"
           disabled={!canSave || isSaving}
           onClick={handleSave}
         >
-          <Save className="w-4 h-4" />
+          <Save className="w-5 h-5" />
           {isSaving ? "Saving..." : saveLabel}
         </Button>
       </div>
 
       {!canSave && (
-        <p className="text-center text-xs text-muted-foreground flex items-center justify-center gap-1">
-          <Info className="w-3 h-3" />
+        <p className="text-center text-sm font-medium text-slate-400 flex items-center justify-center gap-1.5">
+          <Info className="w-3.5 h-3.5" />
           Fill in all required fields above to save
         </p>
       )}
 
-      {/* ── Sticky cost summary bar ───────────────── */}
-      {canSave && (
-        <CostSummaryBar values={values} isImperial={isImperial} formatMoney={formatMoney} />
-      )}
+      {/* ── Sticky cost summary bar (always visible) ── */}
+      <CostSummaryBar values={values} isImperial={isImperial} formatMoney={formatMoney} />
     </div>
   );
 }

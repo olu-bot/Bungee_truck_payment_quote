@@ -18,7 +18,7 @@ function cacheKey(message: string): string {
   return message.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-export async function processChatRoute(message: string): Promise<ChatRouteResult> {
+export async function processChatRoute(message: string, dockTimeMinutes?: number): Promise<ChatRouteResult> {
   const key = cacheKey(message);
   const now = Date.now();
   const hit = chatCache.get(key);
@@ -38,7 +38,7 @@ export async function processChatRoute(message: string): Promise<ChatRouteResult
       const res = await fetch("/api/chat-route", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, ...(dockTimeMinutes != null ? { dockTimeMinutes } : {}) }),
         signal: ctrl.signal,
       });
       const data = (await res.json()) as ChatRouteResult & { error?: string };

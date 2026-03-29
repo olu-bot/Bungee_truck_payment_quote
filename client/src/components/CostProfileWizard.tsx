@@ -211,7 +211,7 @@ function EquipmentTypeSelector({
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-3">
         {EQUIPMENT_TYPES.map(({ key, label, Icon }) => (
           <Button
             key={key}
@@ -421,7 +421,7 @@ export function CostProfileWizard({
   const isLastStep = wizardStep === WIZARD_STEPS.length - 1;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {onBack && (
         <div className="flex items-center gap-3">
           <Button
@@ -437,7 +437,7 @@ export function CostProfileWizard({
       )}
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center justify-between text-[11px] text-slate-400 uppercase tracking-wider">
           <span>
             Step {wizardStep + 1} of {WIZARD_STEPS.length}
           </span>
@@ -456,21 +456,21 @@ export function CostProfileWizard({
         </div>
       </div>
 
-      <Card className="border-border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
+      <Card className="border-slate-200">
+        <CardHeader className="px-4 py-3">
+          <CardTitle className="text-sm font-semibold text-slate-900 flex items-center gap-2">
             <StepIcon className="w-4 h-4 text-primary" />
             {step.title}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="px-4 py-3 space-y-3">
           {wizardStep === 0 && (
             <>
               {/* Quick Profile alert — shown after creation */}
               {quickProfileCreated && (
                 <div className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3">
                   <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 shrink-0" />
-                  <p className="text-sm text-orange-800">
+                  <p className="text-xs text-orange-800">
                     Quick profile created with industry-average values. For the most accurate cost estimates, fine-tune your profile in <strong>Company Profile</strong>.
                   </p>
                 </div>
@@ -492,15 +492,15 @@ export function CostProfileWizard({
               )}
 
               {!quickProfileCreated && (
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <div className="flex-1 h-px bg-border" />
+                <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <div className="flex-1 h-px bg-slate-200" />
                   or build your own
-                  <div className="flex-1 h-px bg-border" />
+                  <div className="flex-1 h-px bg-slate-200" />
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label className="text-sm">Profile Name</Label>
+                <Label className="text-xs font-medium text-slate-500">Profile Name</Label>
                 <Input
                   data-testid="wizard-profile-name"
                   placeholder="e.g. My Dry Van, Reefer Unit #3"
@@ -509,7 +509,7 @@ export function CostProfileWizard({
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-sm">Equipment Type</Label>
+                <Label className="text-xs font-medium text-slate-500">Equipment Type</Label>
                 <EquipmentTypeSelector
                   value={wizardValues.truckType as string}
                   customValue={customEquipment}
@@ -524,8 +524,8 @@ export function CostProfileWizard({
             const currentValue = wizardValues[field.key] as number;
             return (
               <div key={field.key} className="space-y-2">
-                <Label className="text-sm">{field.label}</Label>
-                <div className="flex gap-2">
+                <Label className="text-xs font-medium text-slate-500">{field.label}</Label>
+                <div className="flex gap-3">
                   {field.presets.map((preset) => (
                     <PresetButton
                       key={preset}
@@ -539,7 +539,7 @@ export function CostProfileWizard({
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">Custom:</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">Custom:</span>
                   <Input
                     data-testid={`wizard-custom-${field.key}`}
                     type="number"
@@ -549,7 +549,7 @@ export function CostProfileWizard({
                     onChange={(e) => handleCustomInput(field.key, e.target.value)}
                   />
                   {field.suffix && (
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    <span className="text-xs text-slate-500 whitespace-nowrap">
                       {localizeMoneySuffix(field.suffix, currency) ?? field.suffix}
                     </span>
                   )}
