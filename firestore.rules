@@ -44,6 +44,14 @@ service cloud.firestore {
       allow write: if userOwnsCompanyData(companyId);
     }
 
+    // Chat quote logs — users create, only admins can read (not shown in user quote history)
+    match /chatQuoteLogs/{logId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+      allow read: if isGlobalAdmin();
+      allow update, delete: if false;
+    }
+
     // User-submitted feedback; admins read/reply; users read own + create
     match /feedback/{feedbackId} {
       allow create: if request.auth != null

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LocationSuggestInput } from "@/components/LocationSuggestInput";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -603,23 +604,23 @@ export default function RateSettings() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label className="text-sm">Origin</Label>
-                    <Input
+                    <LocationSuggestInput
                       data-testid="input-new-lane-origin"
                       placeholder="e.g. Toronto, ON"
                       value={newLane.origin}
-                      onChange={(e) =>
-                        setNewLane({ ...newLane, origin: e.target.value })
+                      onChange={(v) =>
+                        setNewLane({ ...newLane, origin: v })
                       }
                     />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-sm">Destination</Label>
-                    <Input
+                    <LocationSuggestInput
                       data-testid="input-new-lane-destination"
                       placeholder="e.g. Montreal, QC"
                       value={newLane.destination}
-                      onChange={(e) =>
-                        setNewLane({ ...newLane, destination: e.target.value })
+                      onChange={(v) =>
+                        setNewLane({ ...newLane, destination: v })
                       }
                     />
                   </div>

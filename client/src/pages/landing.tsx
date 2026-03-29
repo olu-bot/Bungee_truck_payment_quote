@@ -174,6 +174,13 @@ export default function Landing() {
   const [cityListIndex, setCityListIndex] = useState(-1);
   const [cityManual, setCityManual] = useState("");
   const [measurementUnit, setMeasurementUnit] = useState<MeasurementUnit | "">("");
+  const [preferredCurrency, setPreferredCurrency] = useState("");
+  const [stateSearch, setStateSearch] = useState("");
+  const [citySearch, setCitySearch] = useState("");
+  const [stateDropOpen, setStateDropOpen] = useState(false);
+  const [cityDropOpen, setCityDropOpen] = useState(false);
+  const stateDropRef = useRef<HTMLDivElement>(null);
+  const cityDropRef = useRef<HTMLDivElement>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -492,6 +499,7 @@ export default function Landing() {
             operatingRegions,
             operatingCity: operatingCityValue,
             measurementUnit,
+            ...(preferredCurrency ? { preferredCurrency } : {}),
             logoUrl: null,
             createdAt: new Date().toISOString(),
           },
@@ -509,6 +517,7 @@ export default function Landing() {
             operatingRegions,
             operatingCity: operatingCityValue,
             measurementUnit,
+            ...(preferredCurrency ? { preferredCurrency } : {}),
             updatedAt: new Date().toISOString(),
           },
           { merge: true }
@@ -528,7 +537,7 @@ export default function Landing() {
         localStorage.setItem("bungee_open_cost_wizard", "1");
         setOnboardingActive(false);
         setLocation("/profiles");
-        toast({ title: "Company profile saved", description: "Set up your cost profile to get started." });
+        toast({ title: "Company profile saved", description: "Set up your equipment cost profile to get started." });
         return;
       }
 
@@ -554,7 +563,7 @@ export default function Landing() {
       localStorage.setItem("bungee_open_cost_wizard", "1");
       setOnboardingActive(false);
       setLocation("/profiles");
-      toast({ title: "Account created", description: "Set up your cost profile to get started." });
+      toast({ title: "Account created", description: "Set up your equipment cost profile to get started." });
     } catch (err: unknown) {
       setOnboardingActive(false);
       const msg = sanitizeAuthErrorMessage(err, "Please check your details.");
@@ -610,15 +619,48 @@ export default function Landing() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [countryCode, stateProvince]);
 
+  // Filtered states for autocomplete
+  const filteredStates = useMemo(() => {
+    if (!stateSearch.trim()) return availableStates;
+    const q = stateSearch.toLowerCase();
+    return availableStates.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.isoCode.toLowerCase().includes(q)
+    );
+  }, [availableStates, stateSearch]);
+
+  // Filtered cities for autocomplete
+  const filteredCities = useMemo(() => {
+    if (!citySearch.trim()) return cityRows;
+    const q = citySearch.toLowerCase();
+    return cityRows.filter((c) => c.name.toLowerCase().includes(q));
+  }, [cityRows, citySearch]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (stateDropRef.current && !stateDropRef.current.contains(e.target as Node)) {
+        setStateDropOpen(false);
+      }
+      if (cityDropRef.current && !cityDropRef.current.contains(e.target as Node)) {
+        setCityDropOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   useEffect(() => {
     setStateProvince("");
+    setStateSearch("");
     setCityListIndex(-1);
     setCityManual("");
+    setCitySearch("");
   }, [countryCode]);
 
   useEffect(() => {
     setCityListIndex(-1);
     setCityManual("");
+    setCitySearch("");
   }, [stateProvince]);
 
   if (user && !isConnectGuestUser(user) && !isOnboardingActive()) return null;
@@ -999,49 +1041,130 @@ export default function Landing() {
                 </select>
               </div>
 
-              <div className="form-group">
+              {/* ── Searchable State / Province ─────────── */}
+              <div className="form-group" ref={stateDropRef} style={{ position: "relative" }}>
                 <label className="form-label" htmlFor="su-regions">
                   State / Province <span className="req">*</span>
                 </label>
-                <select
+                <input
                   id="su-regions"
-                  className="form-input form-select"
-                  value={stateProvince}
-                  onChange={(e) => setStateProvince(e.target.value)}
+                  className="form-input"
+                  type="text"
+                  autoComplete="off"
+                  placeholder={availableStates.length === 0 ? "Select a country first" : "Type to search…"}
+                  value={stateDropOpen ? stateSearch : (availableStates.find((s) => s.isoCode === stateProvince)?.name ?? stateSearch)}
+                  onChange={(e) => {
+                    setStateSearch(e.target.value);
+                    setStateDropOpen(true);
+                    // Clear selection when user types
+                    if (stateProvince) setStateProvince("");
+                  }}
+                  onFocus={() => { setStateDropOpen(true); setStateSearch(""); }}
                   disabled={availableStates.length === 0}
-                  required
-                >
-                  <option value="">
-                    {availableStates.length === 0 ? "Select a country first" : "Select state / province"}
-                  </option>
-                  {availableStates.map((s) => (
-                    <option key={s.isoCode} value={s.isoCode}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                  required={!stateProvince}
+                />
+                {/* Hidden input to carry the required value for form validation */}
+                <input type="hidden" value={stateProvince} required />
+                {stateDropOpen && filteredStates.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+                      maxHeight: 200, overflowY: "auto",
+                      background: "var(--bg, #fff)", border: "1px solid var(--border, #ddd)",
+                      borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", marginTop: 2,
+                    }}
+                  >
+                    {filteredStates.map((s) => (
+                      <div
+                        key={s.isoCode}
+                        onClick={() => {
+                          setStateProvince(s.isoCode);
+                          setStateSearch(s.name);
+                          setStateDropOpen(false);
+                        }}
+                        style={{
+                          padding: "8px 12px", cursor: "pointer", fontSize: 14,
+                          background: s.isoCode === stateProvince ? "var(--orange-light, #fff7ed)" : "transparent",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--orange-light, #fff7ed)"; }}
+                        onMouseLeave={(e) => {
+                          (e.currentTarget as HTMLDivElement).style.background =
+                            s.isoCode === stateProvince ? "var(--orange-light, #fff7ed)" : "transparent";
+                        }}
+                      >
+                        {s.name} <span style={{ color: "#999", fontSize: 12 }}>({s.isoCode})</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="form-group">
+              {/* ── Searchable City ─────────── */}
+              <div className="form-group" ref={cityDropRef} style={{ position: "relative" }}>
                 <label className="form-label" htmlFor="su-city">
                   City <span className="req">*</span>
                 </label>
                 {cityRows.length > 0 ? (
-                  <select
-                    id="su-city"
-                    className="form-input form-select"
-                    value={cityListIndex >= 0 ? String(cityListIndex) : ""}
-                    onChange={(e) => setCityListIndex(e.target.value === "" ? -1 : Number(e.target.value))}
-                    disabled={!stateProvince}
-                    required
-                  >
-                    <option value="">{stateProvince ? "Select city" : "Select state / province first"}</option>
-                    {cityRows.map((c, i) => (
-                      <option key={`${c.name}-${c.latitude}-${c.longitude}-${i}`} value={String(i)}>
-                        {formatCityOptionLabel(c, cityRows)}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <input
+                      id="su-city"
+                      className="form-input"
+                      type="text"
+                      autoComplete="off"
+                      placeholder={stateProvince ? "Type to search city…" : "Select state / province first"}
+                      value={
+                        cityDropOpen
+                          ? citySearch
+                          : (cityListIndex >= 0 && cityListIndex < cityRows.length
+                              ? formatCityOptionLabel(cityRows[cityListIndex], cityRows)
+                              : citySearch)
+                      }
+                      onChange={(e) => {
+                        setCitySearch(e.target.value);
+                        setCityDropOpen(true);
+                        if (cityListIndex >= 0) setCityListIndex(-1);
+                      }}
+                      onFocus={() => { setCityDropOpen(true); setCitySearch(""); }}
+                      disabled={!stateProvince}
+                      required={cityListIndex < 0}
+                    />
+                    <input type="hidden" value={cityListIndex >= 0 ? cityRows[cityListIndex]?.name ?? "" : ""} required />
+                    {cityDropOpen && filteredCities.length > 0 && (
+                      <div
+                        style={{
+                          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+                          maxHeight: 200, overflowY: "auto",
+                          background: "var(--bg, #fff)", border: "1px solid var(--border, #ddd)",
+                          borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", marginTop: 2,
+                        }}
+                      >
+                        {filteredCities.slice(0, 100).map((c, i) => {
+                          const realIdx = cityRows.indexOf(c);
+                          return (
+                            <div
+                              key={`${c.name}-${c.latitude}-${c.longitude}-${i}`}
+                              onClick={() => {
+                                setCityListIndex(realIdx);
+                                setCitySearch(formatCityOptionLabel(c, cityRows));
+                                setCityDropOpen(false);
+                              }}
+                              style={{
+                                padding: "8px 12px", cursor: "pointer", fontSize: 14,
+                                background: realIdx === cityListIndex ? "var(--orange-light, #fff7ed)" : "transparent",
+                              }}
+                              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--orange-light, #fff7ed)"; }}
+                              onMouseLeave={(e) => {
+                                (e.currentTarget as HTMLDivElement).style.background =
+                                  realIdx === cityListIndex ? "var(--orange-light, #fff7ed)" : "transparent";
+                              }}
+                            >
+                              {formatCityOptionLabel(c, cityRows)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <input
                     id="su-city"
@@ -1079,6 +1202,27 @@ export default function Landing() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="su-currency">
+                  Preferred Currency
+                </label>
+                <select
+                  id="su-currency"
+                  className="form-input form-select"
+                  value={preferredCurrency}
+                  onChange={(e) => setPreferredCurrency(e.target.value)}
+                >
+                  <option value="">Auto-detect from country</option>
+                  <option value="CAD">CA$ — Canadian Dollar</option>
+                  <option value="USD">$ — US Dollar</option>
+                </select>
+                <span style={{ fontSize: 12, color: "#888", marginTop: 2, display: "block" }}>
+                  {preferredCurrency
+                    ? `All costs and quotes will display in ${preferredCurrency}.`
+                    : `Defaults to ${countryCode === "US" ? "USD" : "CAD"} based on your country.`}
+                </span>
               </div>
 
               {/* ── Agreement checkbox ────────────────── */}
@@ -1133,7 +1277,7 @@ export default function Landing() {
                   >
                     Privacy Policy
                   </a>
-                  . Your data is encrypted and private.
+                  . Your equipment cost profile is encrypted and private.
                 </span>
               </label>
 

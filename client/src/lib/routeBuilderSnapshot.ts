@@ -25,6 +25,18 @@ export type RouteBuilderSnapshot = {
   deliveryCost: number;
   deadheadCost: number;
   fullTripCost: number;
+  /** Surcharge % applied to base cost (hazmat, regulatory) */
+  surchargePercent?: number;
+  /** Surcharge dollar amount */
+  surchargeAmount?: number;
+  /** Carrier cost = fullTripCost + surchargeAmount */
+  carrierCost?: number;
+  /** One-time accessorial charges (detention, lumper, TONU, etc.) — 0 in quick-quote mode */
+  accessorialTotal?: number;
+  /** Accessorial line items for display */
+  accessorialItems?: { label: string; amount: number }[];
+  /** fullTripCost + surchargeAmount + accessorialTotal */
+  allInCost?: number;
   allInHourlyRate: number;
   fuelPerKm: number;
   tiers: { label: string; percent: number; price: number; marginAmount: number }[];
@@ -36,6 +48,9 @@ export type RouteBuilderSnapshot = {
     marginAmount: number;
   };
   legs: SnapshotLeg[];
+  payMode?: string;
+  dockTimeHrs?: number;
+  quoteMode?: string;
   chatUserMessage?: string;
   customerNote?: string;
 };

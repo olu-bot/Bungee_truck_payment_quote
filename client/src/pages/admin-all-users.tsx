@@ -152,7 +152,7 @@ export default function AdminAllUsers() {
     <div className="space-y-4" data-testid="admin-users-page">
       <p className="text-sm text-muted-foreground">
         {directory.length} user{directory.length !== 1 ? "s" : ""} registered. Showing {pageStart}-{pageEnd}. Select a row to
-        open their workspace quote history and cost profiles.
+        open their workspace quote history and equipment cost profiles.
       </p>
 
       <div className="block lg:hidden space-y-2">
@@ -338,7 +338,7 @@ export default function AdminAllUsers() {
                   {profilesLoading ? (
                     <p className="text-sm text-muted-foreground">Loading profiles…</p>
                   ) : profiles.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No cost profiles in this workspace.</p>
+                    <p className="text-sm text-muted-foreground">No equipment cost profiles in this workspace.</p>
                   ) : (
                     <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
                       {profiles.map((p) => {
