@@ -373,14 +373,14 @@ function RouteControlsPortal({
         </SelectContent>
       </Select>
 
-      <div className="flex items-center gap-1">
-        <Fuel className="w-3 h-3 text-muted-foreground" />
+      <div className="flex items-center gap-1 min-w-[220px]">
+        <Fuel className="w-3 h-3 text-muted-foreground shrink-0" />
         <Input
           data-testid="input-fuel-price"
           type="number"
           step="0.05"
           min="0"
-          className="h-7 text-[11px] w-[76px]"
+          className="h-7 text-[11px] w-[76px] shrink-0"
           value={displayVal}
           onChange={(e) => {
             const raw = e.target.value;
