@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
-import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances } from "@/lib/geo";
+import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances, getDirectionsByName } from "@/lib/geo";
 import { calculateRouteCost, getPricingAdvice, type PayMode } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -832,6 +832,35 @@ export default function RouteBuilder() {
 
       if (locations.length < 2) return [];
 
+      // ── PRIMARY: Name-based Google Directions (matches embed) ──
+      // Pass location names directly to Google Directions API so the
+      // resolved distance/duration matches the Google Maps Embed exactly.
+      const locationNames = locations.map((l) => l.name);
+      const dirResult = await getDirectionsByName(locationNames);
+
+      if (dirResult && dirResult.legs.length === locations.length - 1) {
+        console.log("[buildStops] Using name-based directions (matches Google Maps embed):", dirResult.source);
+        const result: RouteStop[] = [];
+        for (let i = 0; i < locations.length; i++) {
+          const loc = locations[i];
+          const coord = dirResult.resolvedCoords[i];
+          result.push({
+            id: nextStopId(),
+            type: loc.type,
+            location: loc.name,
+            lat: coord?.lat ?? loc.knownLat,
+            lng: coord?.lng ?? loc.knownLng,
+            dockTimeMinutes: loc.dockMinutes,
+            distanceFromPrevKm: i > 0 ? dirResult.legs[i - 1].distanceKm : 0,
+            driveMinutesFromPrev: i > 0 ? dirResult.legs[i - 1].durationMinutes : 0,
+          });
+        }
+        return result;
+      }
+
+      // ── FALLBACK: Geocode each name → coordinates, then route ──
+      console.log("[buildStops] Name-based directions unavailable, falling back to geocode+route");
+
       // Geocode all — use pre-stored coords when available, with city extraction fallback
       const geocoded = await Promise.all(
         locations.map(async (loc) => {
@@ -872,7 +901,6 @@ export default function RouteBuilder() {
 
       // Build result, mapping multi-distances back to the correct legs
       const result: RouteStop[] = [];
-      let legIdx = 0; // index into legDistances
       for (let i = 0; i < geocoded.length; i++) {
         const g = geocoded[i];
         let distanceFromPrevKm = 0;
