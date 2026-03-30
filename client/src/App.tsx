@@ -8,13 +8,17 @@ import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { isOnboardingActive } from "@/lib/onboarding";
 import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-auth";
 import { FeedbackSheet } from "@/components/FeedbackSheet";
+import Walkthrough from "@/components/Walkthrough";
+import type { TourId } from "@/components/Walkthrough";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
 import { publicAsset } from "@/lib/publicPath";
 import { isConnectGuestUser } from "@/lib/connectGuest";
 import { resolveMeasurementUnit } from "@/lib/measurement";
-import { getLanes } from "@/lib/firebaseDb";
+import { getLanes, getProfiles, createProfile } from "@/lib/firebaseDb";
+import { convertCurrency } from "@/lib/currency";
+import type { SupportedCurrency } from "@/lib/currency";
 import { workspaceFirestoreId } from "@/lib/workspace";
 import type { Lane } from "@shared/schema";
 import { can, isManager, isSuperAdmin, getCompanyRole, ROLE_LABELS, ROLE_COLORS as PERM_ROLE_COLORS } from "@/lib/permissions";
@@ -29,6 +33,7 @@ const QuoteHistory = lazy(() => import("@/pages/quote-history"));
 const TeamManagement = lazy(() => import("@/pages/team-management"));
 const AdminAllUsers = lazy(() => import("@/pages/admin-all-users"));
 const AdminFeedback = lazy(() => import("@/pages/admin-feedback"));
+const HelpCenter = lazy(() => import("@/pages/help-center"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
@@ -53,6 +58,13 @@ import {
   PanelLeftClose,
   PanelLeft,
   MapPin,
+  HelpCircle,
+  Sparkles,
+  CheckCircle2,
+  Circle,
+  BarChart3,
+  Calculator,
+  PartyPopper,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +85,88 @@ function PageLoader() {
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
     </div>
+  );
+}
+
+/* ── Confetti celebration effect ────────────────────────────── */
+function ConfettiCelebration() {
+  const canvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+
+    const COLORS = [
+      "#f97316", "#fb923c", "#fbbf24", "#34d399", "#22d3ee",
+      "#a78bfa", "#f472b6", "#ef4444", "#3b82f6", "#10b981",
+    ];
+    const NUM = 150;
+
+    type Particle = {
+      x: number; y: number; w: number; h: number;
+      color: string; angle: number; spin: number;
+      vx: number; vy: number; gravity: number; opacity: number;
+    };
+
+    const particles: Particle[] = Array.from({ length: NUM }, () => ({
+      x: W * 0.5 + (Math.random() - 0.5) * W * 0.6,
+      y: -20 - Math.random() * 100,
+      w: 6 + Math.random() * 6,
+      h: 4 + Math.random() * 4,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      angle: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.15,
+      vx: (Math.random() - 0.5) * 6,
+      vy: 2 + Math.random() * 4,
+      gravity: 0.06 + Math.random() * 0.04,
+      opacity: 1,
+    }));
+
+    let frame = 0;
+    const MAX_FRAMES = 200;
+    let raf = 0;
+
+    const draw = () => {
+      frame++;
+      ctx.clearRect(0, 0, W, H);
+
+      // Fade out in last 40 frames
+      const fadeStart = MAX_FRAMES - 40;
+
+      for (const p of particles) {
+        p.x += p.vx;
+        p.vy += p.gravity;
+        p.y += p.vy;
+        p.vx *= 0.99;
+        p.angle += p.spin;
+        if (frame > fadeStart) p.opacity = Math.max(0, 1 - (frame - fadeStart) / 40);
+
+        ctx.save();
+        ctx.globalAlpha = p.opacity;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        ctx.restore();
+      }
+
+      if (frame < MAX_FRAMES) raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 z-[10010] pointer-events-none"
+      style={{ width: "100vw", height: "100vh" }}
+    />
   );
 }
 
@@ -134,9 +228,10 @@ const NAV_ITEMS: Array<{
   superAdminOnly?: boolean;
 }> = [
   { path: "/", label: "Home", icon: RouteIcon, requiredPermission: null },
-  { path: "/profiles", label: "Settings", icon: Settings, requiredPermission: null },
   { path: "/history", label: "Quote History", icon: History, requiredPermission: null },
+  { path: "/profiles", label: "Settings", icon: Settings, requiredPermission: null },
   { path: "/team", label: "Team", icon: Users, requiredPermission: "team:view" },
+  // { path: "/help", label: "Help", icon: HelpCircle, requiredPermission: null }, // Hidden — no real content yet
   { path: "/admin/users", label: "View all users", icon: ContactRound, requiredPermission: null, superAdminOnly: true },
   { path: "/admin/feedback", label: "Feedback inbox", icon: Inbox, requiredPermission: null, superAdminOnly: true },
 ];
@@ -155,6 +250,93 @@ function AppLayout() {
   const routePath = useMemo(() => location.split("?")[0] || "/", [location]);
   const isHome = routePath === "/";
   const [feedbackUnread, setFeedbackUnread] = useState(0);
+
+  /* ── Walkthrough / Onboarding tour state ──────────────────── */
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
+  const [activeTourId, setActiveTourId] = useState<TourId>("overview");
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // Per-tour completion tracking
+  const TOUR_IDS: TourId[] = ["overview", "quote-history", "advanced-quote"];
+  const tourDoneKey = (id: TourId) => `bungee_tour_done_${id}`;
+  const [completedTours, setCompletedTours] = useState<Set<TourId>>(() => {
+    const done = new Set<TourId>();
+    TOUR_IDS.forEach((id) => { if (localStorage.getItem(tourDoneKey(id)) === "1") done.add(id); });
+    return done;
+  });
+  const allToursComplete = completedTours.size === TOUR_IDS.length;
+
+  const markTourDone = useCallback((id: TourId) => {
+    localStorage.setItem(tourDoneKey(id), "1");
+    setCompletedTours((prev) => new Set(prev).add(id));
+    // Fire confetti celebration
+    setShowConfetti(true);
+    setTimeout(() => setShowConfetti(false), 3500);
+  }, []);
+
+  // Auto-trigger overview walkthrough on first login (once auth settles)
+  useEffect(() => {
+    if (!user || authLoading) return;
+    // Legacy key — migrate to per-tour tracking
+    const legacyKey = `bungee_tour_done_${user.uid}`;
+    if (window.localStorage.getItem(legacyKey)) {
+      // User already completed the overview tour in the old system
+      if (!localStorage.getItem(tourDoneKey("overview"))) {
+        localStorage.setItem(tourDoneKey("overview"), "1");
+        setCompletedTours((prev) => new Set(prev).add("overview"));
+      }
+      return;
+    }
+    // New user — show overview tour
+    setTimeout(() => setShowWalkthrough(true), 600);
+  }, [user, authLoading]);
+
+  const handleWalkthroughComplete = useCallback(() => {
+    setShowWalkthrough(false);
+    markTourDone(activeTourId);
+    // Also set legacy key for overview tour backward compat
+    if (user && activeTourId === "overview") {
+      window.localStorage.setItem(`bungee_tour_done_${user.uid}`, "1");
+    }
+  }, [user, activeTourId, markTourDone]);
+
+  const handleWalkthroughDismiss = useCallback(() => {
+    setShowWalkthrough(false);
+    // Dismissing a tour also counts as "done" so it doesn't keep bugging the user
+    markTourDone(activeTourId);
+    if (user && activeTourId === "overview") {
+      window.localStorage.setItem(`bungee_tour_done_${user.uid}`, "1");
+    }
+  }, [user, activeTourId, markTourDone]);
+
+  // Listen for manual tour trigger from Help page (supports tourId)
+  useEffect(() => {
+    const onStartTour = (e: Event) => {
+      const tourId = (e as CustomEvent)?.detail?.tourId as TourId | undefined;
+      setActiveTourId(tourId ?? "overview");
+      setShowWalkthrough(true);
+    };
+    window.addEventListener("bungee:start-tour", onStartTour);
+    return () => window.removeEventListener("bungee:start-tour", onStartTour);
+  }, []);
+
+  // Sidebar tour checklist items
+  const SIDEBAR_TOURS: Array<{ id: TourId; label: string; icon: typeof Sparkles }> = [
+    { id: "overview", label: "Getting Started", icon: Sparkles },
+    { id: "quote-history", label: "Quote History", icon: BarChart3 },
+    { id: "advanced-quote", label: "Advanced Quoting", icon: Calculator },
+  ];
+
+  const startSidebarTour = useCallback((tourId: TourId) => {
+    setActiveTourId(tourId);
+    // Navigate to the correct starting page for each tour
+    if (tourId === "quote-history") {
+      window.location.hash = "#/history";
+    } else {
+      window.location.hash = "#/";
+    }
+    setTimeout(() => setShowWalkthrough(true), 300);
+  }, []);
 
   // Load favorite lanes from Firestore via React Query (shares cache with route-builder)
   const scopeId = useMemo(() => (user ? workspaceFirestoreId(user) : undefined), [user]);
@@ -358,6 +540,58 @@ function AppLayout() {
           </div>
         </nav>
 
+        {/* ── Sidebar: Getting Started Checklist ──────────────── */}
+        {!allToursComplete && (
+          <div className={`border-t border-border shrink-0 ${sidebarCollapsed ? "px-1 py-2" : "px-3 py-3"}`}>
+            {!sidebarCollapsed ? (
+              <>
+                <div className="flex items-center justify-between px-1 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <PartyPopper className="w-3.5 h-3.5 text-orange-500" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Get Started</span>
+                  </div>
+                  <span className="text-[10px] font-medium text-muted-foreground/60">{completedTours.size}/{TOUR_IDS.length}</span>
+                </div>
+                {/* Progress bar */}
+                <div className="h-1 rounded-full bg-slate-100 mx-1 mb-2.5 overflow-hidden">
+                  <div
+                    className="h-full bg-orange-400 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${(completedTours.size / TOUR_IDS.length) * 100}%` }}
+                  />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {SIDEBAR_TOURS.map(({ id, label, icon: TourIcon }) => {
+                    const done = completedTours.has(id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => !done && startSidebarTour(id)}
+                        className={`flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-all group ${
+                          done
+                            ? "text-green-600/70 cursor-default"
+                            : "text-muted-foreground hover:text-foreground hover:bg-orange-50 cursor-pointer"
+                        }`}
+                      >
+                        {done ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                        ) : (
+                          <Circle className="w-3.5 h-3.5 text-slate-300 group-hover:text-orange-400 shrink-0" />
+                        )}
+                        <TourIcon className={`w-3 h-3 shrink-0 ${done ? "text-green-500/60" : "text-slate-400 group-hover:text-orange-500"}`} />
+                        <span className={done ? "line-through" : ""}>{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-center" title="Getting Started">
+                <PartyPopper className="w-4 h-4 text-orange-500" />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Sidebar bottom: Favorite Lanes */}
         <div className={`border-t border-border shrink-0 ${sidebarCollapsed ? "px-1 py-2" : "px-3 py-3"}`}>
           {!sidebarCollapsed ? (
@@ -559,6 +793,40 @@ function AppLayout() {
               </div>
             </nav>
 
+            {/* Mobile: Getting Started Checklist */}
+            {!allToursComplete && (
+              <div className="border-t border-border px-3 py-3 shrink-0">
+                <div className="flex items-center justify-between px-1 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <PartyPopper className="w-3.5 h-3.5 text-orange-500" />
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Get Started</span>
+                  </div>
+                  <span className="text-[10px] font-medium text-muted-foreground/60">{completedTours.size}/{TOUR_IDS.length}</span>
+                </div>
+                <div className="h-1 rounded-full bg-slate-100 mx-1 mb-2.5 overflow-hidden">
+                  <div className="h-full bg-orange-400 rounded-full transition-all duration-500 ease-out" style={{ width: `${(completedTours.size / TOUR_IDS.length) * 100}%` }} />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {SIDEBAR_TOURS.map(({ id, label, icon: TourIcon }) => {
+                    const done = completedTours.has(id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => { if (!done) { setMobileNavOpen(false); startSidebarTour(id); } }}
+                        className={`flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-all group ${
+                          done ? "text-green-600/70 cursor-default" : "text-muted-foreground hover:text-foreground hover:bg-orange-50 cursor-pointer"
+                        }`}
+                      >
+                        {done ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <Circle className="w-3.5 h-3.5 text-slate-300 group-hover:text-orange-400 shrink-0" />}
+                        <TourIcon className={`w-3 h-3 shrink-0 ${done ? "text-green-500/60" : "text-slate-400 group-hover:text-orange-500"}`} />
+                        <span className={done ? "line-through" : ""}>{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Mobile fav lanes */}
             <div className="border-t border-border px-3 py-3 shrink-0">
               <div className="flex items-center gap-1.5 px-1 mb-2">
@@ -714,6 +982,8 @@ function AppLayout() {
                 <QuoteHistory />
               ) : routePath === "/team" ? (
                 <TeamRoute />
+              ) : routePath === "/help" ? (
+                <HelpCenter />
               ) : routePath === "/admin/users" ? (
                 isSuperAdmin(user) ? <AdminAllUsers /> : <NotFound />
               ) : routePath === "/admin/feedback" ? (
@@ -731,6 +1001,18 @@ function AppLayout() {
           </div>
         </footer>
       </div>
+
+      {/* Multi-tour walkthrough overlay (first login + Help page replay) */}
+      {showWalkthrough && (
+        <Walkthrough
+          tourId={activeTourId}
+          onComplete={handleWalkthroughComplete}
+          onDismiss={handleWalkthroughDismiss}
+        />
+      )}
+
+      {/* Confetti celebration effect on tour completion */}
+      {showConfetti && <ConfettiCelebration />}
 
       {/* Logout confirmation dialog */}
       <AlertDialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>

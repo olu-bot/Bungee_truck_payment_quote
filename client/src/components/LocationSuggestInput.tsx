@@ -95,6 +95,11 @@ export function LocationSuggestInput({
     setSuggestions([]);
     setOpen(false);
     setHighlight(-1);
+    // Notify walkthrough that a suggestion was picked
+    const inputEl = wrapRef.current?.querySelector("input");
+    if (inputEl) {
+      inputEl.dispatchEvent(new CustomEvent("bungee:suggestion-picked", { bubbles: true }));
+    }
     requestAnimationFrame(() => onBlur?.());
   }
 

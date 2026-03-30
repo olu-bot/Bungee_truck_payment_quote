@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
@@ -22,6 +22,7 @@ import {
   Clock,
   FileDown,
   Search,
+  Sparkles,
 } from "lucide-react";
 import type { Quote, QuoteStatus } from "@shared/schema";
 import {
@@ -246,7 +247,7 @@ function QuoteRow({
   return (
     <div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50/30 transition-colors" data-testid={`card-quote-${q.id}`}>
       {/* Status badge */}
-      <div className="shrink-0">
+      <div className="shrink-0" data-testid="status-badge">
         <StatusBadge status={q.status} />
       </div>
 
@@ -282,26 +283,26 @@ function QuoteRow({
       <div className="flex items-center gap-0.5 shrink-0">
         {qStatus === "pending" && (
           <>
-            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30" onClick={onWon}>
+            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30" onClick={onWon} data-testid="button-won">
               <Trophy className="w-3 h-3" />
             </Button>
-            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={onLost}>
+            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={onLost} data-testid="button-lost">
               <XCircle className="w-3 h-3" />
             </Button>
           </>
         )}
         {(qStatus === "won" || qStatus === "lost") && (
-          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-slate-500" onClick={onReset} title="Reset to pending">
+          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-slate-500" onClick={onReset} title="Reset to pending" data-testid="button-reset-status">
             <Clock className="w-3 h-3" />
           </Button>
         )}
         {canSharePdf && (
-          <Button variant="ghost" size="sm" onClick={onSharePdf} className="h-6 w-6 p-0 text-slate-500 hover:text-orange-500" title="Download PDF">
+          <Button variant="ghost" size="sm" onClick={onSharePdf} className="h-6 w-6 p-0 text-slate-500 hover:text-orange-500" title="Download PDF" data-testid="button-download-pdf">
             <FileDown className="w-3.5 h-3.5" />
           </Button>
         )}
         {rbSnap && (
-          <Button variant="ghost" size="sm" onClick={onView} className="h-6 w-6 p-0 text-slate-500" title="View details">
+          <Button variant="ghost" size="sm" onClick={onView} className="h-6 w-6 p-0 text-slate-500" title="View details" data-testid="button-view-details">
             <Eye className="w-3.5 h-3.5" />
           </Button>
         )}
@@ -393,6 +394,14 @@ export default function QuoteHistory() {
   function confirmStatus() {
     if (!statusDialog) return;
     const { quote, action } = statusDialog;
+    // Skip Firestore writes for demo quotes (used during walkthrough tour)
+    if (quote.id.startsWith("demo-")) {
+      setStatusDialog(null);
+      setWonRateInput("");
+      setStatusNoteInput("");
+      setLostTargetPriceInput("");
+      return;
+    }
     let wonRate: number | null = null;
     let lostTargetPrice: number | null = null;
     if (action === "won") {
@@ -416,12 +425,83 @@ export default function QuoteHistory() {
     updateStatusMutation.mutate({ id: quoteId, status: "pending", wonRate: null, lostTargetPrice: null, statusNote: "" });
   }
 
+  // ── Walkthrough tour detection ─────────────────────────────────
+  // When the quote-history tour is active but there are no real quotes,
+  // render demo data so the walkthrough targets exist in the DOM.
+
+  const [tourActive, setTourActive] = useState(false);
+
+  useEffect(() => {
+    const onStart = (e: Event) => {
+      const tourId = (e as CustomEvent)?.detail?.tourId;
+      if (tourId === "quote-history") setTourActive(true);
+    };
+    const onEnd = () => setTourActive(false);
+    window.addEventListener("bungee:start-tour", onStart);
+    window.addEventListener("bungee:tour-complete", onEnd);
+    window.addEventListener("bungee:tour-dismiss", onEnd);
+    return () => {
+      window.removeEventListener("bungee:start-tour", onStart);
+      window.removeEventListener("bungee:tour-complete", onEnd);
+      window.removeEventListener("bungee:tour-dismiss", onEnd);
+    };
+  }, []);
+
+  const DEMO_QUOTES: Quote[] = useMemo(() => {
+    const now = new Date();
+    return [
+      {
+        id: "demo-1", quoteNumber: "BQ-DEMO001", createdAt: new Date(now.getTime() - 86400000).toISOString(),
+        origin: "Toronto, ON", destination: "Montreal, QC", truckType: "dry_van",
+        distance: 541, pricingMode: "carrier", carrierCost: 1084.96, fuelSurcharge: 0,
+        totalCarrierCost: 1084.96, marginType: "percent", marginValue: 20, marginAmount: 216.99,
+        customerPrice: 1400, grossProfit: 315.04, profitMarginPercent: 22.5,
+        customerNote: "Weekly lane", status: "won" as QuoteStatus, wonRate: 1375,
+      },
+      {
+        id: "demo-2", quoteNumber: "BQ-DEMO002", createdAt: new Date(now.getTime() - 172800000).toISOString(),
+        origin: "Vancouver, BC", destination: "Calgary, AB", truckType: "reefer",
+        distance: 1050, pricingMode: "carrier", carrierCost: 2100, fuelSurcharge: 0,
+        totalCarrierCost: 2100, marginType: "percent", marginValue: 15, marginAmount: 315,
+        customerPrice: 2600, grossProfit: 500, profitMarginPercent: 19.2,
+        customerNote: "Produce load", status: "lost" as QuoteStatus, lostTargetPrice: 2400,
+      },
+      {
+        id: "demo-3", quoteNumber: "BQ-DEMO003", createdAt: new Date(now.getTime() - 3600000).toISOString(),
+        origin: "Toronto, ON", destination: "Ottawa, ON", truckType: "dry_van",
+        distance: 450, pricingMode: "carrier", carrierCost: 890, fuelSurcharge: 0,
+        totalCarrierCost: 890, marginType: "percent", marginValue: 25, marginAmount: 222.5,
+        customerPrice: 1200, grossProfit: 310, profitMarginPercent: 25.8,
+        customerNote: "RFQ-4412",
+      },
+      {
+        id: "demo-4", quoteNumber: "BQ-DEMO004", createdAt: new Date(now.getTime() - 7200000).toISOString(),
+        origin: "Mississauga, ON", destination: "Windsor, ON", truckType: "flatbed",
+        distance: 380, pricingMode: "carrier", carrierCost: 760, fuelSurcharge: 0,
+        totalCarrierCost: 760, marginType: "percent", marginValue: 20, marginAmount: 152,
+        customerPrice: 950, grossProfit: 190, profitMarginPercent: 20,
+        customerNote: "Steel coils",
+      },
+      {
+        id: "demo-5", quoteNumber: "BQ-DEMO005", createdAt: new Date(now.getTime() - 10800000).toISOString(),
+        origin: "Edmonton, AB", destination: "Saskatoon, SK", truckType: "dry_van",
+        distance: 525, pricingMode: "carrier", carrierCost: 1050, fuelSurcharge: 0,
+        totalCarrierCost: 1050, marginType: "percent", marginValue: 18, marginAmount: 189,
+        customerPrice: 1300, grossProfit: 250, profitMarginPercent: 19.2,
+      },
+    ];
+  }, []);
+
+  // Use demo quotes when tour is active and no real quotes exist
+  const isDemo = tourActive && quotes.length === 0 && !isLoading;
+  const effectiveQuotes = isDemo ? DEMO_QUOTES : quotes;
+
   // ── Search filter (must be before early returns — hooks can't be conditional) ──
 
   const filteredQuotes = useMemo(() => {
-    if (!searchQuery.trim()) return quotes;
+    if (!searchQuery.trim()) return effectiveQuotes;
     const q = searchQuery.toLowerCase();
-    return quotes.filter((quote) => {
+    return effectiveQuotes.filter((quote) => {
       const searchable = [
         quote.origin,
         quote.destination,
@@ -436,7 +516,7 @@ export default function QuoteHistory() {
       ].join(" ").toLowerCase();
       return searchable.includes(q);
     });
-  }, [quotes, searchQuery]);
+  }, [effectiveQuotes, searchQuery]);
 
   // ── Loading / Empty ────────────────────────────────────────────
 
@@ -448,7 +528,7 @@ export default function QuoteHistory() {
     );
   }
 
-  if (quotes.length === 0) {
+  if (quotes.length === 0 && !isDemo) {
     return (
       <Card className="border-dashed border-slate-200">
         <CardContent className="flex flex-col items-center justify-center py-16 text-center">
@@ -466,9 +546,9 @@ export default function QuoteHistory() {
 
   // ── Stats ──────────────────────────────────────────────────────
 
-  const wonQuotes = quotes.filter((q) => q.status === "won");
-  const lostQuotes = quotes.filter((q) => q.status === "lost");
-  const pendingQuotes = quotes.filter((q) => !q.status || q.status === "pending");
+  const wonQuotes = effectiveQuotes.filter((q) => q.status === "won");
+  const lostQuotes = effectiveQuotes.filter((q) => q.status === "lost");
+  const pendingQuotes = effectiveQuotes.filter((q) => !q.status || q.status === "pending");
   const winRate = wonQuotes.length + lostQuotes.length > 0
     ? ((wonQuotes.length / (wonQuotes.length + lostQuotes.length)) * 100).toFixed(0)
     : null;
@@ -476,10 +556,18 @@ export default function QuoteHistory() {
   return (
     <>
       <div className="space-y-4">
+        {/* Demo data banner */}
+        {isDemo && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            <span>These are <strong>sample quotes</strong> for the walkthrough. Save a real quote to see your own data here.</span>
+          </div>
+        )}
+
         {/* Stats bar */}
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-4 flex-wrap" data-testid="quote-stats-bar">
           <p className="text-sm font-medium">
-            {quotes.length} quote{quotes.length !== 1 ? "s" : ""}
+            {effectiveQuotes.length} quote{effectiveQuotes.length !== 1 ? "s" : ""}
           </p>
           <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1 text-slate-500">
@@ -507,6 +595,7 @@ export default function QuoteHistory() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-9 text-sm"
+            data-testid="input-search-quotes"
           />
         </div>
 
