@@ -13,7 +13,6 @@ import type { TourId } from "@/components/Walkthrough";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
-import { publicAsset } from "@/lib/publicPath";
 import { isConnectGuestUser } from "@/lib/connectGuest";
 import { resolveMeasurementUnit } from "@/lib/measurement";
 import { getLanes, getProfiles, createProfile } from "@/lib/firebaseDb";
@@ -266,15 +265,10 @@ function AppLayout() {
     if (!user) return;
     const done = new Set<TourId>();
     TOUR_IDS.forEach((id) => {
-      // Check new UID-scoped key
+      // Only read UID-scoped keys — non-scoped keys could belong to another user on this browser
       if (localStorage.getItem(`bungee_tour_done_${user.uid}_${id}`) === "1") done.add(id);
-      // Migrate legacy non-scoped key if present
-      else if (localStorage.getItem(`bungee_tour_done_${id}`) === "1") {
-        localStorage.setItem(`bungee_tour_done_${user.uid}_${id}`, "1");
-        done.add(id);
-      }
     });
-    // Also migrate the old single-key format
+    // Also handle the old single-key format (uid-scoped)
     if (localStorage.getItem(`bungee_tour_done_${user.uid}`)) {
       if (!done.has("overview")) {
         localStorage.setItem(`bungee_tour_done_${user.uid}_overview`, "1");
@@ -300,8 +294,8 @@ function AppLayout() {
     const uid = user.uid;
 
     // Already completed overview tour? Don't show.
+    // ONLY check UID-scoped keys — non-scoped keys belong to a previous user on this browser.
     if (localStorage.getItem(`bungee_tour_done_${uid}_overview`) === "1") return;
-    if (localStorage.getItem(`bungee_tour_done_overview`) === "1") return;
     if (localStorage.getItem(`bungee_tour_done_${uid}`)) return;
 
     // Check Firestore for existing data — if user has profiles or lanes, they're not new

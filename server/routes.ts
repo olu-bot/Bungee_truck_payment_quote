@@ -187,6 +187,67 @@ async function googleDirectionsRoute(
   return null;
 }
 
+/**
+ * Google Directions by PLACE NAMES — matches exactly what the map embed shows.
+ * This avoids geocoding errors: Google resolves the names itself, same as the embed iframe.
+ * Returns legs array with distance/duration plus resolved lat/lng for each waypoint.
+ */
+async function googleDirectionsByName(
+  locationNames: string[],
+): Promise<{
+  legs: { distanceKm: number; durationMinutes: number }[];
+  resolvedCoords: { lat: number; lng: number }[];
+} | null> {
+  const gKey = googleMapsServerKey();
+  if (!gKey || locationNames.length < 2) return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ROUTE_API_TIMEOUT_MS);
+    const origin = encodeURIComponent(locationNames[0]);
+    const destination = encodeURIComponent(locationNames[locationNames.length - 1]);
+    let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&mode=driving&key=${gKey}`;
+    if (locationNames.length > 2) {
+      const mid = locationNames.slice(1, -1).map((n) => encodeURIComponent(n)).join("|");
+      url += `&waypoints=${mid}`;
+    }
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    const data = await res.json() as {
+      status: string;
+      routes: Array<{
+        legs: Array<{
+          distance: { value: number };
+          duration: { value: number };
+          start_location: { lat: number; lng: number };
+          end_location: { lat: number; lng: number };
+        }>;
+      }>;
+      geocoded_waypoints?: Array<{ geocoder_status: string; place_id: string }>;
+    };
+    if (data.status === "OK" && data.routes.length > 0) {
+      const route = data.routes[0];
+      const legs = route.legs.map((leg) => ({
+        distanceKm: r2(leg.distance.value / 1000),
+        durationMinutes: r2(leg.duration.value / 60),
+      }));
+      // Extract resolved coordinates: first leg start + each leg end
+      const resolvedCoords: { lat: number; lng: number }[] = [
+        route.legs[0].start_location,
+      ];
+      for (const leg of route.legs) {
+        resolvedCoords.push(leg.end_location);
+      }
+      console.log(`[Google Directions by name] ${locationNames.join(" → ")} → ${legs.map((l) => `${l.distanceKm}km/${l.durationMinutes}min`).join(", ")}`);
+      return { legs, resolvedCoords };
+    }
+    console.log(`[Google Directions by name] status: ${data.status} for: ${locationNames.join(" → ")}`);
+  } catch (err) {
+    const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
+    console.log(`[Google Directions by name] ${reason}`);
+  }
+  return null;
+}
+
 async function googleDirectionsMultiRoute(
   waypoints: { lat: number; lng: number }[],
 ): Promise<{ distanceKm: number; durationMinutes: number }[] | null> {
@@ -325,20 +386,28 @@ async function googleGeocodeRaw(query: string, countrycodes?: string): Promise<{
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const params = new URLSearchParams({ address: query.trim(), key: gKey });
-    // Convert countrycodes "us,ca" → components filter "country:US|country:CA"
+    // Use region bias (soft hint) — NOT components filter which breaks with multiple countries.
+    // For single country, use components=country:XX for precision.
+    // For multi-country (e.g. "us,ca"), use region bias on the first code only.
     if (countrycodes) {
-      const cc = countrycodes.split(",").map((c) => `country:${c.trim().toUpperCase()}`).join("|");
-      params.set("components", cc);
+      const codes = countrycodes.split(",").map((c) => c.trim().toUpperCase());
+      if (codes.length === 1) {
+        params.set("components", `country:${codes[0]}`);
+      } else {
+        // Soft region bias on first country — Google will still find results in other countries
+        params.set("region", codes[0].toLowerCase());
+      }
     }
     const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`;
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
     const data = await res.json() as {
       status: string;
-      results: Array<{ geometry: { location: { lat: number; lng: number } } }>;
+      results: Array<{ geometry: { location: { lat: number; lng: number } }; formatted_address?: string }>;
     };
     if (data.status === "OK" && data.results.length > 0) {
       const loc = data.results[0].geometry.location;
+      console.log(`[Google Geocode] "${query}" → ${loc.lat.toFixed(4)},${loc.lng.toFixed(4)} (${data.results[0].formatted_address ?? ""})`);
       return { lat: loc.lat, lng: loc.lng };
     }
     if (data.status !== "ZERO_RESULTS") {
@@ -380,7 +449,11 @@ async function geocodeRaw(query: string, countrycodes?: string): Promise<{ lat: 
   const google = await googleGeocodeRaw(query, countrycodes);
   if (google) return google;
   // Fallback: Nominatim / OpenStreetMap
-  return nominatimGeocodeRaw(query, countrycodes);
+  const nom = await nominatimGeocodeRaw(query, countrycodes);
+  if (nom) {
+    console.log(`[Nominatim fallback] "${query}" → ${nom.lat.toFixed(4)},${nom.lng.toFixed(4)}`);
+  }
+  return nom;
 }
 
 /**
@@ -1023,6 +1096,51 @@ export async function registerRoutes(
     res.json(result);
   });
 
+  // === NAME-BASED DIRECTIONS (matches Google Maps embed behavior) ===
+  // Accepts location *names* instead of coordinates — the server passes them
+  // straight to Google Directions API so the resolved distance/duration exactly
+  // matches what the Google Maps Embed shows on the map.
+  app.post("/api/directions-by-name", async (req, res) => {
+    const { locations } = req.body as { locations: string[] };
+    if (!Array.isArray(locations) || locations.length < 2 || locations.some((l) => typeof l !== "string" || !l.trim())) {
+      return res.status(400).json({ error: "Need at least 2 non-empty location strings" });
+    }
+
+    // Try Google Directions with place names (primary — matches embed)
+    const gResult = await googleDirectionsByName(locations);
+    if (gResult) {
+      return res.json({
+        legs: gResult.legs,
+        resolvedCoords: gResult.resolvedCoords,
+        source: "google-directions-by-name",
+      });
+    }
+
+    // Fallback: geocode each name → coordinates, then route between them
+    console.log("[/api/directions-by-name] Google name-based failed, falling back to geocode+route");
+    const coords: ({ lat: number; lng: number } | null)[] = await Promise.all(
+      locations.map((loc) => geocodeRaw(loc.trim())),
+    );
+    const validWaypoints: { lat: number; lng: number }[] = [];
+    const coordResults: ({ lat: number; lng: number } | null)[] = [];
+    for (const c of coords) {
+      coordResults.push(c);
+      if (c) validWaypoints.push(c);
+    }
+    if (validWaypoints.length < 2) {
+      return res.status(422).json({ error: "Could not geocode enough locations" });
+    }
+    const legs = await getMultiRoute(validWaypoints);
+    if (!legs) {
+      return res.status(500).json({ error: "Routing failed" });
+    }
+    return res.json({
+      legs,
+      resolvedCoords: coordResults,
+      source: "geocode-fallback",
+    });
+  });
+
   // === MULTI-WAYPOINT DISTANCE (Google Directions → OSRM fallback) ===
   app.post("/api/distances", async (req, res) => {
     const { waypoints } = req.body as { waypoints: { lat: number; lng: number }[] };
@@ -1331,71 +1449,101 @@ export async function registerRoutes(
         });
       }
 
-      // Geocode all locations in parallel, then compute legs with one multi-route request.
-      const geocoded = await Promise.all(
-        locations.map(async (loc) => ({ loc, geo: await geocodeLocation(loc, "us,ca") })),
-      );
+      // ── PRIMARY: Google Directions by place name ──────────────────
+      // This matches EXACTLY what the Google Maps embed shows — Google resolves
+      // the place names itself, avoiding geocoding discrepancies.
+      const byName = await googleDirectionsByName(locations);
 
-      const stopsWithGeo: any[] = geocoded.map(({ loc, geo }, i) => ({
-        id: randomUUID().slice(0, 8),
-        type: i === 0 ? "pickup" : i === locations.length - 1 ? "delivery" : "stop",
-        location: loc,
-        lat: geo?.lat,
-        lng: geo?.lng,
-        dockTimeMinutes: dockTimeMin,
-        distanceFromPrevKm: 0,
-        driveMinutesFromPrev: 0,
-      }));
+      let stopsWithGeo: any[];
+      let returnDistance: OsrmRouteResult | null = null;
 
-      const waypoints: { lat: number; lng: number }[] = [];
-      const geoIdxToWpIdx = new Map<number, number>();
-      stopsWithGeo.forEach((s, i) => {
-        if (typeof s.lat === "number" && typeof s.lng === "number") {
-          geoIdxToWpIdx.set(i, waypoints.length);
-          waypoints.push({ lat: s.lat, lng: s.lng });
-        }
-      });
+      if (byName && byName.legs.length === locations.length - 1) {
+        // Build stops using Google-resolved coordinates and distances
+        stopsWithGeo = locations.map((loc, i) => ({
+          id: randomUUID().slice(0, 8),
+          type: i === 0 ? "pickup" : i === locations.length - 1 ? "delivery" : "stop",
+          location: loc,
+          lat: byName.resolvedCoords[i]?.lat,
+          lng: byName.resolvedCoords[i]?.lng,
+          dockTimeMinutes: dockTimeMin,
+          distanceFromPrevKm: i > 0 ? byName.legs[i - 1].distanceKm : 0,
+          driveMinutesFromPrev: i > 0 ? byName.legs[i - 1].durationMinutes : 0,
+        }));
 
-      const multiLegs = waypoints.length >= 2 ? await getMultiRoute(waypoints) : null;
-
-      for (let i = 1; i < stopsWithGeo.length; i++) {
-        const prevWp = geoIdxToWpIdx.get(i - 1);
-        const curWp = geoIdxToWpIdx.get(i);
-        if (
-          prevWp != null &&
-          curWp != null &&
-          curWp === prevWp + 1 &&
-          multiLegs &&
-          multiLegs[prevWp]
-        ) {
-          stopsWithGeo[i].distanceFromPrevKm = multiLegs[prevWp].distanceKm;
-          stopsWithGeo[i].driveMinutesFromPrev = multiLegs[prevWp].durationMinutes;
-          continue;
+        // Return distance (last → first) using Google-resolved coords
+        const first = byName.resolvedCoords[0];
+        const last = byName.resolvedCoords[byName.resolvedCoords.length - 1];
+        if (first && last) {
+          returnDistance = await getRoute(last.lat, last.lng, first.lat, first.lng);
         }
 
-        // Fallback single-leg route (only when needed).
-        const prev = stopsWithGeo[i - 1];
-        const cur = stopsWithGeo[i];
-        if (
-          typeof prev?.lat === "number" &&
-          typeof prev?.lng === "number" &&
-          typeof cur?.lat === "number" &&
-          typeof cur?.lng === "number"
-        ) {
-          const route = await getRoute(prev.lat, prev.lng, cur.lat, cur.lng);
-          if (route) {
-            cur.distanceFromPrevKm = route.distanceKm;
-            cur.driveMinutesFromPrev = route.durationMinutes;
+        // Also cache the Google-resolved geocodes for future use
+        for (let i = 0; i < locations.length; i++) {
+          const coord = byName.resolvedCoords[i];
+          if (coord) {
+            const key = normalizeLocationKey(locations[i]) + "|us,ca";
+            cacheSet(geocodeCache, key, coord, GEO_TTL_MS);
           }
         }
-      }
+      } else {
+        // ── FALLBACK: geocode separately then route by coordinates ──
+        console.log("[chat-route] Google Directions by name failed, falling back to geocode + route");
+        const geocoded = await Promise.all(
+          locations.map(async (loc) => ({ loc, geo: await geocodeLocation(loc, "us,ca") })),
+        );
 
-      // Also compute return distance from last to first
-      let returnDistance = null;
-      const first = stopsWithGeo[0];
-      const last = stopsWithGeo[stopsWithGeo.length - 1];
-      if (first.lat && first.lng && last.lat && last.lng) {
-        returnDistance = await getRoute(last.lat, last.lng, first.lat, first.lng);
+        stopsWithGeo = geocoded.map(({ loc, geo }, i) => ({
+          id: randomUUID().slice(0, 8),
+          type: i === 0 ? "pickup" : i === locations.length - 1 ? "delivery" : "stop",
+          location: loc,
+          lat: geo?.lat,
+          lng: geo?.lng,
+          dockTimeMinutes: dockTimeMin,
+          distanceFromPrevKm: 0,
+          driveMinutesFromPrev: 0,
+        }));
+
+        const waypoints: { lat: number; lng: number }[] = [];
+        const geoIdxToWpIdx = new Map<number, number>();
+        stopsWithGeo.forEach((s: any, i: number) => {
+          if (typeof s.lat === "number" && typeof s.lng === "number") {
+            geoIdxToWpIdx.set(i, waypoints.length);
+            waypoints.push({ lat: s.lat, lng: s.lng });
+          }
+        });
+
+        const multiLegs = waypoints.length >= 2 ? await getMultiRoute(waypoints) : null;
+
+        for (let i = 1; i < stopsWithGeo.length; i++) {
+          const prevWp = geoIdxToWpIdx.get(i - 1);
+          const curWp = geoIdxToWpIdx.get(i);
+          if (
+            prevWp != null && curWp != null &&
+            curWp === prevWp + 1 && multiLegs && multiLegs[prevWp]
+          ) {
+            stopsWithGeo[i].distanceFromPrevKm = multiLegs[prevWp].distanceKm;
+            stopsWithGeo[i].driveMinutesFromPrev = multiLegs[prevWp].durationMinutes;
+            continue;
+          }
+          const prev = stopsWithGeo[i - 1];
+          const cur = stopsWithGeo[i];
+          if (
+            typeof prev?.lat === "number" && typeof prev?.lng === "number" &&
+            typeof cur?.lat === "number" && typeof cur?.lng === "number"
+          ) {
+            const route = await getRoute(prev.lat, prev.lng, cur.lat, cur.lng);
+            if (route) {
+              cur.distanceFromPrevKm = route.distanceKm;
+              cur.driveMinutesFromPrev = route.durationMinutes;
+            }
+          }
+        }
+
+        const first = stopsWithGeo[0];
+        const last = stopsWithGeo[stopsWithGeo.length - 1];
+        if (first.lat && first.lng && last.lat && last.lng) {
+          returnDistance = await getRoute(last.lat, last.lng, first.lat, first.lng);
+        }
       }
 
       // Build a human-friendly response message
@@ -1436,6 +1584,17 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  // === CACHE FLUSH (dev — clears all stale geo/route caches) ===
+  app.post("/api/cache-flush", (_req, res) => {
+    const before = { geocode: geocodeCache.size, distance: distanceCache.size, multiRoute: multiRouteCache.size, placeSuggest: placeSuggestCache.size, chatRoute: chatRouteCache.size };
+    geocodeCache.clear();
+    distanceCache.clear();
+    multiRouteCache.clear();
+    placeSuggestCache.clear();
+    chatRouteCache.clear();
+    res.json({ flushed: before });
   });
 
   // === CACHE STATS (dev/monitoring) ===

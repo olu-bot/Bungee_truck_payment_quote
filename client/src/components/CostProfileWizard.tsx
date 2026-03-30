@@ -153,6 +153,8 @@ const EDITABLE_FIELD_KEYS: (keyof Omit<CostProfile, "id" | "name" | "truckType" 
 
 // Fields where 0 is a valid value (optional fields)
 const OPTIONAL_FIELDS = new Set(["driverPayPerMile", "deadheadPayPercent"]);
+// Fields that must be > 0 to avoid division-by-zero in cost calculations
+const MUST_BE_POSITIVE = new Set(["workingDaysPerMonth", "workingHoursPerDay", "fuelConsumptionPer100km"]);
 
 function PresetButton({
   value,
@@ -368,8 +370,8 @@ export function CostProfileWizard({
     if (isLastStep) {
       const allNumericFieldsValid = EDITABLE_FIELD_KEYS.every((k) => {
         const v = wizardValues[k];
-        if (OPTIONAL_FIELDS.has(k)) return typeof v === "number" && v >= 0;
-        return typeof v === "number" && v > 0;
+        if (MUST_BE_POSITIVE.has(k)) return typeof v === "number" && v > 0;
+        return typeof v === "number" && v >= 0;
       });
       return hasName && hasTruckType && allNumericFieldsValid;
     }
@@ -377,8 +379,8 @@ export function CostProfileWizard({
     const step = WIZARD_STEPS[wizardStep];
     return step.fields.every((f) => {
       const v = wizardValues[f.key];
-      if (OPTIONAL_FIELDS.has(f.key)) return typeof v === "number" && v >= 0;
-      return typeof v === "number" && v > 0;
+      if (MUST_BE_POSITIVE.has(f.key)) return typeof v === "number" && v > 0;
+      return typeof v === "number" && v >= 0;
     });
   }
 

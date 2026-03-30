@@ -1,6 +1,4 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
-import { useStripePricingDisplay } from "@/hooks/use-stripe-pricing-display";
-import { formatMoney } from "@/lib/stripePricingDisplay";
 import { useLocation } from "wouter";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -428,13 +426,6 @@ export default function HelpCenter() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFaqSection, setActiveFaqSection] = useState(0);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
-  const { data: stripePricing } = useStripePricingDisplay();
-  const helpProPrice = stripePricing?.pro?.month
-    ? `${formatMoney(stripePricing.pro.month.amount, stripePricing.pro.month.currency)}/mo`
-    : "$29/mo";
-  const helpPremiumPrice = stripePricing?.premium?.month
-    ? `${formatMoney(stripePricing.premium.month.amount, stripePricing.premium.month.currency)}/mo`
-    : "$59/mo";
 
   const scrollTo = (id: string) => {
     sectionRefs.current[id]?.scrollIntoView({
@@ -825,7 +816,7 @@ export default function HelpCenter() {
             />
             <PricingCol
               name="Pro"
-              price={helpProPrice}
+              price="$29/mo"
               sub="Most popular for small fleets"
               highlight
               features={[
@@ -841,7 +832,7 @@ export default function HelpCenter() {
             />
             <PricingCol
               name="Premium"
-              price={helpPremiumPrice}
+              price="$59/mo"
               sub="For growing teams"
               features={[
                 "Everything in pro plus",

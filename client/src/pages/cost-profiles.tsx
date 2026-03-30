@@ -34,8 +34,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useStripePricingDisplay } from "@/hooks/use-stripe-pricing-display";
-import { formatMoney } from "@/lib/stripePricingDisplay";
 import {
   Plus,
   Trash2,
@@ -196,7 +194,6 @@ function SectionHeading({ icon: Icon, title, subtitle }: { icon: typeof Building
 function AccountIdentityCard() {
   const { user, logout } = useFirebaseAuth();
   const { toast } = useToast();
-  const { data: stripePricing } = useStripePricingDisplay();
   const [isEditing, setIsEditing] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -355,17 +352,6 @@ function AccountIdentityCard() {
     : tier === "pro"
       ? "bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700"
       : "bg-slate-100 text-slate-500 border-slate-200";
-
-  const planPriceBadge =
-    tier === "free"
-      ? "Free forever"
-      : tier === "pro"
-        ? stripePricing?.pro?.month
-          ? `${formatMoney(stripePricing.pro.month.amount, stripePricing.pro.month.currency)}/mo`
-          : "$29/mo"
-        : stripePricing?.premium?.month
-          ? `${formatMoney(stripePricing.premium.month.amount, stripePricing.premium.month.currency)}/mo`
-          : "$59/mo";
 
   return (
     <div className="space-y-4">
@@ -543,7 +529,7 @@ function AccountIdentityCard() {
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{tierName}</span>
                   <Badge variant="outline" className={`text-[10px] px-2 py-0 border ${tierBadgeColor}`}>
-                    {planPriceBadge}
+                    {tier === "free" ? "Free forever" : tier === "pro" ? "$29/mo" : "$59/mo"}
                   </Badge>
                 </div>
               </div>

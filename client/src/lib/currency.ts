@@ -1,3 +1,4 @@
+/** Workspace money is USD or CAD only (US + Canada operations). */
 export type SupportedCurrency = "CAD" | "USD";
 
 const COUNTRY_TO_CURRENCY: Record<string, SupportedCurrency> = {
@@ -63,7 +64,7 @@ export function resolveWorkspaceCurrency(
 }
 
 function isSupportedCurrency(c: string): c is SupportedCurrency {
-  return c === "CAD" || c === "USD" || c === "MXN";
+  return c === "CAD" || c === "USD";
 }
 
 export function formatCurrencyAmount(value: number, currency: SupportedCurrency): string {
@@ -80,16 +81,9 @@ export function formatCurrencyAmount(value: number, currency: SupportedCurrency)
     .join("");
 }
 
-export function currencySymbol(currency: SupportedCurrency): string {
-  // Currency badge in the header already shows "CAD" / "USD", so we use
-  // a plain "$" for both to keep dollar amounts compact.
-  switch (currency) {
-    case "CAD":
-    case "USD":
-      return "$";
-    default:
-      return currency;
-  }
+export function currencySymbol(_currency: SupportedCurrency): string {
+  // Badge shows "CAD" / "USD"; amounts use a compact "$" for both.
+  return "$";
 }
 
 export function currencyPerLitreLabel(currency: SupportedCurrency): string {
@@ -101,8 +95,7 @@ export function currencyPerLitreLabel(currency: SupportedCurrency): string {
 // Last updated: March 2026
 const EXCHANGE_RATES_TO_USD: Record<SupportedCurrency, number> = {
   USD: 1.0,
-  CAD: 0.6944,  // 1 CAD = 0.6944 USD  (1 USD = 1.44 CAD, matches fuelPriceService)
-  MXN: 0.058,   // 1 MXN = 0.058 USD
+  CAD: 0.6944, // 1 CAD ≈ 0.6944 USD (~1 USD = 1.44 CAD; aligned with fuelPriceService)
 };
 
 /**

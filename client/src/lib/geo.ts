@@ -154,6 +154,57 @@ export async function getMultiWaypointDistances(
   }
 }
 
+/**
+ * Name-based directions — passes location *names* to Google Directions API
+ * on the server so the resolved distance/duration matches the Google Maps embed.
+ * Returns legs + resolved coordinates, or null on failure.
+ */
+export type DirectionsByNameResult = {
+  legs: { distanceKm: number; durationMinutes: number }[];
+  resolvedCoords: ({ lat: number; lng: number } | null)[];
+  source: string;
+};
+
+const dirNameCache = new Map<string, CacheEntry<DirectionsByNameResult | null>>();
+const dirNameInflight = new Map<string, Promise<DirectionsByNameResult | null>>();
+
+export async function getDirectionsByName(
+  locations: string[],
+): Promise<DirectionsByNameResult | null> {
+  if (locations.length < 2) return null;
+  const key = locations.map(normalizeKey).join("|");
+  const hit = cacheGet(dirNameCache, key);
+  if (hit !== undefined) return hit;
+  const inflight = dirNameInflight.get(key);
+  if (inflight) return inflight;
+
+  const req = (async () => {
+    try {
+      const res = await fetch("/api/directions-by-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locations }),
+      });
+      if (!res.ok) {
+        cacheSet(dirNameCache, key, null, MISS_TTL_MS);
+        return null;
+      }
+      const data = (await res.json()) as DirectionsByNameResult;
+      cacheSet(dirNameCache, key, data, ROUTE_TTL_MS);
+      return data;
+    } catch {
+      cacheSet(dirNameCache, key, null, MISS_TTL_MS);
+      return null;
+    }
+  })();
+  dirNameInflight.set(key, req);
+  try {
+    return await req;
+  } finally {
+    dirNameInflight.delete(key);
+  }
+}
+
 /** Google-backed place lines (server uses Places Autocomplete + cache). */
 export async function fetchPlaceSuggestions(query: string): Promise<string[]> {
   const q = query.trim();

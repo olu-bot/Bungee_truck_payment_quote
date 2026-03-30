@@ -67,7 +67,7 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
   const [area, setArea] = useState("");
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const scopeId = workspaceFirestoreId(user as Record<string, unknown>);
+  const scopeId = workspaceFirestoreId(user);
 
   const { data: tickets = [] } = useQuery<FeedbackTicket[]>({
     queryKey: ["firebase", "feedback", "user", user?.uid ?? "", scopeId ?? ""],

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
-import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances } from "@/lib/geo";
+import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances, getDirectionsByName } from "@/lib/geo";
 import { calculateRouteCost, getPricingAdvice, type PayMode } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,11 +84,6 @@ import {
   getFuelPriceForRouteBuilder,
   type FuelPriceData,
 } from "@/lib/fuelPriceService";
-import {
-  buildConnectGuestQuickProfile,
-  CONNECT_GUEST_PROFILE_ID,
-  isConnectGuestUser,
-} from "@/lib/connectGuest";
 
 let stopIdCounter = 0;
 function nextStopId(): string {
@@ -224,8 +219,12 @@ async function persistRouteBuilderQuote(
   const grossProfit = customerPrice - accTotal - carrierCostPersist;
   const profitMarginPercent = carrierCostPersist > 0 ? (grossProfit / carrierCostPersist) * 100 : 0;
 
+  // Exclude yard from summary when deadhead is off
+  const summaryStops = meta.includeReturn
+    ? stops
+    : stops.filter((s) => s.type !== "yard");
   const snapshot: RouteBuilderSnapshot = {
-    routeSummary: stops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
+    routeSummary: summaryStops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
     totalKm: meta.calc.totalDistanceKm,
     totalMin: meta.calc.totalDriveMinutes,
     returnKm: meta.calc.legs
@@ -374,14 +373,14 @@ function RouteControlsPortal({
         </SelectContent>
       </Select>
 
-      <div className="flex items-center gap-1">
-        <Fuel className="w-3 h-3 text-muted-foreground" />
+      <div className="flex items-center gap-1 min-w-[220px]">
+        <Fuel className="w-3 h-3 text-muted-foreground shrink-0" />
         <Input
           data-testid="input-fuel-price"
           type="number"
           step="0.05"
           min="0"
-          className="h-7 text-[11px] w-[76px]"
+          className="h-7 text-[11px] w-[76px] shrink-0"
           value={displayVal}
           onChange={(e) => {
             const raw = e.target.value;
@@ -640,7 +639,6 @@ export default function RouteBuilder() {
   const isAdmin = user?.role === "admin";
   const scopeId = workspaceFirestoreId(user);
   const queryClient = useQueryClient();
-  const connectGuest = isConnectGuestUser(user);
 
   // Update initial bot message example to match user's country once loaded
   const chatExampleSetRef = useRef(false);
@@ -669,23 +667,16 @@ export default function RouteBuilder() {
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
   const dLabel = distanceLabel(measureUnit);
 
-  const connectGuestProfile = useMemo(
-    () => buildConnectGuestQuickProfile(currency),
-    [currency],
-  );
-
-  const { data: remoteProfiles = [] } = useQuery<CostProfile[]>({
+  const { data: profiles = [] } = useQuery<CostProfile[]>({
     queryKey: ["firebase", "profiles", scopeId ?? ""],
     queryFn: () => firebaseDb.getProfiles(scopeId),
-    enabled: !!scopeId && !connectGuest,
+    enabled: !!scopeId,
   });
-
-  const profiles = connectGuest ? [connectGuestProfile] : remoteProfiles;
 
   const { data: yards = [] } = useQuery<Yard[]>({
     queryKey: ["firebase", "yards", scopeId ?? ""],
     queryFn: () => firebaseDb.getYards(scopeId),
-    enabled: !!scopeId && !connectGuest,
+    enabled: !!scopeId,
   });
 
   // ── Company accessorial policy (company-wide defaults) ──────
@@ -715,9 +706,18 @@ export default function RouteBuilder() {
     enabled: !!scopeId,
   });
 
-  // Build a set of "origin→destination" keys so we can check if the current route is already a fav
+  // Build a set of full route keys (all stops) so we can check if the current route is a fav
   useEffect(() => {
-    const keys = new Set(savedLanes.map((l) => `${l.origin}→${l.destination}`));
+    const keys = new Set(savedLanes.map((l) => {
+      // Use cached stops for full route key if available
+      const cached = (l as any).cachedStops as { location?: string; type?: string }[] | undefined;
+      if (cached && cached.length >= 2) {
+        const nonYard = cached.filter((s) => s.type !== "yard");
+        const fullKey = nonYard.map((s) => s.location).filter(Boolean).join("→");
+        if (fullKey) return fullKey;
+      }
+      return `${l.origin}→${l.destination}`;
+    }));
     setFavLaneIds(keys);
   }, [savedLanes]);
 
@@ -845,6 +845,35 @@ export default function RouteBuilder() {
 
       if (locations.length < 2) return [];
 
+      // ── PRIMARY: Name-based Google Directions (matches embed) ──
+      // Pass location names directly to Google Directions API so the
+      // resolved distance/duration matches the Google Maps Embed exactly.
+      const locationNames = locations.map((l) => l.name);
+      const dirResult = await getDirectionsByName(locationNames);
+
+      if (dirResult && dirResult.legs.length === locations.length - 1) {
+        console.log("[buildStops] Using name-based directions (matches Google Maps embed):", dirResult.source);
+        const result: RouteStop[] = [];
+        for (let i = 0; i < locations.length; i++) {
+          const loc = locations[i];
+          const coord = dirResult.resolvedCoords[i];
+          result.push({
+            id: nextStopId(),
+            type: loc.type,
+            location: loc.name,
+            lat: coord?.lat ?? loc.knownLat,
+            lng: coord?.lng ?? loc.knownLng,
+            dockTimeMinutes: loc.dockMinutes,
+            distanceFromPrevKm: i > 0 ? dirResult.legs[i - 1].distanceKm : 0,
+            driveMinutesFromPrev: i > 0 ? dirResult.legs[i - 1].durationMinutes : 0,
+          });
+        }
+        return result;
+      }
+
+      // ── FALLBACK: Geocode each name → coordinates, then route ──
+      console.log("[buildStops] Name-based directions unavailable, falling back to geocode+route");
+
       // Geocode all — use pre-stored coords when available, with city extraction fallback
       const geocoded = await Promise.all(
         locations.map(async (loc) => {
@@ -885,7 +914,6 @@ export default function RouteBuilder() {
 
       // Build result, mapping multi-distances back to the correct legs
       const result: RouteStop[] = [];
-      let legIdx = 0; // index into legDistances
       for (let i = 0; i < geocoded.length; i++) {
         const g = geocoded[i];
         let distanceFromPrevKm = 0;
@@ -928,6 +956,52 @@ export default function RouteBuilder() {
     [],
   );
 
+  /**
+   * Safety net: if any consecutive leg has valid coords on both endpoints but
+   * 0 distance/duration, re-fetch the distance from the API so drive time
+   * always matches the Google Maps embed.
+   */
+  async function repairMissingDistances(stops: RouteStop[]): Promise<RouteStop[]> {
+    let needsRepair = false;
+    for (let i = 1; i < stops.length; i++) {
+      const prev = stops[i - 1];
+      const cur = stops[i];
+      if (
+        prev.lat != null && prev.lng != null &&
+        cur.lat != null && cur.lng != null &&
+        (cur.distanceFromPrevKm ?? 0) === 0 &&
+        (cur.driveMinutesFromPrev ?? 0) === 0
+      ) {
+        needsRepair = true;
+        break;
+      }
+    }
+    if (!needsRepair) return stops;
+
+    console.log("[repairMissingDistances] Detected 0-distance legs with valid coords, re-fetching…");
+    const repaired = [...stops];
+    for (let i = 1; i < repaired.length; i++) {
+      const prev = repaired[i - 1];
+      const cur = repaired[i];
+      if (
+        prev.lat != null && prev.lng != null &&
+        cur.lat != null && cur.lng != null &&
+        (cur.distanceFromPrevKm ?? 0) === 0 &&
+        (cur.driveMinutesFromPrev ?? 0) === 0
+      ) {
+        const dist = await getOSRMRoute(prev.lat, prev.lng, cur.lat, cur.lng);
+        if (dist) {
+          repaired[i] = {
+            ...cur,
+            distanceFromPrevKm: dist.distanceKm,
+            driveMinutesFromPrev: dist.durationMinutes,
+          };
+        }
+      }
+    }
+    return repaired;
+  }
+
   // ── Trigger route build ───────────────────────────────────────
 
   const calcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -942,11 +1016,12 @@ export default function RouteBuilder() {
     if (filled.length < 2) return;
     setIsGeocodingRoute(true);
     try {
-      const built = await buildStopsFromForm(
+      const rawBuilt = await buildStopsFromForm(
         stopsToUse,
         effectiveYard,
         includeReturn,
       );
+      const built = await repairMissingDistances(rawBuilt);
       setStops(built);
       if (built.length >= 2 && selectedProfileId) {
         await calculateRoute(built, undefined, {
@@ -1078,13 +1153,8 @@ export default function RouteBuilder() {
 
     setIsCalculating(true);
     try {
-      let rawProfile: CostProfile | null = null;
-      if (connectGuest && selectedProfileId === CONNECT_GUEST_PROFILE_ID) {
-        rawProfile = connectGuestProfile;
-      } else {
-        rawProfile = (await firebaseDb.getProfile(scopeId, selectedProfileId)) ?? null;
-      }
-      if (!rawProfile) throw new Error("Cost profile not found");
+      const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      if (!rawProfile) throw new Error("Equipment cost profile not found");
 
       // Convert profile costs to the user's display currency
       const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
@@ -1171,7 +1241,7 @@ export default function RouteBuilder() {
             profitMarginPercent: 0,
             quoteSource: "chat_route",
             routeSnapshotJson: JSON.stringify({
-              routeSummary: routeStops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
+              routeSummary: (includeReturn ? routeStops : routeStops.filter((s) => s.type !== "yard")).map((s) => s.location).filter(Boolean).join(" \u2192 "),
               totalKm: data.totalDistanceKm,
               totalMin: data.totalDriveMinutes,
               chatUserMessage: options.chatUserMessage,
@@ -1238,13 +1308,8 @@ export default function RouteBuilder() {
 
     setIsSavingQuote(true);
     try {
-      let rawProfile: CostProfile | null = null;
-      if (connectGuest && selectedProfileId === CONNECT_GUEST_PROFILE_ID) {
-        rawProfile = connectGuestProfile;
-      } else {
-        rawProfile = (await firebaseDb.getProfile(scopeId, selectedProfileId)) ?? null;
-      }
-      if (!rawProfile) throw new Error("Cost profile not found");
+      const rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+      if (!rawProfile) throw new Error("Equipment cost profile not found");
       const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
       const profile = convertCostProfileCurrency(rawProfile, profileCurrency, currency) as typeof rawProfile;
 
@@ -1307,14 +1372,22 @@ export default function RouteBuilder() {
     const destination = nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
     if (!origin || !destination) return;
 
-    const key = `${origin}→${destination}`;
+    // Full route key includes all stops (not just origin/destination)
+    const key = nonYard.map((s) => s.location).filter(Boolean).join("→");
     const isAlreadyFav = favLaneIds.has(key);
 
     setIsSavingFav(true);
     try {
       if (isAlreadyFav) {
-        // Find and delete the matching lane
-        const match = savedLanes.find((l) => l.origin === origin && l.destination === destination);
+        // Find and delete the matching lane (match on full route key)
+        const match = savedLanes.find((l) => {
+          const cached = (l as any).cachedStops as { location?: string; type?: string }[] | undefined;
+          if (cached && cached.length >= 2) {
+            const laneKey = cached.filter((s) => s.type !== "yard").map((s) => s.location).filter(Boolean).join("→");
+            return laneKey === key;
+          }
+          return `${l.origin}→${l.destination}` === key;
+        });
         if (match) {
           await firebaseDb.deleteLane(scopeId, match.id);
         }
@@ -1478,9 +1551,10 @@ export default function RouteBuilder() {
               );
             }
 
-            setStops(stopsForCalcAndMap);
-            if (stopsForCalcAndMap.length >= 2 && selectedProfileId) {
-              await calculateRoute(stopsForCalcAndMap, data.returnDistance ?? undefined, {
+            const repairedStops = await repairMissingDistances(stopsForCalcAndMap);
+            setStops(repairedStops);
+            if (repairedStops.length >= 2 && selectedProfileId) {
+              await calculateRoute(repairedStops, data.returnDistance ?? undefined, {
                 saveToHistory: true,
                 chatUserMessage: userMessage,
                 countQuote: true,
@@ -1500,6 +1574,14 @@ export default function RouteBuilder() {
             { role: "bot", text: data.message },
           ]);
           setChatMessage("");
+
+          // Suggest saving as favorite lane if user has none yet
+          if (savedLanes.length === 0) {
+            toast({
+              title: "Save as favorite lane?",
+              description: "Click the ☆ star icon on the route header to save this lane for quick access next time.",
+            });
+          }
         } else if (data.locations && data.locations.length >= 2) {
           const newStops = populateFormFromLocations(data.locations);
           await triggerRouteBuild(newStops, true, userMessage);
@@ -1663,9 +1745,9 @@ export default function RouteBuilder() {
   const isFavLane = useMemo(() => {
     if (stops.length < 2) return false;
     const nonYard = stops.filter((s) => s.type !== "yard");
-    const origin = nonYard[0]?.location ?? stops[0]?.location ?? "";
-    const dest = nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
-    return favLaneIds.has(`${origin}→${dest}`);
+    // Include ALL stops in the key so adding a middle stop changes the match
+    const fullKey = nonYard.map((s) => s.location).filter(Boolean).join("→");
+    return favLaneIds.has(fullKey);
   }, [stops, favLaneIds]);
 
   // ── Derived pricing values (client-side fallbacks) ────────────
@@ -1693,8 +1775,8 @@ export default function RouteBuilder() {
               Create an equipment cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
             </p>
             <a
-              href="#/profiles?action=create"
-              className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 rounded-md px-3.5 py-1.5 transition-colors"
+              href="/#/profiles?action=create"
+              className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 rounded-md px-3.5 py-1.5 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Create Equipment Cost Profile
@@ -1729,7 +1811,7 @@ export default function RouteBuilder() {
           <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
           <p className="text-[13px] text-slate-600 leading-snug">
             You're using the <strong className="text-slate-800">Quick Start Profile</strong> with industry-average values. For accurate quotes,{" "}
-            <a href="#/profiles?action=create" className="underline font-semibold text-orange-600 hover:text-orange-500">
+            <a href="/#/profiles?action=create" className="underline font-semibold text-orange-600 hover:text-orange-500">
               create your own profile
             </a>{" "}
             with your real costs.
@@ -1821,101 +1903,6 @@ export default function RouteBuilder() {
               {/* Breakdown toggle removed — now inside the Advanced panel */}
             </div>
 
-            {/* Shipment / Cargo detail card — shown when AI extracts structured data */}
-            {(activeShipment || activeFreightMeta) && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm space-y-2 relative">
-                <button
-                  className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
-                  onClick={() => { setActiveShipment(null); setActiveFreightMeta(null); }}
-                  aria-label="Dismiss shipment details"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                  <Package className="h-3.5 w-3.5" />
-                  Shipment Details
-                </div>
-                {/* Freight meta: equipment, PU/DEL windows */}
-                {activeFreightMeta && (activeFreightMeta.equipment || activeFreightMeta.pickupDetails || activeFreightMeta.deliveryDetails) && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                    {activeFreightMeta.equipment && (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
-                        <Route className="h-3 w-3 text-slate-400" /> {activeFreightMeta.equipment}
-                      </span>
-                    )}
-                    {activeFreightMeta.pickupDetails && (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
-                        <Clock className="h-3 w-3 text-green-500" /> PU: {activeFreightMeta.pickupDetails}
-                      </span>
-                    )}
-                    {activeFreightMeta.deliveryDetails && (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
-                        <Clock className="h-3 w-3 text-blue-500" /> DEL: {activeFreightMeta.deliveryDetails}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {activeShipment && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5 text-xs">
-                  {activeShipment.referenceNumber && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Hash className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span className="font-medium">{activeShipment.referenceNumber}</span>
-                    </div>
-                  )}
-                  {activeShipment.productName && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Package className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>{activeShipment.productName}</span>
-                    </div>
-                  )}
-                  {activeShipment.totalPieces != null && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Ruler className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>{activeShipment.totalPieces} pcs</span>
-                    </div>
-                  )}
-                  {activeShipment.totalWeightKg != null && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Weight className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>{activeShipment.totalWeightKg} kg</span>
-                    </div>
-                  )}
-                </div>
-                )}
-                {/* Dimensions list */}
-                {activeShipment && activeShipment.cargo.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {activeShipment.cargo.map((c, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-[11px] text-slate-600">
-                        <Ruler className="h-2.5 w-2.5 text-slate-400" />
-                        {c.dimensions}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {/* Contact info */}
-                {activeShipment && (activeShipment.contactPhone || activeShipment.contactEmail || activeShipment.contactName) && (
-                  <div className="flex flex-wrap gap-3 text-xs text-slate-500 pt-0.5 border-t border-slate-200">
-                    {activeShipment.contactName && (
-                      <span className="font-medium text-slate-600">{activeShipment.contactName}</span>
-                    )}
-                    {activeShipment.contactPhone && (
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {activeShipment.contactPhone}
-                      </span>
-                    )}
-                    {activeShipment.contactEmail && (
-                      <span className="flex items-center gap-1">
-                        <Mail className="h-3 w-3" />
-                        {activeShipment.contactEmail}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Row 2: Pricing cards — 4 columns with more room */}
             <div
@@ -2455,7 +2442,7 @@ export default function RouteBuilder() {
       {/* ═══════════════════════════════════════════════════════════
           SECTION 2 + 3: Chatbot (left) + Map & Build Route (right)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:auto-rows-fr">
           {/* ── Left: Route Chat ─────────────────────────────────── */}
           <Card className="border-slate-200 flex flex-col" data-testid="chat-panel">
             <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2 shrink-0">
@@ -2464,7 +2451,7 @@ export default function RouteBuilder() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
-              {/* Chat messages — fills available space */}
+              {/* Chat messages — stretches to match right column height */}
               <div
                 className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
                 data-testid="chat-messages"
@@ -2603,6 +2590,13 @@ export default function RouteBuilder() {
                             const copy = [...prev];
                             const [moved] = copy.splice(dragIdx, 1);
                             copy.splice(idx, 0, moved);
+                            // Auto-build after reorder
+                            setTimeout(() => {
+                              const current = formStopsRef.current;
+                              if (current.filter((s) => s.location.trim()).length >= 2) {
+                                void triggerRouteBuild(current, false);
+                              }
+                            }, 50);
                             return copy;
                           });
                         }
@@ -2664,9 +2658,17 @@ export default function RouteBuilder() {
                             className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
                             data-testid={`button-remove-stop-${idx}`}
                             onClick={() => {
-                              setFormStops((prev) =>
-                                prev.filter((_, i) => i !== idx),
-                              );
+                              setFormStops((prev) => {
+                                const updated = prev.filter((_, i) => i !== idx);
+                                // Auto-build after removing a stop
+                                setTimeout(() => {
+                                  const current = formStopsRef.current;
+                                  if (current.filter((s) => s.location.trim()).length >= 2) {
+                                    void triggerRouteBuild(current, false);
+                                  }
+                                }, 50);
+                                return updated;
+                              });
                             }}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -2698,21 +2700,12 @@ export default function RouteBuilder() {
                   Add Stop
                 </Button>
 
-                {/* Manual Build button */}
-                {formStops.filter((s) => s.location.trim()).length >= 2 && (
-                  <Button
-                    className="w-full bg-orange-400 hover:bg-orange-500 text-white"
-                    data-testid="button-build-route"
-                    disabled={isGeocodingRoute || isCalculating}
-                    onClick={() => void triggerRouteBuild(undefined, true)}
-                  >
-                    {isGeocodingRoute || isCalculating ? (
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Route className="w-4 h-4 mr-1.5" />
-                    )}
-                    Build Route
-                  </Button>
+                {/* Auto-building indicator (route builds automatically on input/drag/remove) */}
+                {(isGeocodingRoute || isCalculating) && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-1">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Calculating route…
+                  </div>
                 )}
               </CardContent>
             </Card>

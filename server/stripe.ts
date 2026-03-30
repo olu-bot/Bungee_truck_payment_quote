@@ -230,6 +230,7 @@ export function registerStripeRoutes(app: Express): void {
     if (!stripe) {
       return res.status(503).json({ error: "Stripe is not configured." });
     }
+    const stripeClient = stripe;
 
     type Slot = {
       amount: number;
@@ -241,7 +242,7 @@ export function registerStripeRoutes(app: Express): void {
     async function loadSlot(priceId: string | undefined): Promise<Slot | null> {
       if (!priceId) return null;
       try {
-        const p = await stripe.prices.retrieve(priceId);
+        const p = await stripeClient.prices.retrieve(priceId);
         const ua = p.unit_amount;
         if (ua == null) return null;
         const currency = (p.currency || "usd").toUpperCase();
