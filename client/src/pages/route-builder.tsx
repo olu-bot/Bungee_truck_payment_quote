@@ -1080,7 +1080,7 @@ export default function RouteBuilder() {
       if (connectGuest && selectedProfileId === CONNECT_GUEST_PROFILE_ID) {
         rawProfile = connectGuestProfile;
       } else {
-        rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+        rawProfile = (await firebaseDb.getProfile(scopeId, selectedProfileId)) ?? null;
       }
       if (!rawProfile) throw new Error("Cost profile not found");
 
@@ -1240,7 +1240,7 @@ export default function RouteBuilder() {
       if (connectGuest && selectedProfileId === CONNECT_GUEST_PROFILE_ID) {
         rawProfile = connectGuestProfile;
       } else {
-        rawProfile = await firebaseDb.getProfile(scopeId, selectedProfileId);
+        rawProfile = (await firebaseDb.getProfile(scopeId, selectedProfileId)) ?? null;
       }
       if (!rawProfile) throw new Error("Cost profile not found");
       const profileCurrency = (rawProfile.currency as SupportedCurrency) || "USD";
