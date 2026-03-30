@@ -706,9 +706,18 @@ export default function RouteBuilder() {
     enabled: !!scopeId,
   });
 
-  // Build a set of "origin→destination" keys so we can check if the current route is already a fav
+  // Build a set of full route keys (all stops) so we can check if the current route is a fav
   useEffect(() => {
-    const keys = new Set(savedLanes.map((l) => `${l.origin}→${l.destination}`));
+    const keys = new Set(savedLanes.map((l) => {
+      // Use cached stops for full route key if available
+      const cached = (l as any).cachedStops as { location?: string; type?: string }[] | undefined;
+      if (cached && cached.length >= 2) {
+        const nonYard = cached.filter((s) => s.type !== "yard");
+        const fullKey = nonYard.map((s) => s.location).filter(Boolean).join("→");
+        if (fullKey) return fullKey;
+      }
+      return `${l.origin}→${l.destination}`;
+    }));
     setFavLaneIds(keys);
   }, [savedLanes]);
 
@@ -1363,14 +1372,22 @@ export default function RouteBuilder() {
     const destination = nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
     if (!origin || !destination) return;
 
-    const key = `${origin}→${destination}`;
+    // Full route key includes all stops (not just origin/destination)
+    const key = nonYard.map((s) => s.location).filter(Boolean).join("→");
     const isAlreadyFav = favLaneIds.has(key);
 
     setIsSavingFav(true);
     try {
       if (isAlreadyFav) {
-        // Find and delete the matching lane
-        const match = savedLanes.find((l) => l.origin === origin && l.destination === destination);
+        // Find and delete the matching lane (match on full route key)
+        const match = savedLanes.find((l) => {
+          const cached = (l as any).cachedStops as { location?: string; type?: string }[] | undefined;
+          if (cached && cached.length >= 2) {
+            const laneKey = cached.filter((s) => s.type !== "yard").map((s) => s.location).filter(Boolean).join("→");
+            return laneKey === key;
+          }
+          return `${l.origin}→${l.destination}` === key;
+        });
         if (match) {
           await firebaseDb.deleteLane(scopeId, match.id);
         }
@@ -1728,9 +1745,9 @@ export default function RouteBuilder() {
   const isFavLane = useMemo(() => {
     if (stops.length < 2) return false;
     const nonYard = stops.filter((s) => s.type !== "yard");
-    const origin = nonYard[0]?.location ?? stops[0]?.location ?? "";
-    const dest = nonYard[nonYard.length - 1]?.location ?? stops[stops.length - 1]?.location ?? "";
-    return favLaneIds.has(`${origin}→${dest}`);
+    // Include ALL stops in the key so adding a middle stop changes the match
+    const fullKey = nonYard.map((s) => s.location).filter(Boolean).join("→");
+    return favLaneIds.has(fullKey);
   }, [stops, favLaneIds]);
 
   // ── Derived pricing values (client-side fallbacks) ────────────
