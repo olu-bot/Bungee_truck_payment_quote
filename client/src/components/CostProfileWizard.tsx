@@ -547,7 +547,7 @@ export function CostProfileWizard({
                     type="number"
                     step="any"
                     placeholder="Enter value"
-                    value={currentValue > 0 ? String(currentValue) : ""}
+                    value={Number.isFinite(currentValue) ? String(currentValue) : ""}
                     onChange={(e) => handleCustomInput(field.key, e.target.value)}
                   />
                   {field.suffix && (

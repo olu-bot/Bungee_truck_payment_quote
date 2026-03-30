@@ -891,7 +891,7 @@ export function CostDiscoveryWizard({
                           step={field.step || "any"}
                           min={field.optional ? 0 : (["workingDaysPerMonth", "workingHoursPerDay", "fuelConsumptionPer100km"].includes(field.key) ? 1 : 0)}
                           className="h-9 text-sm flex-1 border-slate-200 focus:border-slate-400 transition-colors tabular-nums"
-                          value={currentValue || ""}
+                          value={Number.isFinite(currentValue) ? String(currentValue) : ""}
                           placeholder={benchmark ? String(benchmark) : "0"}
                           onChange={(e) => {
                             const raw = e.target.value;
