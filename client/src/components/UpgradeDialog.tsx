@@ -14,7 +14,7 @@
  *   />
  */
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { useStripePricingDisplay } from "@/hooks/use-stripe-pricing-display";
@@ -102,42 +102,82 @@ export function UpgradeDialog({
   const { toast } = useToast();
   const [billingPeriod, setBillingPeriod] = useState<"month" | "year">("month");
   const [checkoutTier, setCheckoutTier] = useState<"free" | "pro" | "premium" | null>(null);
-  const { data: livePricing } = useStripePricingDisplay(open);
+  /** Preload on mount so prices are ready when the dialog opens (avoids flashing stale fallbacks). */
+  const { data: livePricing, isPending, isFetching, isError } = useStripePricingDisplay(true);
 
   const proMonth = livePricing?.pro?.month;
   const proYear = livePricing?.pro?.year;
   const premiumMonth = livePricing?.premium?.month;
   const premiumYear = livePricing?.premium?.year;
 
-  const proMain =
+  const pricingLoading = (isPending || isFetching) && !livePricing;
+  const pricingFailed = isError && !livePricing;
+
+  const proMainText =
     billingPeriod === "month"
       ? proMonth
         ? formatMoney(proMonth.amount, proMonth.currency)
-        : "$29"
+        : livePricing
+          ? "—"
+          : null
       : proYear?.monthlyEquivalent != null
         ? formatMoney(proYear.monthlyEquivalent, proYear.currency)
-        : "$20.75";
+        : livePricing
+          ? "—"
+          : null;
+
   const proAnnualNote =
-    billingPeriod === "year"
-      ? proYear
-        ? `${formatMoney(proYear.amount, proYear.currency)} billed annually`
-        : "$249 billed annually"
+    billingPeriod === "year" && proYear
+      ? `${formatMoney(proYear.amount, proYear.currency)} billed annually`
       : null;
 
-  const premiumMain =
+  const premiumMainText =
     billingPeriod === "month"
       ? premiumMonth
         ? formatMoney(premiumMonth.amount, premiumMonth.currency)
-        : "$59"
+        : livePricing
+          ? "—"
+          : null
       : premiumYear?.monthlyEquivalent != null
         ? formatMoney(premiumYear.monthlyEquivalent, premiumYear.currency)
-        : "$45.75";
+        : livePricing
+          ? "—"
+          : null;
+
   const premiumAnnualNote =
-    billingPeriod === "year"
-      ? premiumYear
-        ? `${formatMoney(premiumYear.amount, premiumYear.currency)} billed annually`
-        : "$549 billed annually"
+    billingPeriod === "year" && premiumYear
+      ? `${formatMoney(premiumYear.amount, premiumYear.currency)} billed annually`
       : null;
+
+  function renderPriceBlock(
+    mainText: string | null,
+    annualNote: string | null,
+  ): ReactNode {
+    if (pricingLoading) {
+      return (
+        <div className="flex items-center gap-2 text-slate-500 min-h-[2.5rem]">
+          <Loader2 className="h-5 w-5 shrink-0 animate-spin" aria-hidden />
+          <span className="text-sm font-medium">Loading prices…</span>
+        </div>
+      );
+    }
+    if (pricingFailed) {
+      return (
+        <p className="text-xs text-amber-700 leading-snug">
+          Couldn’t load prices from Stripe. You can still continue to checkout — totals match your live Stripe products.
+        </p>
+      );
+    }
+    return (
+      <>
+        <p className="text-2xl font-bold tracking-tight">
+          {mainText ?? "—"}{" "}
+          <span className="text-base font-normal text-slate-500">/ month</span>
+        </p>
+        {annualNote ? <p className="text-xs text-slate-500">{annualNote}</p> : null}
+      </>
+    );
+  }
 
   async function startStripeCheckout(tier: "free" | "pro" | "premium") {
     if (tier === "free") {
@@ -224,6 +264,9 @@ export function UpgradeDialog({
               <p className="text-2xl font-bold tracking-tight">
                 $0 <span className="text-base font-normal text-slate-500">/ month</span>
               </p>
+              {billingPeriod === "year" && (
+                <p className="text-xs text-slate-500">$0 billed annually</p>
+              )}
               <CardDescription className="text-xs text-slate-500 leading-snug">
                 For owner-operators and small carriers getting started.
               </CardDescription>
@@ -258,11 +301,7 @@ export function UpgradeDialog({
                 <CardTitle className="text-sm font-semibold tracking-tight">Pro</CardTitle>
                 <Badge className="bg-orange-400 text-white text-[10px] uppercase border-0">Most Popular</Badge>
               </div>
-              <p className="text-2xl font-bold tracking-tight">
-                {proMain}{" "}
-                <span className="text-base font-normal text-slate-500">/ month</span>
-              </p>
-              {proAnnualNote && <p className="text-xs text-slate-500">{proAnnualNote}</p>}
+              {renderPriceBlock(proMainText, proAnnualNote)}
               <CardDescription className="text-xs text-slate-500 leading-snug">
                 For growing fleets that need more power and branded quotes.
               </CardDescription>
@@ -297,11 +336,7 @@ export function UpgradeDialog({
           <Card className="flex flex-col border-slate-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold tracking-tight">Premium</CardTitle>
-              <p className="text-2xl font-bold tracking-tight">
-                {premiumMain}{" "}
-                <span className="text-base font-normal text-slate-500">/ month</span>
-              </p>
-              {premiumAnnualNote && <p className="text-xs text-slate-500">{premiumAnnualNote}</p>}
+              {renderPriceBlock(premiumMainText, premiumAnnualNote)}
               <CardDescription className="text-xs text-slate-500 leading-snug">
                 For fleets needing unlimited team, analytics, and priority support.
               </CardDescription>

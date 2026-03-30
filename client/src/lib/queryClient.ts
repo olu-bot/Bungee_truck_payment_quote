@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
+import { apiUrl } from "@/lib/apiUrl";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -10,7 +11,7 @@ export const queryClient = new QueryClient({
       queryFn: async ({ queryKey }) => {
         const path = queryKey[0];
         if (typeof path === "string" && path.startsWith("/api/")) {
-          const res = await fetch(path);
+          const res = await fetch(apiUrl(path));
           if (!res.ok) throw new Error(await res.text());
           return res.json();
         }
@@ -22,7 +23,8 @@ export const queryClient = new QueryClient({
 });
 
 export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
-  const res = await fetch(url, {
+  const resolved = url.startsWith("/api/") ? apiUrl(url) : url;
+  const res = await fetch(resolved, {
     method,
     headers: data ? { "Content-Type": "application/json" } : undefined,
     body: data !== undefined ? JSON.stringify(data) : undefined,
