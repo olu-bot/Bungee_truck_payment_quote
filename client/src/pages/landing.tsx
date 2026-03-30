@@ -93,7 +93,7 @@ const SIGNUP_FLOW_STEPS = 2;
 // Cost profile creation now happens on /#/profiles after signup redirect
 
 export default function Landing() {
-  const [path, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user, login, loginWithGoogle, signup } = useFirebaseAuth();
@@ -582,16 +582,6 @@ export default function Landing() {
     setCityManual("");
     setCitySearch("");
   }, [stateProvince]);
-
-  // Connect guest build: #/signup should open the auth form immediately (not a blank marketing shell).
-  useEffect(() => {
-    if (!user || !isConnectGuestUser(user)) return;
-    const route = path.split("?")[0] || "/";
-    if (route === "/signup") {
-      setView("onboarding");
-      setAuthMode("signup");
-    }
-  }, [user, path]);
 
   // Signed-in real users shouldn't see this screen unless they're in onboarding — but never hide for Connect guest.
   if (user && !isConnectGuestUser(user) && !isOnboardingActive()) return null;

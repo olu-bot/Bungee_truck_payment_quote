@@ -453,16 +453,8 @@ function AppLayout() {
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
 
-  // Guest (unified site): always land on #/signup with login/sign-up form (not main app shell).
-  if (user && isConnectGuestUser(user) && routePath === "/") {
-    return (
-      <>
-        <Redirect to="/signup" />
-        <PageLoader />
-      </>
-    );
-  }
-  if (user && isConnectGuestUser(user) && routePath === "/signup") {
+  // Guest (unified site): marketing home at #/ or #/signup — user chooses Sign up / Log in in the page (no forced wizard).
+  if (user && isConnectGuestUser(user) && (routePath === "/" || routePath === "/signup")) {
     return (
       <Suspense fallback={<PageLoader />}>
         <Landing />
@@ -470,21 +462,30 @@ function AppLayout() {
     );
   }
 
-  // Definitely signed out — only after Firebase has finished restoring the session.
+  // Definitely signed out — marketing home first; deep links to app routes go to #/.
   if (!authLoading && !user) {
-    if (routePath === "/signup") return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
-    // Redirect renders null — show a loader so incognito / slow devices never see a blank screen.
+    if (routePath === "/" || routePath === "/signup") {
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <Landing />
+        </Suspense>
+      );
+    }
     return (
       <>
-        <Redirect to="/signup" />
+        <Redirect to="/" />
         <PageLoader />
       </>
     );
   }
 
-  // Session still restoring: show signup screen on #/signup; otherwise spinner (never mount main app with null user).
-  if (sessionPending && routePath === "/signup") {
-    return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
+  // Session restoring: same public landing as home (never mount main app with null user).
+  if (sessionPending && (routePath === "/" || routePath === "/signup")) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Landing />
+      </Suspense>
+    );
   }
   if (sessionPending) {
     return <PageLoader />;
