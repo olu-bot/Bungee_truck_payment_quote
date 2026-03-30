@@ -774,7 +774,8 @@ export default function Landing() {
             </form>
           )}
 
-          {authMode === "signup" && signupStep === 1 && !user && (
+          {/* Guest mode still has a synthetic `user` — must not hide the form with `!user` only */}
+          {authMode === "signup" && signupStep === 1 && (!user || isConnectGuestUser(user)) && (
             <form className="card" id="step1" onSubmit={goSignupStep2}>
               <h2 className="card-title">Create Your Account</h2>
               <p className="card-sub">Get started in under a minute. Free forever — no credit card needed.</p>
