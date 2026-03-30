@@ -219,8 +219,12 @@ async function persistRouteBuilderQuote(
   const grossProfit = customerPrice - accTotal - carrierCostPersist;
   const profitMarginPercent = carrierCostPersist > 0 ? (grossProfit / carrierCostPersist) * 100 : 0;
 
+  // Exclude yard from summary when deadhead is off
+  const summaryStops = meta.includeReturn
+    ? stops
+    : stops.filter((s) => s.type !== "yard");
   const snapshot: RouteBuilderSnapshot = {
-    routeSummary: stops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
+    routeSummary: summaryStops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
     totalKm: meta.calc.totalDistanceKm,
     totalMin: meta.calc.totalDriveMinutes,
     returnKm: meta.calc.legs
@@ -1228,7 +1232,7 @@ export default function RouteBuilder() {
             profitMarginPercent: 0,
             quoteSource: "chat_route",
             routeSnapshotJson: JSON.stringify({
-              routeSummary: routeStops.map((s) => s.location).filter(Boolean).join(" \u2192 "),
+              routeSummary: (includeReturn ? routeStops : routeStops.filter((s) => s.type !== "yard")).map((s) => s.location).filter(Boolean).join(" \u2192 "),
               totalKm: data.totalDistanceKm,
               totalMin: data.totalDriveMinutes,
               chatUserMessage: options.chatUserMessage,
@@ -2569,6 +2573,13 @@ export default function RouteBuilder() {
                             const copy = [...prev];
                             const [moved] = copy.splice(dragIdx, 1);
                             copy.splice(idx, 0, moved);
+                            // Auto-build after reorder
+                            setTimeout(() => {
+                              const current = formStopsRef.current;
+                              if (current.filter((s) => s.location.trim()).length >= 2) {
+                                void triggerRouteBuild(current, false);
+                              }
+                            }, 50);
                             return copy;
                           });
                         }
@@ -2630,9 +2641,17 @@ export default function RouteBuilder() {
                             className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
                             data-testid={`button-remove-stop-${idx}`}
                             onClick={() => {
-                              setFormStops((prev) =>
-                                prev.filter((_, i) => i !== idx),
-                              );
+                              setFormStops((prev) => {
+                                const updated = prev.filter((_, i) => i !== idx);
+                                // Auto-build after removing a stop
+                                setTimeout(() => {
+                                  const current = formStopsRef.current;
+                                  if (current.filter((s) => s.location.trim()).length >= 2) {
+                                    void triggerRouteBuild(current, false);
+                                  }
+                                }, 50);
+                                return updated;
+                              });
                             }}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -2664,21 +2683,12 @@ export default function RouteBuilder() {
                   Add Stop
                 </Button>
 
-                {/* Manual Build button */}
-                {formStops.filter((s) => s.location.trim()).length >= 2 && (
-                  <Button
-                    className="w-full bg-orange-400 hover:bg-orange-500 text-white"
-                    data-testid="button-build-route"
-                    disabled={isGeocodingRoute || isCalculating}
-                    onClick={() => void triggerRouteBuild(undefined, true)}
-                  >
-                    {isGeocodingRoute || isCalculating ? (
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Route className="w-4 h-4 mr-1.5" />
-                    )}
-                    Build Route
-                  </Button>
+                {/* Auto-building indicator (route builds automatically on input/drag/remove) */}
+                {(isGeocodingRoute || isCalculating) && (
+                  <div className="flex items-center justify-center gap-2 text-xs text-slate-400 py-1">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Calculating route…
+                  </div>
                 )}
               </CardContent>
             </Card>

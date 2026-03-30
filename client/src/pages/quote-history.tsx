@@ -254,9 +254,15 @@ function QuoteRow({
       {/* Route + quote number + time */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-medium truncate">{q.origin}</span>
-          <ArrowRight className="w-3 h-3 text-slate-500 shrink-0" />
-          <span className="text-sm font-medium truncate">{q.destination}</span>
+          {rbSnap?.routeSummary ? (
+            <span className="text-sm font-medium truncate">{rbSnap.routeSummary}</span>
+          ) : (
+            <>
+              <span className="text-sm font-medium truncate">{q.origin}</span>
+              <ArrowRight className="w-3 h-3 text-slate-500 shrink-0" />
+              <span className="text-sm font-medium truncate">{q.destination}</span>
+            </>
+          )}
           <span className="text-[10px] text-slate-500 font-mono ml-1">{q.quoteNumber}</span>
           <span className="text-[10px] text-slate-500 ml-auto shrink-0">{formatDateTime(q.createdAt)}</span>
         </div>
