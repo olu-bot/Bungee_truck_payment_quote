@@ -204,7 +204,7 @@ export default function MockOnboarding({ onComplete, onDismiss }: Props) {
         {/* Logo */}
         <div className="relative flex items-center h-14 border-b border-border shrink-0 justify-center px-4">
           <div className="flex items-center gap-2">
-            <img src="/lottie/BungeeConnect-logo.png" alt="Bungee Connect" className="h-7 shrink-0 object-contain" />
+            <img src={`${import.meta.env.BASE_URL}lottie/BungeeConnect-logo.png`} alt="Bungee Connect" className="h-7 shrink-0 object-contain" />
           </div>
           <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 absolute right-2 top-1/2 -translate-y-1/2">
             <PanelLeftClose className="w-4 h-4" />

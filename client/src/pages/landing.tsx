@@ -617,7 +617,7 @@ export default function Landing() {
             </div>
             <div className="top-bar-center">
               <div className="logo">
-                <img src="/lottie/BungeeConnect-logo.png" alt="Bungee Connect" className="logo-img" />
+                <img src={`${import.meta.env.BASE_URL}lottie/BungeeConnect-logo.png`} alt="Bungee Connect" className="logo-img" />
               </div>
             </div>
             <div className="top-bar-right">

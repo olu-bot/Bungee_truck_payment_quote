@@ -465,7 +465,13 @@ function AppLayout() {
   // Definitely signed out — only after Firebase has finished restoring the session.
   if (!authLoading && !user) {
     if (routePath === "/signup") return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
-    return <Redirect to="/signup" />;
+    // Redirect renders null — show a loader so incognito / slow devices never see a blank screen.
+    return (
+      <>
+        <Redirect to="/signup" />
+        <PageLoader />
+      </>
+    );
   }
 
   // Session still restoring: keep current app URL (e.g. Home) instead of redirecting to signup.
@@ -502,7 +508,7 @@ function AppLayout() {
               title={location === "/" ? "Reset home (clear route & quote)" : "Go to home"}
             >
               <img
-                src="/lottie/BungeeConnect-logo.png"
+                src={`${import.meta.env.BASE_URL}lottie/BungeeConnect-logo.png`}
                 alt="Bungee Connect"
                 className="h-7 shrink-0 object-contain"
               />
@@ -768,7 +774,7 @@ function AppLayout() {
                 }}
               >
                 <img
-                  src="/lottie/BungeeConnect-logo.png"
+                  src={`${import.meta.env.BASE_URL}lottie/BungeeConnect-logo.png`}
                   alt="Bungee Connect"
                   className="h-7 shrink-0 object-contain"
                 />
@@ -950,7 +956,7 @@ function AppLayout() {
                 }}
               >
                 <img
-                  src="/lottie/BungeeConnect-logo.png"
+                  src={`${import.meta.env.BASE_URL}lottie/BungeeConnect-logo.png`}
                   alt="Bungee Connect"
                   className="h-7 shrink-0 object-contain"
                 />

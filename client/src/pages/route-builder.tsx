@@ -1775,7 +1775,7 @@ export default function RouteBuilder() {
               Create an equipment cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
             </p>
             <a
-              href="/#/profiles?action=create"
+              href="#/profiles?action=create"
               className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 rounded-md px-3.5 py-1.5 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1811,7 +1811,7 @@ export default function RouteBuilder() {
           <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
           <p className="text-[13px] text-slate-600 leading-snug">
             You're using the <strong className="text-slate-800">Quick Start Profile</strong> with industry-average values. For accurate quotes,{" "}
-            <a href="/#/profiles?action=create" className="underline font-semibold text-orange-600 hover:text-orange-500">
+            <a href="#/profiles?action=create" className="underline font-semibold text-orange-600 hover:text-orange-500">
               create your own profile
             </a>{" "}
             with your real costs.
@@ -2243,7 +2243,7 @@ export default function RouteBuilder() {
                 <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Charges</h4>
                 <div className="flex-1 border-t border-slate-100" />
                 {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600">+{formatCurrency(accessorialTotal)}</span>}
-                <a href="/#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600" data-testid="link-adjust-defaults">Adjust Defaults</a>
+                <a href="#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600" data-testid="link-adjust-defaults">Adjust Defaults</a>
               </div>
               <div className="grid grid-cols-7 gap-3">
                 {/* Detention */}
