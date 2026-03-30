@@ -112,10 +112,10 @@ export function calculateRouteCost(
     // Driver cost depends on pay mode
     let legDriverCost: number;
     if (effectivePayMode === "perMile" && driverPayPerMile > 0) {
-      // Per-distance: driverPayPerMile stores $/mi for imperial, $/km for metric.
-      // Match distance units to the rate's units.
-      const effectiveDist = measurementUnit === "metric" ? distKm : distKm / 1.609344;
-      const baseDriverCost = effectiveDist * driverPayPerMile;
+      // driverPayPerMile is always stored as $/mile.
+      // Convert distance to miles so cost = miles × $/mile regardless of display unit.
+      const distMiles = distKm / 1.609344;
+      const baseDriverCost = distMiles * driverPayPerMile;
       // Apply deadhead reduced rate
       legDriverCost = deadhead ? baseDriverCost * (deadheadPayPercent / 100) : baseDriverCost;
     } else {
