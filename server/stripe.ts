@@ -221,6 +221,55 @@ export function registerStripeRoutes(app: Express): void {
     }
   });
 
+  /**
+   * Public read: amounts for Pro / Premium from the same Price IDs used at checkout,
+   * so the upgrade modal matches Stripe-hosted totals.
+   */
+  app.get("/api/stripe/pricing-display", async (_req: Request, res: Response) => {
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.status(503).json({ error: "Stripe is not configured." });
+    }
+
+    type Slot = {
+      amount: number;
+      currency: string;
+      interval: "month" | "year";
+      monthlyEquivalent?: number;
+    };
+
+    async function loadSlot(priceId: string | undefined): Promise<Slot | null> {
+      if (!priceId) return null;
+      try {
+        const p = await stripe.prices.retrieve(priceId);
+        const ua = p.unit_amount;
+        if (ua == null) return null;
+        const currency = (p.currency || "usd").toUpperCase();
+        const interval = p.recurring?.interval;
+        if (interval !== "month" && interval !== "year") return null;
+        const amount = ua / 100;
+        if (interval === "year") {
+          const monthlyEquivalent = Math.round((amount / 12) * 100) / 100;
+          return { amount, currency, interval: "year", monthlyEquivalent };
+        }
+        return { amount, currency, interval: "month" };
+      } catch (e) {
+        console.warn("[stripe] pricing-display retrieve failed", priceId, e);
+        return null;
+      }
+    }
+
+    const proMonth = await loadSlot(proPriceEnv("month"));
+    const proYear = await loadSlot(proPriceEnv("year"));
+    const premiumMonth = await loadSlot(premiumPriceEnv("month"));
+    const premiumYear = await loadSlot(premiumPriceEnv("year"));
+
+    res.json({
+      pro: { month: proMonth, year: proYear },
+      premium: { month: premiumMonth, year: premiumYear },
+    });
+  });
+
   app.post("/api/stripe/webhook", async (req: Request, res: Response) => {
     const stripe = getStripe();
     const whSecret = process.env.STRIPE_WEBHOOK_SECRET;

@@ -17,6 +17,8 @@
 import { useState } from "react";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { useStripePricingDisplay } from "@/hooks/use-stripe-pricing-display";
+import { formatMoney } from "@/lib/stripePricingDisplay";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -100,6 +102,42 @@ export function UpgradeDialog({
   const { toast } = useToast();
   const [billingPeriod, setBillingPeriod] = useState<"month" | "year">("month");
   const [checkoutTier, setCheckoutTier] = useState<"free" | "pro" | "premium" | null>(null);
+  const { data: livePricing } = useStripePricingDisplay(open);
+
+  const proMonth = livePricing?.pro?.month;
+  const proYear = livePricing?.pro?.year;
+  const premiumMonth = livePricing?.premium?.month;
+  const premiumYear = livePricing?.premium?.year;
+
+  const proMain =
+    billingPeriod === "month"
+      ? proMonth
+        ? formatMoney(proMonth.amount, proMonth.currency)
+        : "$29"
+      : proYear?.monthlyEquivalent != null
+        ? formatMoney(proYear.monthlyEquivalent, proYear.currency)
+        : "$20.75";
+  const proAnnualNote =
+    billingPeriod === "year"
+      ? proYear
+        ? `${formatMoney(proYear.amount, proYear.currency)} billed annually`
+        : "$249 billed annually"
+      : null;
+
+  const premiumMain =
+    billingPeriod === "month"
+      ? premiumMonth
+        ? formatMoney(premiumMonth.amount, premiumMonth.currency)
+        : "$59"
+      : premiumYear?.monthlyEquivalent != null
+        ? formatMoney(premiumYear.monthlyEquivalent, premiumYear.currency)
+        : "$45.75";
+  const premiumAnnualNote =
+    billingPeriod === "year"
+      ? premiumYear
+        ? `${formatMoney(premiumYear.amount, premiumYear.currency)} billed annually`
+        : "$549 billed annually"
+      : null;
 
   async function startStripeCheckout(tier: "free" | "pro" | "premium") {
     if (tier === "free") {
@@ -221,12 +259,10 @@ export function UpgradeDialog({
                 <Badge className="bg-orange-400 text-white text-[10px] uppercase border-0">Most Popular</Badge>
               </div>
               <p className="text-2xl font-bold tracking-tight">
-                {billingPeriod === "month" ? "$29" : "$20.75"}{" "}
+                {proMain}{" "}
                 <span className="text-base font-normal text-slate-500">/ month</span>
               </p>
-              {billingPeriod === "year" && (
-                <p className="text-xs text-slate-500">$249 billed annually</p>
-              )}
+              {proAnnualNote && <p className="text-xs text-slate-500">{proAnnualNote}</p>}
               <CardDescription className="text-xs text-slate-500 leading-snug">
                 For growing fleets that need more power and branded quotes.
               </CardDescription>
@@ -262,12 +298,10 @@ export function UpgradeDialog({
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold tracking-tight">Premium</CardTitle>
               <p className="text-2xl font-bold tracking-tight">
-                {billingPeriod === "month" ? "$59" : "$45.75"}{" "}
+                {premiumMain}{" "}
                 <span className="text-base font-normal text-slate-500">/ month</span>
               </p>
-              {billingPeriod === "year" && (
-                <p className="text-xs text-slate-500">$549 billed annually</p>
-              )}
+              {premiumAnnualNote && <p className="text-xs text-slate-500">{premiumAnnualNote}</p>}
               <CardDescription className="text-xs text-slate-500 leading-snug">
                 For fleets needing unlimited team, analytics, and priority support.
               </CardDescription>
