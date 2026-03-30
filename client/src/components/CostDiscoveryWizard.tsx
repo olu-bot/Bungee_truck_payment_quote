@@ -472,6 +472,8 @@ const OPTIONAL_FIELDS = new Set([
   "driverPayPerMile", "deadheadPayPercent",
   "monthlyTrailerLease", "monthlyEldTelematics", "monthlyAccountingOffice", "monthlyTireReserve",
 ]);
+// Fields that must be > 0 to avoid division-by-zero in cost calculations
+const MUST_BE_POSITIVE = new Set(["workingDaysPerMonth", "workingHoursPerDay", "fuelConsumptionPer100km"]);
 
 export type CostDiscoveryWizardProps = {
   onSave: (data: Omit<CostProfile, "id">) => void | Promise<void>;
@@ -665,13 +667,13 @@ export function CostDiscoveryWizard({
     });
   }
 
-  // Validation — all required fields must be > 0
+  // Validation — division-critical fields must be > 0, everything else allows 0
   const canSave = useMemo(() => {
     const allFieldKeys = sections.flatMap((s) => s.fields.map((f) => f.key));
     return allFieldKeys.every((key) => {
       const v = values[key];
-      if (OPTIONAL_FIELDS.has(key)) return typeof v === "number" && v >= 0;
-      return typeof v === "number" && v > 0;
+      if (MUST_BE_POSITIVE.has(key)) return typeof v === "number" && v > 0;
+      return typeof v === "number" && v >= 0;
     });
   }, [values, sections]);
 
