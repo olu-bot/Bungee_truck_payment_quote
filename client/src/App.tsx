@@ -453,8 +453,16 @@ function AppLayout() {
   const currency = useMemo(() => resolveWorkspaceCurrency(user), [user]);
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
 
-  // Guest (unified site): marketing at #/, sign-up flow at #/signup — no app shell until they register.
-  if (user && isConnectGuestUser(user) && (routePath === "/" || routePath === "/signup")) {
+  // Guest (unified site): always land on #/signup with login/sign-up form (not main app shell).
+  if (user && isConnectGuestUser(user) && routePath === "/") {
+    return (
+      <>
+        <Redirect to="/signup" />
+        <PageLoader />
+      </>
+    );
+  }
+  if (user && isConnectGuestUser(user) && routePath === "/signup") {
     return (
       <Suspense fallback={<PageLoader />}>
         <Landing />
@@ -474,9 +482,12 @@ function AppLayout() {
     );
   }
 
-  // Session still restoring: keep current app URL (e.g. Home) instead of redirecting to signup.
+  // Session still restoring: show signup screen on #/signup; otherwise spinner (never mount main app with null user).
   if (sessionPending && routePath === "/signup") {
     return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
+  }
+  if (sessionPending) {
+    return <PageLoader />;
   }
 
   // Signed in on /signup: onboarding vs home.

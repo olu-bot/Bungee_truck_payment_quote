@@ -19,6 +19,7 @@ import { collection, doc, setDoc } from "firebase/firestore";
 import { currencyForCountryCode, currencySymbol } from "@/lib/currency";
 import type { MeasurementUnit } from "@/lib/measurement";
 import { City, State, type ICity } from "country-state-city";
+import { isConnectGuestUser } from "@/lib/connectGuest";
 
 /** User closed Google popup or dismissed it — not a sign-in failure */
 function isGooglePopupCancelled(err: unknown): boolean {
@@ -92,7 +93,7 @@ const SIGNUP_FLOW_STEPS = 2;
 // Cost profile creation now happens on /#/profiles after signup redirect
 
 export default function Landing() {
-  const [, setLocation] = useLocation();
+  const [path, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { user, login, loginWithGoogle, signup } = useFirebaseAuth();
@@ -582,7 +583,18 @@ export default function Landing() {
     setCitySearch("");
   }, [stateProvince]);
 
-  if (user && !isOnboardingActive()) return null;
+  // Connect guest build: #/signup should open the auth form immediately (not a blank marketing shell).
+  useEffect(() => {
+    if (!user || !isConnectGuestUser(user)) return;
+    const route = path.split("?")[0] || "/";
+    if (route === "/signup") {
+      setView("onboarding");
+      setAuthMode("signup");
+    }
+  }, [user, path]);
+
+  // Signed-in real users shouldn't see this screen unless they're in onboarding — but never hide for Connect guest.
+  if (user && !isConnectGuestUser(user) && !isOnboardingActive()) return null;
 
   const signupProgressPct =
     authMode === "signup" && signupStep <= SIGNUP_FLOW_STEPS
