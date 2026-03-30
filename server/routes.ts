@@ -325,20 +325,28 @@ async function googleGeocodeRaw(query: string, countrycodes?: string): Promise<{
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const params = new URLSearchParams({ address: query.trim(), key: gKey });
-    // Convert countrycodes "us,ca" → components filter "country:US|country:CA"
+    // Use region bias (soft hint) — NOT components filter which breaks with multiple countries.
+    // For single country, use components=country:XX for precision.
+    // For multi-country (e.g. "us,ca"), use region bias on the first code only.
     if (countrycodes) {
-      const cc = countrycodes.split(",").map((c) => `country:${c.trim().toUpperCase()}`).join("|");
-      params.set("components", cc);
+      const codes = countrycodes.split(",").map((c) => c.trim().toUpperCase());
+      if (codes.length === 1) {
+        params.set("components", `country:${codes[0]}`);
+      } else {
+        // Soft region bias on first country — Google will still find results in other countries
+        params.set("region", codes[0].toLowerCase());
+      }
     }
     const url = `https://maps.googleapis.com/maps/api/geocode/json?${params.toString()}`;
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
     const data = await res.json() as {
       status: string;
-      results: Array<{ geometry: { location: { lat: number; lng: number } } }>;
+      results: Array<{ geometry: { location: { lat: number; lng: number } }; formatted_address?: string }>;
     };
     if (data.status === "OK" && data.results.length > 0) {
       const loc = data.results[0].geometry.location;
+      console.log(`[Google Geocode] "${query}" → ${loc.lat.toFixed(4)},${loc.lng.toFixed(4)} (${data.results[0].formatted_address ?? ""})`);
       return { lat: loc.lat, lng: loc.lng };
     }
     if (data.status !== "ZERO_RESULTS") {
@@ -380,7 +388,11 @@ async function geocodeRaw(query: string, countrycodes?: string): Promise<{ lat: 
   const google = await googleGeocodeRaw(query, countrycodes);
   if (google) return google;
   // Fallback: Nominatim / OpenStreetMap
-  return nominatimGeocodeRaw(query, countrycodes);
+  const nom = await nominatimGeocodeRaw(query, countrycodes);
+  if (nom) {
+    console.log(`[Nominatim fallback] "${query}" → ${nom.lat.toFixed(4)},${nom.lng.toFixed(4)}`);
+  }
+  return nom;
 }
 
 /**
@@ -1436,6 +1448,17 @@ export async function registerRoutes(
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  // === CACHE FLUSH (dev — clears all stale geo/route caches) ===
+  app.post("/api/cache-flush", (_req, res) => {
+    const before = { geocode: geocodeCache.size, distance: distanceCache.size, multiRoute: multiRouteCache.size, placeSuggest: placeSuggestCache.size, chatRoute: chatRouteCache.size };
+    geocodeCache.clear();
+    distanceCache.clear();
+    multiRouteCache.clear();
+    placeSuggestCache.clear();
+    chatRouteCache.clear();
+    res.json({ flushed: before });
   });
 
   // === CACHE STATS (dev/monitoring) ===
