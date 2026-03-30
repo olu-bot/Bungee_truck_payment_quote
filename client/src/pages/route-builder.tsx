@@ -915,6 +915,52 @@ export default function RouteBuilder() {
     [],
   );
 
+  /**
+   * Safety net: if any consecutive leg has valid coords on both endpoints but
+   * 0 distance/duration, re-fetch the distance from the API so drive time
+   * always matches the Google Maps embed.
+   */
+  async function repairMissingDistances(stops: RouteStop[]): Promise<RouteStop[]> {
+    let needsRepair = false;
+    for (let i = 1; i < stops.length; i++) {
+      const prev = stops[i - 1];
+      const cur = stops[i];
+      if (
+        prev.lat != null && prev.lng != null &&
+        cur.lat != null && cur.lng != null &&
+        (cur.distanceFromPrevKm ?? 0) === 0 &&
+        (cur.driveMinutesFromPrev ?? 0) === 0
+      ) {
+        needsRepair = true;
+        break;
+      }
+    }
+    if (!needsRepair) return stops;
+
+    console.log("[repairMissingDistances] Detected 0-distance legs with valid coords, re-fetching…");
+    const repaired = [...stops];
+    for (let i = 1; i < repaired.length; i++) {
+      const prev = repaired[i - 1];
+      const cur = repaired[i];
+      if (
+        prev.lat != null && prev.lng != null &&
+        cur.lat != null && cur.lng != null &&
+        (cur.distanceFromPrevKm ?? 0) === 0 &&
+        (cur.driveMinutesFromPrev ?? 0) === 0
+      ) {
+        const dist = await getOSRMRoute(prev.lat, prev.lng, cur.lat, cur.lng);
+        if (dist) {
+          repaired[i] = {
+            ...cur,
+            distanceFromPrevKm: dist.distanceKm,
+            driveMinutesFromPrev: dist.durationMinutes,
+          };
+        }
+      }
+    }
+    return repaired;
+  }
+
   // ── Trigger route build ───────────────────────────────────────
 
   const calcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -929,11 +975,12 @@ export default function RouteBuilder() {
     if (filled.length < 2) return;
     setIsGeocodingRoute(true);
     try {
-      const built = await buildStopsFromForm(
+      const rawBuilt = await buildStopsFromForm(
         stopsToUse,
         effectiveYard,
         includeReturn,
       );
+      const built = await repairMissingDistances(rawBuilt);
       setStops(built);
       if (built.length >= 2 && selectedProfileId) {
         await calculateRoute(built, undefined, {
@@ -1455,9 +1502,10 @@ export default function RouteBuilder() {
               );
             }
 
-            setStops(stopsForCalcAndMap);
-            if (stopsForCalcAndMap.length >= 2 && selectedProfileId) {
-              await calculateRoute(stopsForCalcAndMap, data.returnDistance ?? undefined, {
+            const repairedStops = await repairMissingDistances(stopsForCalcAndMap);
+            setStops(repairedStops);
+            if (repairedStops.length >= 2 && selectedProfileId) {
+              await calculateRoute(repairedStops, data.returnDistance ?? undefined, {
                 saveToHistory: true,
                 chatUserMessage: userMessage,
                 countQuote: true,
@@ -1477,6 +1525,14 @@ export default function RouteBuilder() {
             { role: "bot", text: data.message },
           ]);
           setChatMessage("");
+
+          // Suggest saving as favorite lane if user has none yet
+          if (savedLanes.length === 0) {
+            toast({
+              title: "Save as favorite lane?",
+              description: "Click the ☆ star icon on the route header to save this lane for quick access next time.",
+            });
+          }
         } else if (data.locations && data.locations.length >= 2) {
           const newStops = populateFormFromLocations(data.locations);
           await triggerRouteBuild(newStops, true, userMessage);
@@ -2443,7 +2499,7 @@ export default function RouteBuilder() {
             <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
               {/* Chat messages — fills available space */}
               <div
-                className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
+                className="space-y-2 min-h-[180px] max-h-[360px] overflow-y-auto"
                 data-testid="chat-messages"
               >
                 {chatHistory.map((msg, i) => (
