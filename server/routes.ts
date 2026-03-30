@@ -221,18 +221,24 @@ async function getOSRMMultiRoute(
 
 async function geocodeRaw(query: string, countrycodes?: string): Promise<{ lat: number; lng: number } | null> {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
     // Bias results to specific countries (ISO 3166-1 alpha-2 codes, comma-separated)
     if (countrycodes) {
       url += `&countrycodes=${encodeURIComponent(countrycodes)}`;
     }
-    const res = await fetch(url, { headers: { "User-Agent": "BungeeConnect/3.0" } });
+    const res = await fetch(url, {
+      headers: { "User-Agent": "BungeeConnect/3.0" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
     const data = await res.json();
     if (data.length > 0) {
       return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
     }
   } catch {
-    // Silently fail
+    // Timeout or network error — silently fail
   }
   return null;
 }
@@ -492,12 +498,57 @@ function levenshtein(a: string, b: string): number {
   return dp[m][n];
 }
 
-function parseChatMessage(message: string): string[] {
-  // Replace arrow-style delimiters with a uniform separator
-  let normalized = message
+/** Metadata extracted from freight-style chat messages (PU/DEL times, equipment, etc.) */
+type FreightMeta = {
+  equipment: string | null;
+  pickupDetails: string | null;
+  deliveryDetails: string | null;
+};
+
+/** Strip freight annotations (equipment, PU/DEL details) and return clean location text + metadata */
+function extractFreightMeta(message: string): { clean: string; meta: FreightMeta } {
+  const meta: FreightMeta = { equipment: null, pickupDetails: null, deliveryDetails: null };
+
+  let clean = message;
+
+  // Equipment line: "Equipment: Dry Van" or "EQUIPMENT: FLATBED" etc.
+  const equipMatch = clean.match(/\b(?:equipment|equip|truck\s*type|trailer\s*type)\s*[;；:：]\s*([^\n]+)/i);
+  if (equipMatch) {
+    meta.equipment = equipMatch[1].trim();
+    clean = clean.replace(equipMatch[0], " ");
+  }
+
+  // Delivery details MUST be matched before Pickup details so we don't accidentally
+  // consume "DEL DETAILS" inside a broader PU match.
+  const delMatch = clean.match(/\b(?:del(?:ivery)?\s*(?:details?|info|time|window|appt|appointment)?)\s*[;；:：]\s*([^\n]+)/i);
+  if (delMatch) {
+    meta.deliveryDetails = delMatch[1].trim();
+    clean = clean.replace(delMatch[0], " ");
+  }
+
+  const puMatch = clean.match(/\b(?:p\/?u|pick\s*-?\s*up)\s*(?:details?|info|time|window|appt|appointment)?\s*[;；:：]\s*([^\n]+)/i);
+  if (puMatch) {
+    meta.pickupDetails = puMatch[1].trim();
+    clean = clean.replace(puMatch[0], " ");
+  }
+
+  // Also strip "LANE:" or "lane:" prefix
+  clean = clean.replace(/\blane\s*[;；:：]\s*/i, " ");
+
+  return { clean: clean.trim(), meta };
+}
+
+function parseChatMessage(message: string): { locations: string[]; freightMeta: FreightMeta } {
+  // Step 1: extract and strip freight metadata (equipment, PU/DEL details)
+  const { clean, meta } = extractFreightMeta(message);
+
+  // Step 2: replace arrow-style and dash-style delimiters with a uniform separator
+  let normalized = clean
     .replace(/→/g, " to ")
+    .replace(/–/g, " to ")    // en-dash (very common in freight: "Toronto – Montreal")
+    .replace(/—/g, " to ")    // em-dash
     .replace(/->/g, " to ")
-    .replace(/>/g, " to ")
+    .replace(/\s*>\s*/g, " to ")
     .replace(/\band\s+then\b/gi, " to ")
     .replace(/\bthen\b/gi, " to ");
 
@@ -510,7 +561,183 @@ function parseChatMessage(message: string): string[] {
   }
 
   const parts = normalized.split(/\s+to\s+/i).map(s => s.trim()).filter(s => s.length > 0);
-  return parts.map(p => fuzzyMatchCity(p) || p);
+  return { locations: parts.map(p => fuzzyMatchCity(p) || p), freightMeta: meta };
+}
+
+// ── Shipment block parser — extracts structured data from pasted freight text ──
+
+type CargoItem = {
+  dimensions: string; // e.g. "318×25×187 cm"
+  weightKg: number | null;
+  pieces: number | null;
+  description: string | null;
+};
+
+type ShipmentInfo = {
+  referenceNumber: string | null;
+  cargo: CargoItem[];
+  totalWeightKg: number | null;
+  totalPieces: number | null;
+  productName: string | null;
+  pickupAddress: string | null;
+  deliveryAddress: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+};
+
+/** Canadian/US province & state codes used for address detection */
+const REGION_CODES = new Set([
+  "ON", "QC", "BC", "AB", "MB", "SK", "NS", "NB", "NL", "PE", "NT", "YT", "NU",
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL",
+  "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT",
+  "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI",
+  "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
+]);
+
+/** Detect if a message looks like a pasted shipment/freight block vs simple chat */
+function looksLikeShipmentBlock(msg: string): boolean {
+  const indicators = [
+    /提货|派送|地址|产品|尺寸|件/,          // Chinese freight keywords
+    /pick\s*up\s*address|deliver(y)?\s*address/i,
+    /\b\d+\s*[×xX*]\s*\d+\s*[×xX*]\s*\d+/,  // dimensions pattern
+    /\b\d+(\.\d+)?\s*kg\b/i,                  // weight in kg
+    /\b\d+(\.\d+)?\s*lbs?\b/i,                // weight in lbs
+    /\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b/,           // Canadian postal code
+    /\b\d{5}(-\d{4})?\b/,                      // US zip
+  ];
+  let score = 0;
+  for (const rx of indicators) {
+    if (rx.test(msg)) score++;
+  }
+  // Also check if message is multi-line (pasted block)
+  if (msg.split(/\n/).filter(l => l.trim()).length >= 3) score++;
+  return score >= 2;
+}
+
+function parseShipmentBlock(msg: string): ShipmentInfo {
+  const lines = msg.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const fullText = lines.join("\n");
+
+  const info: ShipmentInfo = {
+    referenceNumber: null,
+    cargo: [],
+    totalWeightKg: null,
+    totalPieces: null,
+    productName: null,
+    pickupAddress: null,
+    deliveryAddress: null,
+    contactName: null,
+    contactPhone: null,
+    contactEmail: null,
+  };
+
+  // ── Reference number (e.g. HPT11731950)
+  const refMatch = fullText.match(/\b([A-Z]{2,5}\d{6,})\b/);
+  if (refMatch) info.referenceNumber = refMatch[1];
+
+  // ── Dimensions: NNN×NNN×NNN with optional (cm)/(in)
+  const dimMatches = fullText.matchAll(/(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)\s*[×xX*]\s*(\d+(?:\.\d+)?)\s*(?:\(?\s*(cm|in|mm)\s*\)?)?/gi);
+  for (const dm of dimMatches) {
+    const unit = dm[4] || "cm";
+    info.cargo.push({
+      dimensions: `${dm[1]}×${dm[2]}×${dm[3]} ${unit}`,
+      weightKg: null,
+      pieces: null,
+      description: null,
+    });
+  }
+
+  // ── Pieces count: "3板3件" or "X pieces" or "X pcs" or "X板X件"
+  const piecesMatch = fullText.match(/(\d+)\s*板\s*(\d+)\s*件/) ||
+    fullText.match(/(\d+)\s*(?:pieces?|pcs|件|crates?|pallets?|skids?)/i);
+  if (piecesMatch) {
+    // For "3板3件" pattern, total pieces = pallets + pieces
+    const secondNum = piecesMatch[2] ? parseInt(piecesMatch[2]) : 0;
+    info.totalPieces = parseInt(piecesMatch[1]) + secondNum;
+  }
+
+  // ── Weight: NNN.NN KG or NNN LBS
+  const weightMatch = fullText.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|KG|kgs|千克)/i) ||
+    fullText.match(/(\d+(?:[.,]\d+)?)\s*(?:lbs?|pounds?)/i);
+  if (weightMatch) {
+    const raw = parseFloat(weightMatch[1].replace(",", "."));
+    const isLbs = /lbs?|pounds?/i.test(weightMatch[0]);
+    info.totalWeightKg = isLbs ? r2(raw * 0.453592) : r2(raw);
+  }
+
+  // ── Product name: "产品名称；XXX" or "product: XXX" or "commodity: XXX"
+  const productMatch = fullText.match(/(?:产品名称|产品|品名|commodity|product\s*(?:name)?)\s*[;；:：]\s*(.+)/i);
+  if (productMatch) info.productName = productMatch[1].trim();
+
+  // ── Pickup address: "提货地址：XXX" or "pickup address: XXX" or "pick up: XXX" or "origin: XXX"
+  const pickupLabels = /(?:提货地址|提货|取货地址|pick\s*-?\s*up\s*(?:address)?|origin|shipper)\s*[;；:：]\s*/i;
+  const pickupIdx = fullText.search(pickupLabels);
+  if (pickupIdx >= 0) {
+    const after = fullText.slice(pickupIdx).replace(pickupLabels, "");
+    info.pickupAddress = extractAddressBlock(after, lines, pickupIdx, fullText);
+  }
+
+  // ── Delivery address: "派送地址；XXX" or "delivery address: XXX" or "consignee: XXX" or "deliver to: XXX"
+  const delivLabels = /(?:派送地址|派送|送货地址|收货地址|deliver(?:y)?\s*(?:address|to)?|consignee|destination|drop\s*-?\s*off)\s*[;；:：]\s*/i;
+  const delivIdx = fullText.search(delivLabels);
+  if (delivIdx >= 0) {
+    const after = fullText.slice(delivIdx).replace(delivLabels, "");
+    info.deliveryAddress = extractAddressBlock(after, lines, delivIdx, fullText);
+  }
+
+  // ── Contact phone: various formats
+  const phoneMatch = fullText.match(/\b(\+?1?\s*[-.]?\s*\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})\b/);
+  if (phoneMatch) info.contactPhone = phoneMatch[1].replace(/\s+/g, "");
+
+  // ── Contact email
+  const emailMatch = fullText.match(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/i);
+  if (emailMatch) info.contactEmail = emailMatch[1];
+
+  // ── Contact name: try to find a person/company name near the delivery address
+  // Look for a line that has a name-like pattern (capitalized words, no digits, no labels)
+  if (info.deliveryAddress) {
+    const delivStart = fullText.indexOf(info.deliveryAddress);
+    const nearbyText = fullText.slice(Math.max(0, delivIdx), delivStart + info.deliveryAddress.length + 200);
+    const nameLines = nearbyText.split(/\n/).map(l => l.trim()).filter(l =>
+      l.length > 2 &&
+      l.length < 60 &&
+      !/\d/.test(l) &&
+      !/[;；:：@]/.test(l) &&
+      !/提货|派送|地址|产品|尺寸|deliver|pickup|address|phone|email/i.test(l)
+    );
+    if (nameLines.length > 0) info.contactName = nameLines[0];
+  }
+
+  return info;
+}
+
+/** Extract an address block from text following a label, collecting multi-line addresses */
+function extractAddressBlock(after: string, _lines: string[], _labelIdx: number, _fullText: string): string {
+  // Collect lines until we hit another label or end
+  const addressLines: string[] = [];
+  const splitLines = after.split(/\n/).map(l => l.trim()).filter(Boolean);
+
+  const stopLabels = /^(?:派送|提货|取货|送货|收货|deliver|pickup|pick\s*up|origin|consignee|destination|drop\s*off|产品|品名|product|commodity|phone|email|contact|tel)/i;
+
+  for (const line of splitLines) {
+    if (addressLines.length > 0 && stopLabels.test(line)) break;
+    // Skip lines that are just phone numbers or emails
+    if (/^[+\d(][\d\s\-().]+$/.test(line) && line.replace(/\D/g, "").length >= 10) {
+      // This is a phone number — don't include in address but stop collecting
+      break;
+    }
+    if (/^[a-zA-Z0-9._%+-]+@/.test(line)) break;
+    addressLines.push(line);
+    // If line contains a postal/zip code, good stopping point
+    if (/\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b/.test(line) || /\b\d{5}(-\d{4})?\b/.test(line)) break;
+    // If line contains country code like "CA" or "US" at end, stop
+    if (/\b(CA|US|USA|Canada)\s*$/i.test(line)) break;
+    // Max 5 lines for an address block
+    if (addressLines.length >= 5) break;
+  }
+
+  return addressLines.join(", ").replace(/,\s*,/g, ",").trim();
 }
 
 // ── Register Routes ─────────────────────────────────────────────
@@ -923,13 +1150,39 @@ export async function registerRoutes(
     try {
       const { message, dockTimeMinutes: clientDockTime } = chatRouteSchema.parse(req.body);
       const dockTimeMin = clientDockTime ?? 60;
-      const locations = parseChatMessage(message);
+
+      // ── Smart detect: is this a pasted shipment block or a simple chat? ──
+      let locations: string[];
+      let shipment: ShipmentInfo | null = null;
+      let freightMeta: FreightMeta | null = null;
+
+      if (looksLikeShipmentBlock(message)) {
+        shipment = parseShipmentBlock(message);
+        // Build locations array from extracted pickup/delivery
+        locations = [];
+        if (shipment.pickupAddress) locations.push(shipment.pickupAddress);
+        if (shipment.deliveryAddress) locations.push(shipment.deliveryAddress);
+
+        if (locations.length < 2) {
+          // Fallback: try regular chat parse on the original message
+          const parsed = parseChatMessage(message);
+          locations = parsed.locations;
+          freightMeta = parsed.freightMeta;
+        }
+      } else {
+        const parsed = parseChatMessage(message);
+        locations = parsed.locations;
+        freightMeta = parsed.freightMeta;
+      }
 
       if (locations.length < 2) {
         return res.json({
           success: false,
-          message: "I need at least 2 locations to build a route. Try something like 'Toronto to Montreal' or 'Chicago, Sudbury, Thunder Bay'.",
+          message: shipment
+            ? "I found shipment details but couldn't identify both a pickup and delivery address. Please include both addresses."
+            : "I need at least 2 locations to build a route. Try something like 'Toronto to Montreal' or paste a shipment order with pickup and delivery addresses.",
           locations: [],
+          shipment: shipment || undefined,
         });
       }
 
@@ -1000,12 +1253,38 @@ export async function registerRoutes(
         returnDistance = await getOSRMRoute(last.lat, last.lng, first.lat, first.lng);
       }
 
+      // Build a human-friendly response message
+      let botMessage = `Built a route with ${locations.length} stops: ${locations.join(" → ")}`;
+
+      // Include freight metadata (equipment, PU/DEL windows) if extracted
+      if (freightMeta && (freightMeta.equipment || freightMeta.pickupDetails || freightMeta.deliveryDetails)) {
+        const metaParts: string[] = [];
+        if (freightMeta.equipment) metaParts.push(`🚛 ${freightMeta.equipment}`);
+        if (freightMeta.pickupDetails) metaParts.push(`📦 PU: ${freightMeta.pickupDetails}`);
+        if (freightMeta.deliveryDetails) metaParts.push(`📍 DEL: ${freightMeta.deliveryDetails}`);
+        botMessage += "\n" + metaParts.join("\n");
+      }
+
+      if (shipment) {
+        const parts: string[] = [];
+        if (shipment.productName) parts.push(`Product: ${shipment.productName}`);
+        if (shipment.totalPieces) parts.push(`${shipment.totalPieces} pcs`);
+        if (shipment.totalWeightKg) parts.push(`${shipment.totalWeightKg} kg`);
+        if (shipment.referenceNumber) parts.push(`Ref: ${shipment.referenceNumber}`);
+        if (parts.length > 0) botMessage += `\n📦 ${parts.join(" · ")}`;
+        if (shipment.contactPhone || shipment.contactEmail) {
+          botMessage += `\n📞 ${[shipment.contactName, shipment.contactPhone, shipment.contactEmail].filter(Boolean).join(" · ")}`;
+        }
+      }
+
       res.json({
         success: true,
-        message: `Built a route with ${locations.length} stops: ${locations.join(" → ")}`,
+        message: botMessage,
         locations,
         stops: stopsWithGeo,
         returnDistance,
+        shipment: shipment || undefined,
+        freightMeta: freightMeta || undefined,
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message });

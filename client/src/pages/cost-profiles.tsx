@@ -1881,6 +1881,7 @@ export default function CostProfiles() {
               <Button
                 size="sm"
                 className="bg-orange-400 hover:bg-orange-500 text-white"
+                data-testid="button-create-first-profile"
                 onClick={openCreateProfileFlow}
               >
                 <Plus className="w-4 h-4 mr-1" />
@@ -2193,6 +2194,7 @@ export default function CostProfiles() {
               <button
                 key={tab.key}
                 type="button"
+                data-testid={`tab-${tab.key}`}
                 onClick={() => setActiveTab(tab.key)}
                 className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
                   activeTab === tab.key

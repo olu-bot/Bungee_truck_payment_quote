@@ -39,10 +39,20 @@ import {
   GripVertical,
   AlertTriangle,
   Save,
+  Trophy,
+  XCircle,
+  Clock,
   FileText,
   Star,
   FileDown,
   Info,
+  Package,
+  Phone,
+  Mail,
+  Hash,
+  Ruler,
+  Weight,
+  X,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
@@ -182,6 +192,9 @@ async function persistRouteBuilderQuote(
     payMode?: string;
     dockTimeHrs?: number;
     quoteMode?: string;
+    status?: "pending" | "won" | "lost";
+    wonRate?: number | null;
+    lostTargetPrice?: number | null;
   },
 ): Promise<Quote> {
   const nonYard = stops.filter((s) => s.type !== "yard");
@@ -264,7 +277,9 @@ async function persistRouteBuilderQuote(
     quoteSource: "route_builder",
     routeSnapshotJson: JSON.stringify(snapshot),
     customerNote: meta.customerNote?.trim() ?? "",
-    status: "pending",
+    status: meta.status ?? "pending",
+    wonRate: meta.wonRate ?? null,
+    lostTargetPrice: meta.lostTargetPrice ?? null,
   });
 }
 
@@ -425,6 +440,7 @@ function RouteControlsPortal({
         </button>
         <button
           type="button"
+          data-testid="button-advanced"
           onClick={() => setQuoteMode("advanced")}
           className={`px-3 flex items-center justify-center transition-colors border-l border-slate-200 ${
             quoteMode === "advanced"
@@ -447,7 +463,9 @@ export default function RouteBuilder() {
 
   // ── Controls ──────────────────────────────────────────────────
 
-  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState(
+    () => localStorage.getItem("bungee_selected_profile") || "",
+  );
   const [selectedYardId, setSelectedYardId] = useState("none");
   const [includeReturn, setIncludeReturn] = useState(false);
   // ── Persisted custom fuel price (kept for 1 week) ──────────
@@ -539,9 +557,11 @@ export default function RouteBuilder() {
   >([
     {
       role: "bot",
-      text: 'Hi! Type a route below \u2014 e.g. "Toronto to Montreal" \u2014 and I\'ll update the map, dropdowns, and cost estimate automatically.',
+      text: 'Hi! Type a route \u2014 e.g. "Toronto to Montreal" \u2014 or paste a full shipment order with addresses, dimensions and weight. I\'ll extract everything automatically.',
     },
   ]);
+  const [activeShipment, setActiveShipment] = useState<import("@/lib/chatRoute").ShipmentInfo | null>(null);
+  const [activeFreightMeta, setActiveFreightMeta] = useState<import("@/lib/chatRoute").FreightMeta | null>(null);
 
 
 
@@ -709,9 +729,18 @@ export default function RouteBuilder() {
 
   const effectiveYard = selectedYard ?? cityYard;
 
-  // Auto-select first profile
+  // Persist selected profile to localStorage
   useEffect(() => {
-    if (profiles.length > 0 && !selectedProfileId) {
+    if (selectedProfileId) {
+      localStorage.setItem("bungee_selected_profile", selectedProfileId);
+    }
+  }, [selectedProfileId]);
+
+  // Auto-select first profile when none selected or selection no longer valid
+  useEffect(() => {
+    if (profiles.length === 0) return;
+    const isValid = profiles.some((p) => p.id === selectedProfileId);
+    if (!isValid) {
       setSelectedProfileId(profiles[0].id);
     }
   }, [profiles, selectedProfileId]);
@@ -1171,7 +1200,7 @@ export default function RouteBuilder() {
 
   // ── Manual Save Quote ────────────────────────────────────────
 
-  async function handleSaveQuote() {
+  async function handleSaveQuote(status: "pending" | "won" | "lost" = "pending") {
     if (!routeCalc || !pricingAdvice || !scopeId || !selectedProfileId) return;
     const fp = parseFloat(fuelPrice);
     if (isNaN(fp) || fp <= 0) return;
@@ -1219,14 +1248,18 @@ export default function RouteBuilder() {
         payMode,
         dockTimeHrs: defaultDockMinutes / 60,
         quoteMode,
+        status,
+        wonRate: status === "won" ? quoteAmt : null,
       });
       queryClient.invalidateQueries({
         queryKey: ["firebase", "quotes", scopeId ?? ""],
       });
       setCustomerNote("");
       setLastSavedQuote(quote);
+
+      const statusLabel = status === "won" ? "Won" : status === "lost" ? "Lost" : "Pending";
       toast({
-        title: "Quote saved",
+        title: `Quote saved as ${statusLabel}`,
         description: `${quote.quoteNumber} · ${quote.origin} → ${quote.destination}`,
       });
     } catch (err: unknown) {
@@ -1324,6 +1357,9 @@ export default function RouteBuilder() {
       processChatRoute(payload.message, defaultDockMinutes),
     onSuccess: async (data: ChatRouteResult, variables) => {
       const userMessage = variables.userMessage;
+      // Capture shipment info and freight metadata if the server extracted them
+      if (data.shipment) setActiveShipment(data.shipment);
+      if (data.freightMeta) setActiveFreightMeta(data.freightMeta);
       try {
         if (data.success && data.stops && data.stops.length > 0) {
           const parsed = data.stops as RouteStop[];
@@ -1485,13 +1521,16 @@ export default function RouteBuilder() {
   // ── Quick route chips (based on user base location) ──────────
 
   const quickRoutes = useMemo(() => {
+    // Prefer user's favorite lanes as quick route chips (up to 3)
+    if (savedLanes.length > 0) {
+      return savedLanes.slice(0, 3).map((l) => `${l.origin} to ${l.destination}`);
+    }
+    // Fallback: generic suggestions based on user's operating location
     const base = effectiveYard?.name || user?.operatingCity?.trim();
     if (!base) return [];
-    // Determine if user is US-based or Canada-based
     const countryCode = user?.operatingCountryCode?.toUpperCase();
     const isUS = countryCode === "US" || countryCode === "USA";
     const isCA = countryCode === "CA" || countryCode === "CAN";
-    // Suggest top lanes relevant to user's country
     if (isUS) {
       return [
         `${base} to Chicago`,
@@ -1506,13 +1545,12 @@ export default function RouteBuilder() {
         `${base} to Vancouver`,
       ];
     }
-    // Fallback — use a mix
     return [
       `${base} to Chicago`,
       `${base} to Toronto`,
       `${base} to Atlanta`,
     ];
-  }, [effectiveYard?.name, user?.operatingCity, user?.operatingCountryCode]);
+  }, [savedLanes, effectiveYard?.name, user?.operatingCity, user?.operatingCountryCode]);
 
   // ── Swap origin/destination ───────────────────────────────────
 
@@ -1628,7 +1666,7 @@ export default function RouteBuilder() {
               Create an equipment cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
             </p>
             <a
-              href="/#/profiles"
+              href="/#/profiles?action=create"
               className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 rounded-md px-3.5 py-1.5 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1753,6 +1791,102 @@ export default function RouteBuilder() {
               {/* Breakdown toggle removed — now inside the Advanced panel */}
             </div>
 
+            {/* Shipment / Cargo detail card — shown when AI extracts structured data */}
+            {(activeShipment || activeFreightMeta) && (
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm space-y-2 relative">
+                <button
+                  className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+                  onClick={() => { setActiveShipment(null); setActiveFreightMeta(null); }}
+                  aria-label="Dismiss shipment details"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Package className="h-3.5 w-3.5" />
+                  Shipment Details
+                </div>
+                {/* Freight meta: equipment, PU/DEL windows */}
+                {activeFreightMeta && (activeFreightMeta.equipment || activeFreightMeta.pickupDetails || activeFreightMeta.deliveryDetails) && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                    {activeFreightMeta.equipment && (
+                      <span className="inline-flex items-center gap-1 text-slate-600">
+                        <Route className="h-3 w-3 text-slate-400" /> {activeFreightMeta.equipment}
+                      </span>
+                    )}
+                    {activeFreightMeta.pickupDetails && (
+                      <span className="inline-flex items-center gap-1 text-slate-600">
+                        <Clock className="h-3 w-3 text-green-500" /> PU: {activeFreightMeta.pickupDetails}
+                      </span>
+                    )}
+                    {activeFreightMeta.deliveryDetails && (
+                      <span className="inline-flex items-center gap-1 text-slate-600">
+                        <Clock className="h-3 w-3 text-blue-500" /> DEL: {activeFreightMeta.deliveryDetails}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {activeShipment && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5 text-xs">
+                  {activeShipment.referenceNumber && (
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Hash className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span className="font-medium">{activeShipment.referenceNumber}</span>
+                    </div>
+                  )}
+                  {activeShipment.productName && (
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Package className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span>{activeShipment.productName}</span>
+                    </div>
+                  )}
+                  {activeShipment.totalPieces != null && (
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Ruler className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span>{activeShipment.totalPieces} pcs</span>
+                    </div>
+                  )}
+                  {activeShipment.totalWeightKg != null && (
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Weight className="h-3 w-3 text-slate-400 shrink-0" />
+                      <span>{activeShipment.totalWeightKg} kg</span>
+                    </div>
+                  )}
+                </div>
+                )}
+                {/* Dimensions list */}
+                {activeShipment && activeShipment.cargo.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {activeShipment.cargo.map((c, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-[11px] text-slate-600">
+                        <Ruler className="h-2.5 w-2.5 text-slate-400" />
+                        {c.dimensions}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* Contact info */}
+                {activeShipment && (activeShipment.contactPhone || activeShipment.contactEmail || activeShipment.contactName) && (
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-500 pt-0.5 border-t border-slate-200">
+                    {activeShipment.contactName && (
+                      <span className="font-medium text-slate-600">{activeShipment.contactName}</span>
+                    )}
+                    {activeShipment.contactPhone && (
+                      <span className="flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {activeShipment.contactPhone}
+                      </span>
+                    )}
+                    {activeShipment.contactEmail && (
+                      <span className="flex items-center gap-1">
+                        <Mail className="h-3 w-3" />
+                        {activeShipment.contactEmail}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Row 2: Pricing cards — 4 columns with more room */}
             <div
               className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-slate-100"
@@ -1760,8 +1894,16 @@ export default function RouteBuilder() {
             >
               {/* CARRIER COST — base cost + surcharge only, no accessories */}
               <div className="space-y-1 pr-4 sm:pr-6">
-                <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+                <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1">
                   Carrier Cost
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="h-3 w-3 text-slate-400 hover:text-slate-600 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[260px] text-xs leading-relaxed">
+                      This is an estimated cost based on your equipment cost profile. It does not reflect real-world carrier rates — use it as guidance only.
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
                 <div
                   className="text-2xl font-bold text-orange-600 tabular-nums tracking-tight"
@@ -1874,20 +2016,41 @@ export default function RouteBuilder() {
                   disabled={!routeCalc || carrierCost <= 0}
                 />
               </div>
-              <Button
-                data-testid="button-save-quote"
-                size="sm"
-                className="h-9 w-[160px] bg-orange-400 hover:bg-orange-500 text-white gap-1.5 shrink-0 justify-center"
-                disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
-                onClick={handleSaveQuote}
-              >
-                {isSavingQuote ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Save className="w-3.5 h-3.5" />
-                )}
-                Save Quote
-              </Button>
+              <div className="flex items-center gap-1 shrink-0" data-testid="save-quote-group">
+                <Button
+                  data-testid="button-save-won"
+                  size="sm"
+                  className="h-9 px-3 bg-green-600 hover:bg-green-700 text-white gap-1 justify-center text-xs font-semibold"
+                  disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
+                  onClick={() => handleSaveQuote("won")}
+                  title="Save quote and mark as Won"
+                >
+                  {isSavingQuote ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trophy className="w-3 h-3" />}
+                  Won
+                </Button>
+                <Button
+                  data-testid="button-save-quote"
+                  size="sm"
+                  className="h-9 px-3 bg-orange-400 hover:bg-orange-500 text-white gap-1 justify-center text-xs font-semibold"
+                  disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
+                  onClick={() => handleSaveQuote("pending")}
+                  title="Save quote as Pending"
+                >
+                  {isSavingQuote ? <Loader2 className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                  Pending
+                </Button>
+                <Button
+                  data-testid="button-save-lost"
+                  size="sm"
+                  className="h-9 px-3 bg-red-500 hover:bg-red-600 text-white gap-1 justify-center text-xs font-semibold"
+                  disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
+                  onClick={() => handleSaveQuote("lost")}
+                  title="Save quote and mark as Lost"
+                >
+                  {isSavingQuote ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                  Lost
+                </Button>
+              </div>
               {lastSavedQuote && can(user, "quote:sharePdf") && (
                 canExportPdf(user) ? (
                   <Button
@@ -1930,7 +2093,7 @@ export default function RouteBuilder() {
           ACCESSORIAL CHARGES (Advanced mode only)
           ═══════════════════════════════════════════════════════════ */}
       {quoteMode === "advanced" && routeCalc && routeCalc.fullTripCost > 0 && (
-        <Card className="border-slate-200 shadow-sm">
+        <Card className="border-slate-200 shadow-sm" data-testid="advanced-section">
           <CardContent className="pt-3 pb-3 space-y-2.5">
             {/* ── ROW 1: COST — pay mode, dock time, deadhead, surcharge, breakdown ── */}
             <div className="space-y-2">
@@ -1972,6 +2135,8 @@ export default function RouteBuilder() {
                   </button>
                 )}
                 <div className="w-px h-5 bg-slate-200" />
+                {/* Dock time + Deadhead group */}
+                <div className="flex items-center gap-4" data-testid="dock-deadhead-section">
                 {/* Dock time */}
                 <div className="flex items-center gap-1.5">
                   <Tooltip>
@@ -2032,6 +2197,7 @@ export default function RouteBuilder() {
                     </SelectContent>
                   </Select>
                 </div>
+                </div>{/* end dock-deadhead-section */}
                 <div className="w-px h-5 bg-slate-200" />
                 {/* Surcharge */}
                 <div className="flex items-center gap-1.5">
@@ -2047,7 +2213,7 @@ export default function RouteBuilder() {
                     </TooltipContent>
                   </Tooltip>
                   <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-7">
-                    <Input type="number" min="0" max="100" step="0.5" className="h-7 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} />
+                    <Input type="number" min="0" max="100" step="0.5" className="h-7 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} data-testid="input-surcharge-pct" />
                     <span className="text-[10px] text-slate-400 px-1 border-l border-slate-200 bg-slate-50 h-full flex items-center">%</span>
                   </div>
                 </div>
@@ -2055,12 +2221,12 @@ export default function RouteBuilder() {
             </div>
 
             {/* ── ROW 2: CHARGES — accessorial pass-throughs ── */}
-            <div className="space-y-2">
+            <div className="space-y-2" data-testid="charges-section">
               <div className="flex items-center gap-2">
                 <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Charges</h4>
                 <div className="flex-1 border-t border-slate-100" />
                 {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600">+{formatCurrency(accessorialTotal)}</span>}
-                <a href="/#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600">Adjust Defaults</a>
+                <a href="/#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600" data-testid="link-adjust-defaults">Adjust Defaults</a>
               </div>
               <div className="grid grid-cols-6 gap-3">
                 {/* Detention */}
@@ -2264,7 +2430,7 @@ export default function RouteBuilder() {
                 {chatHistory.map((msg, i) => (
                   <div
                     key={i}
-                    className={`text-sm rounded-xl px-3.5 py-2.5 max-w-[85%] leading-relaxed ${
+                    className={`text-sm rounded-xl px-3.5 py-2.5 max-w-[85%] leading-relaxed whitespace-pre-wrap ${
                       msg.role === "bot"
                         ? "bg-slate-100 text-slate-700"
                         : "bg-orange-400 text-white ml-auto"
@@ -2300,12 +2466,13 @@ export default function RouteBuilder() {
                 ))}
               </div>
 
-              {/* Chat input */}
-              <div className="flex gap-2 shrink-0">
-                <Input
+              {/* Chat input — textarea for multi-line shipment paste */}
+              <div className="flex gap-2 shrink-0 items-end">
+                <textarea
                   data-testid="chat-input"
-                  placeholder='e.g. "Toronto to Hamilton, London, Windsor"'
-                  className="text-sm"
+                  placeholder={'Type a route or paste a shipment order…\ne.g. "Toronto to Montreal"\nor paste pickup/delivery addresses, dimensions, weight'}
+                  className="flex-1 text-sm rounded-md border border-slate-200 bg-white px-3 py-2 h-[72px] resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
+                  rows={3}
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                   onKeyDown={(e) => {
@@ -2319,7 +2486,7 @@ export default function RouteBuilder() {
                   data-testid="button-send-chat"
                   disabled={!chatMessage.trim() || chatRouteMutation.isPending}
                   onClick={() => sendChat(chatMessage)}
-                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-5"
+                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-5 h-[38px]"
                 >
                   Send
                 </Button>

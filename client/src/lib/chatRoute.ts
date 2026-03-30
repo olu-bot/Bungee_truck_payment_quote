@@ -1,11 +1,39 @@
 import type { RouteStop } from "@shared/schema";
 
+export type CargoItem = {
+  dimensions: string;
+  weightKg: number | null;
+  pieces: number | null;
+  description: string | null;
+};
+
+export type ShipmentInfo = {
+  referenceNumber: string | null;
+  cargo: CargoItem[];
+  totalWeightKg: number | null;
+  totalPieces: number | null;
+  productName: string | null;
+  pickupAddress: string | null;
+  deliveryAddress: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+};
+
+export type FreightMeta = {
+  equipment: string | null;
+  pickupDetails: string | null;
+  deliveryDetails: string | null;
+};
+
 export type ChatRouteResult = {
   success: boolean;
   message: string;
   locations: string[];
   stops?: RouteStop[];
   returnDistance?: { distanceKm: number; durationMinutes: number } | null;
+  shipment?: ShipmentInfo;
+  freightMeta?: FreightMeta;
 };
 
 const CHAT_TTL_MS = 1000 * 60 * 10; // 10m

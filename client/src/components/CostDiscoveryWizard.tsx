@@ -752,6 +752,7 @@ export function CostDiscoveryWizard({
           className="shrink-0 bg-orange-400 text-white hover:bg-orange-500 shadow-sm transition-all duration-200"
           disabled={isSaving}
           onClick={handleQuickProfile}
+          data-testid="button-quick-start"
         >
           {isSaving ? "Creating..." : "Quick Start"}
         </Button>
