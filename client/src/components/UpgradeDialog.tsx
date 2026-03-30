@@ -52,36 +52,40 @@ export type UpgradeDialogProps = {
 // ── Feature lists for each tier ──────────────────────────────────
 
 const FREE_FEATURES = [
-  "1,000 route quotes / month",
-  "AI chatbot routing",
-  "Interactive map",
-  "3-tier pricing advice",
-  "2 equipment cost profiles",
+  "300 route quotes per month",
+  "AI Chatbot",
+  "Map visualization",
+  "3-tier pricing suggestion",
+  "2 cost profiles",
   "1 yard",
   "1 user",
-  "30-day quote history",
+  "Custom quote",
+  "Quote history up to 30 days",
+  "Quote status tracking",
+  "Accessorial charges",
+  "Live fuel price updates",
 ];
 
 const PRO_FEATURES = [
-  "Everything in Free, plus:",
+  "Everything in free plus",
+  "Unlimited cost profiles",
   "Unlimited route quotes",
-  "Unlimited equipment cost profiles",
-  "Unlimited yards",
   "Unlimited quote history",
-  "Branded quote PDFs",
-  "5 team members",
-  "Live EIA fuel prices",
+  "Unlimited yards",
+  "5 users",
+  "Role based access",
   "CSV export",
+  "Branded PDF quote export",
 ];
 
 const PREMIUM_FEATURES: { text: string; comingSoon?: boolean }[] = [
-  { text: "Everything in Pro, plus:" },
-  { text: "Unlimited team members" },
+  { text: "Everything in pro plus" },
+  { text: "Unlimited users - $15 per seat after 5 users" },
+  { text: "Lane rate intelligence" },
+  { text: "Customer quote portal" },
+  { text: "Dispatch view" },
+  { text: "API access" },
   { text: "Priority support" },
-  { text: "Lane rate intelligence", comingSoon: true },
-  { text: "Customer quote portal", comingSoon: true },
-  { text: "Dispatch view", comingSoon: true },
-  { text: "API access", comingSoon: true },
 ];
 
 // ── Component ───────────────────────────────────────────────────
@@ -204,7 +208,7 @@ export function UpgradeDialog({
                 disabled={checkoutTier !== null}
                 onClick={() => startStripeCheckout("free")}
               >
-                Get Started Free
+                Subscribe
               </Button>
             </CardFooter>
           </Card>
@@ -247,7 +251,7 @@ export function UpgradeDialog({
                 {checkoutTier === "pro" ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Redirecting…</>
                 ) : (
-                  `Start Pro — ${billingPeriod === "month" ? "$29/mo" : "$249/yr"}`
+                  `Start trial`
                 )}
               </Button>
             </CardFooter>
@@ -296,7 +300,7 @@ export function UpgradeDialog({
                 {checkoutTier === "premium" ? (
                   <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Redirecting…</>
                 ) : (
-                  `Start Premium — ${billingPeriod === "month" ? "$59/mo" : "$549/yr"}`
+                  `Subscribe`
                 )}
               </Button>
             </CardFooter>

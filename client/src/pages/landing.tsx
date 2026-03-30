@@ -826,11 +826,11 @@ export default function Landing() {
                   required
                 />
               </div>
-              <div className="card-actions center" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16 }}>
-                <button type="submit" className="btn btn-primary btn-lg" disabled={loginLoading}>
+              <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
+                <button type="submit" className="btn btn-primary" style={{ padding: "10px 28px", fontSize: 14 }} disabled={loginLoading}>
                   {loginLoading ? "Signing in…" : "Log in"}
                 </button>
-                <p className="form-helper" style={{ margin: 0, textAlign: "center" }}>
+                <p className="form-helper" style={{ margin: 0, textAlign: "center", alignSelf: "center" }}>
                   Don&apos;t have an account?{" "}
                   <button
                     type="button"
@@ -955,8 +955,8 @@ export default function Landing() {
                 <div className="form-helper">At least 6 characters (Firebase). Use a strong password in production.</div>
               </div>
 
-              <div className="card-actions" style={{ borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
-                <button type="submit" className="btn btn-primary btn-lg">
+              <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
+                <button type="submit" className="btn btn-primary" style={{ padding: "10px 28px", fontSize: 14 }}>
                   Continue
                 </button>
                 <p className="form-helper" style={{ margin: 0, textAlign: "center", alignSelf: "center" }}>
@@ -1281,11 +1281,11 @@ export default function Landing() {
                 </span>
               </label>
 
-              <div className="card-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setSignupStep(1)}>
+              <div style={{ display: "flex", marginTop: 24, gap: 12, justifyContent: "flex-end" }}>
+                <button type="button" className="btn btn-secondary" style={{ padding: "10px 28px", fontSize: 14 }} onClick={() => setSignupStep(1)}>
                   Back
                 </button>
-                <button type="submit" className="btn btn-primary" disabled={signupLoading}>
+                <button type="submit" className="btn btn-primary" style={{ padding: "10px 28px", fontSize: 14 }} disabled={signupLoading}>
                   {signupLoading ? "Creating account…" : "Create account"}
                 </button>
               </div>

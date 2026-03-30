@@ -217,6 +217,7 @@ function getSections(unit: MeasurementUnit): SectionDef[] {
 
 const EQUIPMENT_TYPES = [
   { key: "dry_van", label: "Dry Van", Icon: Package },
+  { key: "straight_truck", label: "Straight Truck", Icon: Truck },
   { key: "reefer", label: "Reefer", Icon: Snowflake },
   { key: "flatbed", label: "Flatbed", Icon: Layers },
   { key: "step_deck", label: "Step Deck", Icon: Layers },

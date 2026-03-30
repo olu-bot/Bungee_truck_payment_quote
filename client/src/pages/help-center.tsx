@@ -803,11 +803,15 @@ export default function HelpCenter() {
               price="$0"
               sub="No credit card required"
               features={[
-                "1,000 quotes/month",
+                "300 route quotes per month",
+                "AI Chatbot",
+                "Map visualization",
+                "3-tier pricing suggestion",
                 "2 cost profiles",
-                "1 yard, 5 favorite lanes",
-                "30-day quote history",
-                "Full route builder",
+                "1 yard, 1 user",
+                "Quote history up to 30 days",
+                "Accessorial charges",
+                "Live fuel price updates",
               ]}
             />
             <PricingCol
@@ -816,13 +820,14 @@ export default function HelpCenter() {
               sub="Most popular for small fleets"
               highlight
               features={[
-                "Unlimited quotes & profiles",
+                "Everything in free plus",
+                "Unlimited cost profiles",
+                "Unlimited route quotes",
+                "Unlimited quote history",
                 "Unlimited yards",
-                "20 favorite lanes",
-                "Branded PDF quotes",
-                "Live EIA fuel pricing",
+                "5 users, role based access",
                 "CSV export",
-                "Up to 5 team members",
+                "Branded PDF quote export",
               ]}
             />
             <PricingCol
@@ -830,11 +835,13 @@ export default function HelpCenter() {
               price="$59/mo"
               sub="For growing teams"
               features={[
-                "Everything in Pro",
-                "Unlimited favorite lanes",
-                "Unlimited team members",
+                "Everything in pro plus",
+                "Unlimited users - $15/seat after 5",
+                "Lane rate intelligence",
+                "Customer quote portal",
+                "Dispatch view",
+                "API access",
                 "Priority support",
-                "Early access to features",
               ]}
             />
           </div>

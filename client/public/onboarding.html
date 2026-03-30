@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bungee Connect — Welcome Tour</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; background: #f8fafc; color: #0f172a; overflow: hidden; height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 230px; background: #fff; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; z-index: 10; }
+  .sidebar-logo { padding: 20px 20px 16px; border-bottom: 1px solid #f1f5f9; }
+  .sidebar-logo .brand { font-weight: 700; font-size: 22px; letter-spacing: 1.5px; color: #0f172a; }
+  .sidebar-logo .sub { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: #f97316; margin-top: -2px; }
+  .nav-items { padding: 12px 10px; flex: 1; }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #64748b; cursor: pointer; margin-bottom: 2px; transition: all .15s; }
+  .nav-item.active { background: #f97316; color: #fff; }
+  .nav-item:not(.active):hover { background: #f8fafc; color: #334155; }
+  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .sidebar-bottom { padding: 16px; border-top: 1px solid #f1f5f9; }
+  .sidebar-bottom .quota { font-size: 12px; color: #94a3b8; }
+  .sidebar-bottom .quota strong { color: #334155; }
+  .sidebar-bottom .user { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; font-weight: 500; color: #334155; }
+  .sidebar-bottom .user .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+
+  /* ── Main content ── */
+  .main { margin-left: 230px; height: 100vh; overflow-y: auto; padding: 24px 28px; background: #f8fafc; }
+  .page-header { margin-bottom: 20px; }
+  .page-header h1 { font-size: 20px; font-weight: 600; }
+  .page-header p { font-size: 13px; color: #64748b; margin-top: 2px; }
+  .badges { display: flex; gap: 10px; margin-top: 6px; }
+  .badge { font-size: 11px; color: #64748b; background: #f1f5f9; padding: 3px 10px; border-radius: 6px; font-weight: 500; }
+
+  /* ── Cards ── */
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+  .card-header { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; }
+  .card-header-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; }
+  .card-body { padding: 16px; }
+
+  /* ── Grids ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+  .grid-4 > div { background: #fff; padding: 12px 16px; }
+  .grid-4 .label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; }
+  .grid-4 .value { font-size: 18px; font-weight: 600; color: #f97316; margin-top: 2px; }
+  .grid-4 .value.dark { color: #334155; }
+  .grid-4 .sub { font-size: 11px; color: #94a3b8; }
+
+  /* ── Quote bar ── */
+  .quote-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; margin-top: 12px; }
+  .quote-bar .qlabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; white-space: nowrap; }
+  .quote-bar input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 10px; font-size: 14px; width: 90px; font-family: inherit; }
+  .quote-bar .note-input { flex: 1; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; font-size: 13px; color: #94a3b8; font-family: inherit; }
+  .btn-save { background: #f97316; color: #fff; border: none; border-radius: 8px; padding: 8px 20px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; font-family: inherit; white-space: nowrap; }
+  .btn-save:hover { background: #ea580c; }
+
+  /* ── Chat panel ── */
+  .chat-panel { display: flex; flex-direction: column; height: 280px; }
+  .chat-messages { flex: 1; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 13px; line-height: 1.5; }
+  .msg.bot { background: #f1f5f9; color: #334155; align-self: flex-start; }
+  .msg.user { background: #f97316; color: #fff; align-self: flex-end; }
+  .chat-chips { display: flex; gap: 6px; padding: 0 12px 8px; }
+  .chip { font-size: 12px; padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 20px; background: #fff; color: #475569; cursor: pointer; font-family: inherit; }
+  .chip:hover { border-color: #f97316; color: #f97316; }
+  .chat-input-row { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #f1f5f9; }
+  .chat-input-row input { flex: 1; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit; }
+  .chat-input-row input:focus { outline: none; border-color: #f97316; box-shadow: 0 0 0 2px rgba(249,115,22,.15); }
+  .btn-send { background: #f97316; color: #fff; border: none; border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+
+  /* ── Map placeholder ── */
+  .map-placeholder { background: #e2e8f0; border-radius: 8px; height: 100%; min-height: 220px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .map-placeholder img { width: 100%; height: 100%; object-fit: cover; }
+  .map-placeholder .map-overlay { position: absolute; inset: 0; background: linear-gradient(135deg, rgba(59,130,246,.08), rgba(249,115,22,.06)); display: flex; align-items: center; justify-content: center; }
+  .map-route-line { position: absolute; top: 30%; left: 20%; width: 60%; height: 2px; background: #3b82f6; transform: rotate(-8deg); }
+  .map-route-line::before, .map-route-line::after { content: ''; position: absolute; width: 10px; height: 10px; border-radius: 50%; top: -4px; }
+  .map-route-line::before { left: -5px; background: #22c55e; }
+  .map-route-line::after { right: -5px; background: #ef4444; }
+  .map-grid { position: absolute; inset: 0; background-image:
+    linear-gradient(rgba(148,163,184,.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,163,184,.12) 1px, transparent 1px);
+    background-size: 30px 30px; }
+  .map-label { font-size: 11px; font-weight: 600; color: #475569; position: absolute; background: #fff; padding: 2px 8px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  .map-label.origin { top: 22%; left: 14%; }
+  .map-label.dest { top: 38%; right: 14%; }
+
+  /* ── Build Route form ── */
+  .route-form { padding: 16px; }
+  .route-form .field-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 4px; }
+  .route-form input { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit; color: #334155; }
+  .route-form .stop { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .route-form .stop .grip { color: #cbd5e1; font-size: 16px; cursor: grab; }
+  .route-form .stop .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .route-form .stop .dot.green { background: #22c55e; }
+  .route-form .stop .dot.red { background: #ef4444; }
+  .add-stop-btn { width: 100%; border: 1px dashed #e2e8f0; background: transparent; border-radius: 8px; padding: 8px; font-size: 12px; color: #94a3b8; cursor: pointer; font-family: inherit; margin-top: 4px; }
+
+  /* ── Cost profile mini-wizard ── */
+  .wizard { max-width: 520px; margin: 0 auto; }
+  .wizard-progress { display: flex; gap: 4px; margin-bottom: 20px; }
+  .wizard-progress .bar { flex: 1; height: 4px; border-radius: 4px; background: #e2e8f0; }
+  .wizard-progress .bar.active { background: #f97316; }
+  .wizard .step-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #94a3b8; margin-bottom: 12px; }
+  .wizard .equip-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
+  .equip-btn { border: 1px solid #e2e8f0; background: #fff; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 500; color: #475569; cursor: pointer; transition: all .15s; font-family: inherit; }
+  .equip-btn:hover { border-color: #f97316; color: #f97316; }
+  .equip-btn.selected { background: #f97316; color: #fff; border-color: #f97316; }
+  .equip-btn .icon { font-size: 20px; margin-bottom: 4px; }
+  .wizard .field-group { margin-bottom: 14px; }
+  .wizard .field-group label { font-size: 12px; font-weight: 500; color: #475569; display: block; margin-bottom: 4px; }
+  .wizard .field-group .hint { font-size: 11px; color: #f97316; float: right; }
+  .wizard .field-group input { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-size: 14px; font-family: inherit; }
+  .wizard .field-group input:focus { outline: none; border-color: #f97316; box-shadow: 0 0 0 2px rgba(249,115,22,.15); }
+  .wizard .presets { display: flex; gap: 6px; margin-bottom: 6px; }
+  .wizard .presets button { flex: 1; border: 1px solid #e2e8f0; background: #fff; border-radius: 6px; padding: 6px; font-size: 12px; color: #475569; cursor: pointer; font-family: inherit; }
+  .wizard .presets button.sel { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .wizard .region-select { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit; color: #334155; background: #fff; margin-bottom: 16px; }
+  .wizard .autofill-note { background: #fefce8; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #92400e; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .wizard .summary-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .wizard .summary-row .val { font-weight: 600; }
+
+  /* ── Toggle buttons ── */
+  .mode-toggle { display: flex; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  .mode-toggle button { flex: 1; border: none; background: #fff; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; color: #64748b; transition: all .15s; }
+  .mode-toggle button.active { background: #0f172a; color: #fff; }
+
+  /* ── Fuel section ── */
+  .fuel-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
+  .fuel-section .fuel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .fuel-section .fuel-header span { font-size: 12px; font-weight: 600; color: #92400e; }
+  .fuel-section .fuel-price { font-size: 22px; font-weight: 700; color: #f97316; }
+  .fuel-section .fuel-detail { font-size: 12px; color: #78716c; margin-top: 4px; }
+
+  /* ── Advanced panel ── */
+  .advanced-panel { border: 1px solid #e2e8f0; border-radius: 10px; margin-top: 12px; overflow: hidden; }
+  .advanced-panel .adv-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f8fafc; cursor: pointer; }
+  .advanced-panel .adv-header span { font-size: 13px; font-weight: 600; color: #334155; }
+  .advanced-panel .adv-body { padding: 14px 16px; }
+  .adv-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .adv-row:last-child { border-bottom: none; }
+  .adv-row .adv-label { color: #64748b; }
+  .adv-row .adv-val { font-weight: 600; color: #334155; }
+  .adv-row input { border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 8px; width: 80px; font-size: 13px; text-align: right; font-family: inherit; }
+
+  /* ── Overlay / walkthrough ── */
+  .overlay { position: fixed; inset: 0; z-index: 1000; pointer-events: none; transition: opacity .3s; }
+  .overlay.hidden { opacity: 0; }
+  .overlay-bg { position: absolute; inset: 0; background: rgba(0,0,0,.45); pointer-events: all; }
+  .spotlight { position: absolute; border-radius: 12px; box-shadow: 0 0 0 4000px rgba(0,0,0,.45); pointer-events: none; transition: all .4s cubic-bezier(.4,0,.2,1); z-index: 1001; }
+  .spotlight-ring { position: absolute; border: 2px solid rgba(249,115,22,.5); border-radius: 14px; pointer-events: none; z-index: 1001; transition: all .4s cubic-bezier(.4,0,.2,1); }
+  .spotlight-ring::after { content: ''; position: absolute; inset: -4px; border-radius: 16px; border: 2px solid rgba(249,115,22,.25); animation: pulse-ring 2s infinite; }
+  @keyframes pulse-ring { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+  .tooltip-card { position: absolute; width: 320px; background: #fff; border: 1px solid rgba(226,232,240,.8); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.12); z-index: 1002; pointer-events: all; transition: all .4s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+  .tooltip-progress { height: 3px; background: #f1f5f9; }
+  .tooltip-progress-fill { height: 100%; background: #f97316; transition: width .3s; }
+  .tooltip-content { padding: 16px 18px 14px; }
+  .tooltip-step { font-size: 11px; font-weight: 500; color: #94a3b8; margin-bottom: 6px; }
+  .tooltip-title { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 6px; }
+  .tooltip-body { font-size: 13px; color: #64748b; line-height: 1.65; }
+  .tooltip-hint { font-size: 12px; color: #f97316; font-weight: 500; margin-top: 8px; }
+  .tooltip-controls { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px 14px; }
+  .tooltip-skip { font-size: 12px; color: #94a3b8; background: none; border: none; cursor: pointer; font-family: inherit; }
+  .tooltip-skip:hover { color: #64748b; }
+  .tooltip-btns { display: flex; gap: 8px; }
+  .btn-back { height: 32px; padding: 0 14px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; font-size: 12px; font-weight: 500; color: #475569; cursor: pointer; font-family: inherit; }
+  .btn-next { height: 32px; padding: 0 14px; border: none; border-radius: 8px; background: #0f172a; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-next:hover { background: #1e293b; }
+  .btn-next.orange { background: #f97316; }
+  .btn-next.orange:hover { background: #ea580c; }
+  .tooltip-close { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border: none; background: transparent; cursor: pointer; color: #94a3b8; font-size: 18px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+  .tooltip-close:hover { background: #f1f5f9; color: #475569; }
+
+  /* ── Animations ── */
+  @keyframes typing { from { width: 0; } to { width: 100%; } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .animate-in { animation: fadeIn .4s ease-out; }
+
+  /* ── Screen containers ── */
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  /* ── Confetti ── */
+  .confetti-container { position: fixed; inset: 0; pointer-events: none; z-index: 2000; }
+  .confetti { position: absolute; width: 8px; height: 8px; border-radius: 2px; top: -10px; animation: confetti-fall 3s ease-in forwards; }
+  @keyframes confetti-fall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ SIDEBAR ═══ -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">BUNGEE</div>
+    <div class="sub">CONNECT</div>
+  </div>
+  <div class="nav-items">
+    <div class="nav-item active" id="nav-home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1"/></svg>
+      Home
+    </div>
+    <div class="nav-item" id="nav-settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="12 8 12 12 14 14"/><circle cx="12" cy="12" r="10"/></svg>
+      Quote History
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Team
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Help
+    </div>
+  </div>
+  <div class="sidebar-bottom">
+    <div class="quota">Monthly Quotes: <strong>1,000 left</strong></div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">0 / 1,000 used this month</div>
+    <div class="user"><span class="dot"></span> New User</div>
+  </div>
+</div>
+
+<!-- ═══ SCREEN 1: COST PROFILE SETUP ═══ -->
+<div class="main">
+  <div class="screen active" id="screen-profile">
+    <div class="page-header">
+      <h1>Settings</h1>
+      <p>Set up your equipment cost profile so Bungee can calculate accurate quotes.</p>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-header-label">Quick Profile Setup</span>
+      </div>
+      <div class="card-body">
+        <div class="wizard">
+          <div class="wizard-progress">
+            <div class="bar active"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+          </div>
+          <div class="step-label">Step 1 of 3 — Equipment Type</div>
+
+          <div class="equip-grid" id="equip-grid">
+            <button class="equip-btn selected" data-type="dryvan"><div class="icon">🚛</div>Dry Van</button>
+            <button class="equip-btn" data-type="reefer"><div class="icon">❄️</div>Reefer</button>
+            <button class="equip-btn" data-type="flatbed"><div class="icon">🔩</div>Flatbed</button>
+            <button class="equip-btn" data-type="stepdeck"><div class="icon">📐</div>Step Deck</button>
+            <button class="equip-btn" data-type="tanker"><div class="icon">🛢️</div>Tanker</button>
+            <button class="equip-btn" data-type="other"><div class="icon">📦</div>Other</button>
+          </div>
+
+          <label style="font-size:12px;font-weight:500;color:#475569;display:block;margin-bottom:4px;">Where are you based?</label>
+          <select class="region-select" id="region-select">
+            <option value="ON">Ontario (ON)</option>
+            <option value="QC">Quebec (QC)</option>
+            <option value="AB">Alberta (AB)</option>
+            <option value="BC">British Columbia (BC)</option>
+            <option value="MB">Manitoba (MB)</option>
+            <option value="SK">Saskatchewan (SK)</option>
+          </select>
+
+          <div class="autofill-note">
+            <span style="font-size:16px;">✨</span>
+            All fields pre-filled with regional averages. Adjust any values that differ for your operation.
+          </div>
+
+          <div class="field-group">
+            <label>Truck payment <span class="hint">avg: $2,048/mo</span></label>
+            <input type="text" value="2048" id="field-truck">
+          </div>
+          <div class="field-group">
+            <label>Insurance <span class="hint">avg: $1,170/mo</span></label>
+            <input type="text" value="1170">
+          </div>
+          <div class="field-group">
+            <label>Fuel consumption <span class="hint">avg: 35 L/100km</span></label>
+            <input type="text" value="35">
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+            <div>
+              <div class="summary-row"><span>Monthly Fixed</span><span class="val">$4,005.00</span></div>
+              <div class="summary-row"><span>All-in hourly</span><span class="val">$48.98/hr</span></div>
+            </div>
+            <button class="btn-save" id="btn-save-profile" style="font-size:14px;padding:10px 28px;">
+              Save Profile →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN 2: HOME / ROUTE BUILDER ═══ -->
+  <div class="screen" id="screen-home">
+    <div class="page-header">
+      <h1>Home</h1>
+      <p>Build routes, calculate costs, and get pricing advice.</p>
+      <div class="badges">
+        <span class="badge">$ CAD</span>
+        <span class="badge">🔧 Metric (km, L)</span>
+      </div>
+    </div>
+
+    <!-- Mode toggle -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:12px;gap:8px;align-items:center;">
+      <div style="display:flex;align-items:center;gap:6px;border:1px solid #e2e8f0;border-radius:8px;padding:4px 10px;">
+        <span style="font-size:12px;color:#94a3b8;">⛽</span>
+        <input type="text" value="2.5" style="width:40px;border:none;font-size:13px;text-align:center;font-family:inherit;outline:none;" id="fuel-price-input">
+        <span style="font-size:11px;color:#94a3b8;">$/L</span>
+      </div>
+      <div class="mode-toggle" id="mode-toggle">
+        <button>Quick Quote</button>
+        <button class="active">Advanced</button>
+      </div>
+    </div>
+
+    <!-- Cost summary card -->
+    <div class="card" id="cost-card" style="margin-bottom:12px;">
+      <div style="padding:12px 16px;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:14px;">⭐</span>
+        <span style="font-size:15px;font-weight:600;" id="profile-name-display">Dry Van</span>
+      </div>
+      <div class="grid-4" id="cost-grid">
+        <div>
+          <div class="label">Carrier Cost</div>
+          <div class="value" id="carrier-cost">$1,847.32</div>
+          <div class="sub">with fuel</div>
+        </div>
+        <div>
+          <div class="label">20% Margin</div>
+          <div class="value dark" id="margin-20">$2,309.15</div>
+          <div class="sub">suggested</div>
+        </div>
+        <div>
+          <div class="label">30% Margin</div>
+          <div class="value dark" id="margin-30">$2,639.03</div>
+          <div class="sub">competitive</div>
+        </div>
+        <div>
+          <div class="label">40% Margin</div>
+          <div class="value dark" id="margin-40">$3,078.87</div>
+          <div class="sub">premium</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quote bar -->
+    <div class="quote-bar">
+      <span class="qlabel">Your Quote</span>
+      <div style="display:flex;align-items:center;gap:2px;">
+        <span style="color:#94a3b8;font-size:13px;">$</span>
+        <input type="text" value="2400" id="quote-amount">
+      </div>
+      <input type="text" class="note-input" placeholder="📝 Note — RFQ#, customer, lane memo..." id="note-input">
+      <button class="btn-save" id="btn-save-quote">💾 Save Quote</button>
+    </div>
+
+    <!-- Fuel section -->
+    <div class="fuel-section" id="fuel-section">
+      <div class="fuel-header">
+        <span>⛽ Live Fuel Price — Ontario</span>
+        <span style="font-size:11px;color:#78716c;">Updated daily</span>
+      </div>
+      <div class="fuel-price">$2.50 / L</div>
+      <div class="fuel-detail">Diesel avg. for Ontario region &bull; Applied to route distance automatically</div>
+      <div style="display:flex;gap:16px;margin-top:10px;">
+        <div style="font-size:12px;"><span style="color:#78716b;">Fuel cost this trip:</span> <strong style="color:#f97316;">$412.50</strong></div>
+        <div style="font-size:12px;"><span style="color:#78716b;">Distance:</span> <strong>541 km</strong></div>
+        <div style="font-size:12px;"><span style="color:#78716b;">Consumption:</span> <strong>35 L/100km</strong></div>
+      </div>
+    </div>
+
+    <!-- Advanced panel -->
+    <div class="advanced-panel" id="advanced-panel">
+      <div class="adv-header" id="adv-toggle">
+        <span>📊 Cost Breakdown — Advanced</span>
+        <span style="font-size:18px;color:#94a3b8;transition:transform .2s;" id="adv-arrow">▾</span>
+      </div>
+      <div class="adv-body" id="adv-body">
+        <div class="adv-row"><span class="adv-label">Fixed cost / hour</span><span class="adv-val">$18.20/hr</span></div>
+        <div class="adv-row"><span class="adv-label">Trip hours (est.)</span><span class="adv-val">5.4 hrs</span></div>
+        <div class="adv-row"><span class="adv-label">Fixed portion</span><span class="adv-val">$983.32</span></div>
+        <div class="adv-row"><span class="adv-label">Fuel portion</span><span class="adv-val">$412.50</span></div>
+        <div class="adv-row"><span class="adv-label">Driver pay</span><span class="adv-val">$324.00</span></div>
+        <div class="adv-row"><span class="adv-label">Deadhead (return)</span><span class="adv-val">$127.50</span></div>
+        <div class="adv-row" style="border-top:2px solid #f1f5f9;padding-top:10px;"><span class="adv-label" style="font-weight:600;color:#334155;">Total Carrier Cost</span><span class="adv-val" style="color:#f97316;font-size:15px;">$1,847.32</span></div>
+      </div>
+    </div>
+
+    <!-- Chat + Map row -->
+    <div class="grid-2" style="margin-top:16px;">
+      <div class="card">
+        <div class="card-header"><span class="card-header-label">Route Chat</span></div>
+        <div class="chat-panel">
+          <div class="chat-messages" id="chat-messages">
+            <div class="msg bot">Hi! Type a route below — e.g. "Toronto to Montreal" — and I'll update the map, dropdowns, and cost estimate automatically.</div>
+          </div>
+          <div class="chat-chips" id="chat-chips">
+            <button class="chip" data-route="Toronto to Montreal">Toronto to Montreal</button>
+            <button class="chip" data-route="Calgary to Edmonton">Calgary to Edmonton</button>
+            <button class="chip" data-route="Vancouver to Kamloops">Vancouver to Kamloops</button>
+          </div>
+          <div class="chat-input-row">
+            <input type="text" placeholder='e.g. "Toronto to Hamilton, London, Windsor"' id="chat-input">
+            <button class="btn-send" id="btn-send">Send</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-header-label">Route Map <span style="color:#cbd5e1;">— via Google Maps</span></span></div>
+        <div class="map-placeholder">
+          <div class="map-grid"></div>
+          <div class="map-route-line" id="map-route" style="display:none;"></div>
+          <div class="map-label origin" id="map-origin" style="display:none;">Toronto</div>
+          <div class="map-label dest" id="map-dest" style="display:none;">Montreal</div>
+          <span id="map-empty" style="font-size:13px;color:#94a3b8;z-index:1;">Enter a route to see the map</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SCREEN 3: DONE ═══ -->
+  <div class="screen" id="screen-done">
+    <div style="max-width:480px;margin:80px auto;text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">🎉</div>
+      <h1 style="font-size:28px;font-weight:700;margin-bottom:8px;">You're all set!</h1>
+      <p style="font-size:15px;color:#64748b;line-height:1.7;margin-bottom:32px;">
+        You just set up your cost profile and built your first route quote. Bungee calculates your real carrier cost so you never underquote again.
+      </p>
+      <button class="btn-save" style="font-size:15px;padding:12px 36px;margin:0 auto;" id="btn-start-app">
+        Start Using Bungee Connect →
+      </button>
+      <div style="margin-top:24px;display:flex;justify-content:center;gap:24px;">
+        <div style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#f97316;">1,000</div>
+          <div style="font-size:12px;color:#94a3b8;">Free quotes/month</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#f97316;">$0</div>
+          <div style="font-size:12px;color:#94a3b8;">To get started</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:24px;font-weight:700;color:#f97316;">∞</div>
+          <div style="font-size:12px;color:#94a3b8;">Routes & stops</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ WALKTHROUGH OVERLAY ═══ -->
+<div class="overlay hidden" id="overlay">
+  <div class="overlay-bg" id="overlay-bg"></div>
+  <div class="spotlight" id="spotlight"></div>
+  <div class="spotlight-ring" id="spotlight-ring"></div>
+  <div class="tooltip-card" id="tooltip" style="display:none;">
+    <div class="tooltip-progress"><div class="tooltip-progress-fill" id="tooltip-progress"></div></div>
+    <button class="tooltip-close" id="tooltip-close">&times;</button>
+    <div class="tooltip-content">
+      <div class="tooltip-step" id="tooltip-step"></div>
+      <div class="tooltip-title" id="tooltip-title"></div>
+      <div class="tooltip-body" id="tooltip-body"></div>
+      <div class="tooltip-hint" id="tooltip-hint"></div>
+    </div>
+    <div class="tooltip-controls">
+      <button class="tooltip-skip" id="tooltip-skip-btn">Skip tour</button>
+      <div class="tooltip-btns">
+        <button class="btn-back" id="tooltip-back" style="display:none;">← Back</button>
+        <button class="btn-next" id="tooltip-next">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="confetti-container" id="confetti"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// Bungee Connect — 5-Step Onboarding Tour
+// Standalone mock — decoupled from main app
+// ═══════════════════════════════════════════
+
+const STEPS = [
+  {
+    id: 'welcome-profile',
+    screen: 'screen-profile',
+    nav: 'nav-settings',
+    target: null, // no spotlight — centered tooltip
+    title: 'Welcome to Bungee Connect!',
+    body: 'Let\'s get you set up in under a minute. First, we\'ll create your equipment cost profile so Bungee can calculate accurate per-trip costs.',
+    hint: null,
+    nextLabel: 'Let\'s go →',
+    nextClass: 'orange',
+    action: null
+  },
+  {
+    id: 'save-profile',
+    screen: 'screen-profile',
+    nav: 'nav-settings',
+    target: '#btn-save-profile',
+    title: 'Save your cost profile',
+    body: 'We\'ve pre-filled regional averages for a Dry Van in Ontario. Adjust any numbers to match your real costs, then save.',
+    hint: 'Click "Save Profile" to continue.',
+    nextLabel: null, // auto-advance on click
+    action: 'click-save-profile'
+  },
+  {
+    id: 'route-chat',
+    screen: 'screen-home',
+    nav: 'nav-home',
+    target: '.chat-input-row',
+    title: 'Build a route from chat',
+    body: 'Type a route like "Toronto to Montreal" and Bungee instantly calculates distance, fuel, and your carrier cost. You can also click a suggested route.',
+    hint: 'Click a route chip or type one to continue.',
+    nextLabel: null,
+    action: 'click-route'
+  },
+  {
+    id: 'fuel-advanced',
+    screen: 'screen-home',
+    nav: 'nav-home',
+    target: '#fuel-section',
+    title: 'Live fuel & cost breakdown',
+    body: 'Bungee pulls regional fuel prices daily and applies them to your route automatically. The advanced panel below shows exactly how your carrier cost is calculated.',
+    hint: null,
+    nextLabel: 'See Advanced →',
+    action: 'show-advanced'
+  },
+  {
+    id: 'done',
+    screen: 'screen-done',
+    nav: 'nav-home',
+    target: null,
+    title: 'You\'re ready!',
+    body: 'That\'s it — you know the essentials. Build routes, see your real costs, and quote with confidence.',
+    hint: null,
+    nextLabel: 'Start Using Bungee →',
+    nextClass: 'orange',
+    action: 'finish'
+  }
+];
+
+let currentStep = 0;
+let advOpen = false;
+
+// ── DOM refs ──
+const overlay      = document.getElementById('overlay');
+const overlayBg    = document.getElementById('overlay-bg');
+const spotlight    = document.getElementById('spotlight');
+const spotlightRing= document.getElementById('spotlight-ring');
+const tooltip      = document.getElementById('tooltip');
+const tooltipProg  = document.getElementById('tooltip-progress');
+const tooltipStep  = document.getElementById('tooltip-step');
+const tooltipTitle = document.getElementById('tooltip-title');
+const tooltipBody  = document.getElementById('tooltip-body');
+const tooltipHint  = document.getElementById('tooltip-hint');
+const tooltipNext  = document.getElementById('tooltip-next');
+const tooltipBack  = document.getElementById('tooltip-back');
+const tooltipSkip  = document.getElementById('tooltip-skip-btn');
+const tooltipClose = document.getElementById('tooltip-close');
+
+// ── Init ──
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => showStep(0), 600);
+  setupInteractions();
+});
+
+function setupInteractions() {
+  // Equipment buttons
+  document.querySelectorAll('.equip-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.equip-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+
+  // Save profile click
+  document.getElementById('btn-save-profile').addEventListener('click', () => {
+    if (currentStep === 1) advance();
+  });
+
+  // Chat chips
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const route = chip.dataset.route;
+      document.getElementById('chat-input').value = route;
+      sendChatMessage(route);
+      if (currentStep === 2) setTimeout(() => advance(), 800);
+    });
+  });
+
+  // Chat send
+  document.getElementById('btn-send').addEventListener('click', () => {
+    const input = document.getElementById('chat-input');
+    if (input.value.trim()) {
+      sendChatMessage(input.value.trim());
+      input.value = '';
+      if (currentStep === 2) setTimeout(() => advance(), 800);
+    }
+  });
+  document.getElementById('chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-send').click();
+  });
+
+  // Advanced toggle
+  document.getElementById('adv-toggle').addEventListener('click', toggleAdvanced);
+
+  // Tooltip controls
+  tooltipNext.addEventListener('click', handleNext);
+  tooltipBack.addEventListener('click', () => { if (currentStep > 0) showStep(currentStep - 1); });
+  tooltipSkip.addEventListener('click', endTour);
+  tooltipClose.addEventListener('click', endTour);
+
+  // Start app
+  document.getElementById('btn-start-app').addEventListener('click', () => {
+    switchScreen('screen-home');
+    setActiveNav('nav-home');
+  });
+}
+
+function handleNext() {
+  const step = STEPS[currentStep];
+  if (step.action === 'show-advanced') {
+    if (!advOpen) toggleAdvanced();
+    // Briefly highlight advanced, then advance
+    document.getElementById('advanced-panel').style.boxShadow = '0 0 0 3px rgba(249,115,22,.3)';
+    setTimeout(() => {
+      document.getElementById('advanced-panel').style.boxShadow = '';
+      advance();
+    }, 600);
+  } else if (step.action === 'finish') {
+    endTour();
+    launchConfetti();
+  } else {
+    advance();
+  }
+}
+
+function advance() {
+  if (currentStep < STEPS.length - 1) {
+    showStep(currentStep + 1);
+  }
+}
+
+function showStep(idx) {
+  currentStep = idx;
+  const step = STEPS[idx];
+
+  // Switch screen & nav
+  switchScreen(step.screen);
+  setActiveNav(step.nav);
+
+  // Show overlay
+  overlay.classList.remove('hidden');
+  tooltip.style.display = 'block';
+
+  // Progress
+  tooltipProg.style.width = `${((idx + 1) / STEPS.length) * 100}%`;
+  tooltipStep.textContent = `${idx + 1} of ${STEPS.length}`;
+  tooltipTitle.textContent = step.title;
+  tooltipBody.textContent = step.body;
+  tooltipHint.textContent = step.hint || '';
+  tooltipHint.style.display = step.hint ? 'block' : 'none';
+
+  // Back button
+  tooltipBack.style.display = idx > 0 ? 'inline-flex' : 'none';
+
+  // Next button
+  if (step.nextLabel) {
+    tooltipNext.textContent = step.nextLabel;
+    tooltipNext.style.display = 'inline-flex';
+    tooltipNext.className = 'btn-next' + (step.nextClass ? ' ' + step.nextClass : '');
+  } else {
+    tooltipNext.style.display = 'none';
+  }
+
+  // Position spotlight & tooltip
+  if (step.target) {
+    const el = document.querySelector(step.target);
+    if (el) {
+      const r = el.getBoundingClientRect();
+      const pad = 8;
+      spotlight.style.display = 'block';
+      spotlightRing.style.display = 'block';
+      spotlight.style.top = (r.top - pad) + 'px';
+      spotlight.style.left = (r.left - pad) + 'px';
+      spotlight.style.width = (r.width + pad*2) + 'px';
+      spotlight.style.height = (r.height + pad*2) + 'px';
+      spotlightRing.style.top = (r.top - pad - 2) + 'px';
+      spotlightRing.style.left = (r.left - pad - 2) + 'px';
+      spotlightRing.style.width = (r.width + pad*2 + 4) + 'px';
+      spotlightRing.style.height = (r.height + pad*2 + 4) + 'px';
+
+      // Position tooltip below or above target
+      const tooltipW = 320;
+      let tooltipLeft = r.left + r.width/2 - tooltipW/2;
+      tooltipLeft = Math.max(240, Math.min(tooltipLeft, window.innerWidth - tooltipW - 16));
+      let tooltipTop = r.bottom + 16;
+      if (tooltipTop + 220 > window.innerHeight) {
+        tooltipTop = r.top - 220;
+      }
+      tooltip.style.left = tooltipLeft + 'px';
+      tooltip.style.top = tooltipTop + 'px';
+
+      // Hide generic overlay bg, use spotlight cutout instead
+      overlayBg.style.display = 'none';
+    }
+  } else {
+    // Centered tooltip, no spotlight
+    spotlight.style.display = 'none';
+    spotlightRing.style.display = 'none';
+    overlayBg.style.display = 'block';
+    tooltip.style.left = '50%';
+    tooltip.style.top = '50%';
+    tooltip.style.transform = 'translate(-50%, -50%)';
+    setTimeout(() => { tooltip.style.transform = 'translate(-50%, -50%)'; }, 0);
+  }
+
+  // Reset transform for targeted tooltips
+  if (step.target) {
+    tooltip.style.transform = 'none';
+  }
+}
+
+function switchScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function setActiveNav(id) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+
+function sendChatMessage(text) {
+  const msgs = document.getElementById('chat-messages');
+  // User message
+  const userMsg = document.createElement('div');
+  userMsg.className = 'msg user animate-in';
+  userMsg.textContent = text;
+  msgs.appendChild(userMsg);
+
+  // Hide chips
+  document.getElementById('chat-chips').style.display = 'none';
+
+  // Bot reply after delay
+  setTimeout(() => {
+    const botMsg = document.createElement('div');
+    botMsg.className = 'msg bot animate-in';
+    botMsg.innerHTML = '✅ Route set! <strong>Toronto → Montreal</strong> — 541 km, ~5.4 hrs. Your carrier cost is <strong style="color:#f97316;">$1,847.32</strong>. I\'ve updated the map and cost breakdown.';
+    msgs.appendChild(botMsg);
+    msgs.scrollTop = msgs.scrollHeight;
+
+    // Show map route
+    document.getElementById('map-route').style.display = 'block';
+    document.getElementById('map-origin').style.display = 'block';
+    document.getElementById('map-dest').style.display = 'block';
+    document.getElementById('map-empty').style.display = 'none';
+  }, 500);
+
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function toggleAdvanced() {
+  const body = document.getElementById('adv-body');
+  const arrow = document.getElementById('adv-arrow');
+  advOpen = !advOpen;
+  body.style.display = advOpen ? 'block' : 'none';
+  arrow.style.transform = advOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function endTour() {
+  overlay.classList.add('hidden');
+  tooltip.style.display = 'none';
+  switchScreen('screen-home');
+  setActiveNav('nav-home');
+}
+
+function launchConfetti() {
+  const container = document.getElementById('confetti');
+  const colors = ['#f97316', '#3b82f6', '#22c55e', '#eab308', '#ec4899', '#8b5cf6'];
+  for (let i = 0; i < 60; i++) {
+    const c = document.createElement('div');
+    c.className = 'confetti';
+    c.style.left = Math.random() * 100 + '%';
+    c.style.background = colors[Math.floor(Math.random() * colors.length)];
+    c.style.animationDelay = (Math.random() * 1.5) + 's';
+    c.style.animationDuration = (2 + Math.random() * 2) + 's';
+    c.style.width = (5 + Math.random() * 8) + 'px';
+    c.style.height = (5 + Math.random() * 8) + 'px';
+    container.appendChild(c);
+  }
+  setTimeout(() => { container.innerHTML = ''; }, 5000);
+}
+
+// Start with advanced panel closed
+document.getElementById('adv-body').style.display = 'none';
+</script>
+</body>
+</html>
