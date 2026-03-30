@@ -84,6 +84,8 @@ gcloud run deploy shipbungee-site \
 
 **Firebase:** Add **`shipbungee.com`** (and `www` if used) under Authentication → Settings → **Authorized domains**. Restrict **Google Maps** keys with HTTP referrers for those origins if the key is referrer-locked.
 
+**Employee Tools** (`https://shipbungee.com/calculator.html`): The employee password is **not** in the client. Create a Firestore document **`admin_only_config`** / **`employee_calculator`** with field **`password`** (string). The Cloud Run service reads it with Firebase Admin. Deploy **`firestore.rules`** so `admin_only_config` stays server-only. For local dev without that doc, set **`SHIPBUNGEE_EMPLOYEE_CALCULATOR_PASSWORD`** in `.env`.
+
 ---
 
 ### 2. Standalone Connect only (app at `/`)

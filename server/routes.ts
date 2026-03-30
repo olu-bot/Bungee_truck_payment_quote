@@ -5,6 +5,7 @@ import { registerStripeRoutes } from "./stripe";
 import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
 import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
+import { registerEmployeeCalculatorAuthRoutes } from "./employeeCalculatorAuth";
 import { insertLaneSchema, insertCostProfileSchema, insertYardSchema, insertTeamMemberSchema, calculateRouteSchema, pricingTiersSchema, chatRouteSchema } from "@shared/schema";
 import type { CostProfile, RouteStop } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -959,6 +960,8 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  registerEmployeeCalculatorAuthRoutes(app);
 
   // === COST PROFILES ===
   app.get("/api/profiles", async (_req, res) => {

@@ -53,6 +53,11 @@ service cloud.firestore {
     }
 
     // User-submitted feedback; admins read/reply; users read own + create
+    // Server-only config (employee calculator password, etc.). Admin SDK only — never expose to clients.
+    match /admin_only_config/{docId} {
+      allow read, write: if false;
+    }
+
     match /feedback/{feedbackId} {
       allow create: if request.auth != null
         && request.resource.data.userId == request.auth.uid

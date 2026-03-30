@@ -94,36 +94,52 @@
 
   <!-- ═══ LOGIN LOGIC ════════════════════════════════════════════════════ -->
   <script>
-    // ================================================================
-    // EMPLOYEE PASSWORD — edit the value below to change the password
-    const EMPLOYEE_PASSWORD = "@Bungee2026";
-    // ================================================================
+    // Password is verified server-side (Firestore via Admin SDK). Not stored in this file.
 
     const CALENDAR_URL = 'https://bungee-truck-calendar.uc.r.appspot.com/';
     const isCalendarRedirect = () => (new URLSearchParams(window.location.search)).get('calendar') === '1';
 
-    function doLogin() {
+    function unlockAfterAuth() {
+      sessionStorage.setItem('bungee_auth', '1');
+      if (isCalendarRedirect()) {
+        window.location.href = CALENDAR_URL;
+        return;
+      }
+      document.getElementById('login-gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      if (window.__appMounted) return;
+      window.__appMounted = true;
+      Babel.transformScriptTags();
+    }
+
+    async function doLogin() {
       const val = document.getElementById('pwd-input').value;
       const err = document.getElementById('login-error');
       const inp = document.getElementById('pwd-input');
-      if (val === EMPLOYEE_PASSWORD) {
-        sessionStorage.setItem('bungee_auth', '1');
-        if (isCalendarRedirect()) {
-          window.location.href = CALENDAR_URL;
+      err.textContent = '';
+      inp.classList.remove('error');
+      try {
+        const r = await fetch('/api/employee-calculator-auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: val }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data.ok) {
+          unlockAfterAuth();
           return;
         }
-        document.getElementById('login-gate').style.display = 'none';
-        document.getElementById('app').style.display = 'block';
-        if (window.__appMounted) return;
-        window.__appMounted = true;
-        // Trigger Babel transform now that the app div is visible
-        const script = document.getElementById('calc-script');
-        Babel.transformScriptTags(); // re-process any pending text/babel tags
-      } else {
-        inp.classList.add('error');
-        err.textContent = 'Incorrect password. Please try again.';
+        if (r.status === 503) {
+          err.textContent = 'Sign-in is not configured. Ask an administrator.';
+        } else {
+          inp.classList.add('error');
+          err.textContent = 'Incorrect password. Please try again.';
+        }
         inp.value = '';
-        setTimeout(() => { inp.classList.remove('error'); err.textContent = ''; }, 3000);
+        setTimeout(() => { inp.classList.remove('error'); err.textContent = ''; }, 4000);
+      } catch (_e) {
+        err.textContent = 'Could not reach the server. Check your connection and try again.';
+        setTimeout(() => { err.textContent = ''; }, 4000);
       }
     }
 
