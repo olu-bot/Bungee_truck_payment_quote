@@ -109,6 +109,7 @@ const FREE_COST_PROFILE_LIMIT = 2;
 
 const TRUCK_LABELS: Record<string, string> = {
   dry_van: "Dry Van",
+  straight_truck: "Straight Truck",
   reefer: "Reefer",
   flatbed: "Flatbed",
   step_deck: "Step Deck",
@@ -117,6 +118,7 @@ const TRUCK_LABELS: Record<string, string> = {
 
 const TRUCK_ICONS: Record<string, typeof Package> = {
   dry_van: Package,
+  straight_truck: Truck,
   reefer: Snowflake,
   flatbed: Layers,
   step_deck: Layers,

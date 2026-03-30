@@ -254,39 +254,71 @@ function AppLayout() {
   const [activeTourId, setActiveTourId] = useState<TourId>("overview");
   const [showConfetti, setShowConfetti] = useState(false);
 
-  // Per-tour completion tracking
+  // Per-tour completion tracking — keys scoped to user UID so different accounts don't share state
   const TOUR_IDS: TourId[] = ["overview", "quote-history", "advanced-quote"];
-  const tourDoneKey = (id: TourId) => `bungee_tour_done_${id}`;
-  const [completedTours, setCompletedTours] = useState<Set<TourId>>(() => {
+  const tourDoneKey = useCallback((id: TourId) => user ? `bungee_tour_done_${user.uid}_${id}` : `bungee_tour_done_${id}`, [user]);
+  const [completedTours, setCompletedTours] = useState<Set<TourId>>(new Set());
+
+  // Sync completedTours when user changes (read their per-UID keys)
+  useEffect(() => {
+    if (!user) return;
     const done = new Set<TourId>();
-    TOUR_IDS.forEach((id) => { if (localStorage.getItem(tourDoneKey(id)) === "1") done.add(id); });
-    return done;
-  });
+    TOUR_IDS.forEach((id) => {
+      // Check new UID-scoped key
+      if (localStorage.getItem(`bungee_tour_done_${user.uid}_${id}`) === "1") done.add(id);
+      // Migrate legacy non-scoped key if present
+      else if (localStorage.getItem(`bungee_tour_done_${id}`) === "1") {
+        localStorage.setItem(`bungee_tour_done_${user.uid}_${id}`, "1");
+        done.add(id);
+      }
+    });
+    // Also migrate the old single-key format
+    if (localStorage.getItem(`bungee_tour_done_${user.uid}`)) {
+      if (!done.has("overview")) {
+        localStorage.setItem(`bungee_tour_done_${user.uid}_overview`, "1");
+        done.add("overview");
+      }
+    }
+    setCompletedTours(done);
+  }, [user]);
+
   const allToursComplete = completedTours.size === TOUR_IDS.length;
 
   const markTourDone = useCallback((id: TourId) => {
     localStorage.setItem(tourDoneKey(id), "1");
     setCompletedTours((prev) => new Set(prev).add(id));
-    // Fire confetti celebration
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 3500);
-  }, []);
+  }, [tourDoneKey]);
 
-  // Auto-trigger overview walkthrough on first login (once auth settles)
+  // Auto-trigger overview walkthrough ONLY for genuinely new users
+  // A new user has: no completed tours, no legacy keys, AND no existing Firestore data (profiles/quotes)
   useEffect(() => {
     if (!user || authLoading) return;
-    // Legacy key — migrate to per-tour tracking
-    const legacyKey = `bungee_tour_done_${user.uid}`;
-    if (window.localStorage.getItem(legacyKey)) {
-      // User already completed the overview tour in the old system
-      if (!localStorage.getItem(tourDoneKey("overview"))) {
-        localStorage.setItem(tourDoneKey("overview"), "1");
-        setCompletedTours((prev) => new Set(prev).add("overview"));
+    const uid = user.uid;
+
+    // Already completed overview tour? Don't show.
+    if (localStorage.getItem(`bungee_tour_done_${uid}_overview`) === "1") return;
+    if (localStorage.getItem(`bungee_tour_done_overview`) === "1") return;
+    if (localStorage.getItem(`bungee_tour_done_${uid}`)) return;
+
+    // Check Firestore for existing data — if user has profiles or lanes, they're not new
+    const companyId = workspaceFirestoreId(user);
+    if (!companyId) return;
+
+    Promise.all([getProfiles(companyId), getLanes(companyId)]).then(([profiles, lanes]) => {
+      const hasExistingData = (profiles && profiles.length > 0) || (lanes && lanes.length > 0);
+      if (hasExistingData) {
+        // Returning user — mark all tours as done so checklist doesn't show
+        TOUR_IDS.forEach((id) => localStorage.setItem(`bungee_tour_done_${uid}_${id}`, "1"));
+        setCompletedTours(new Set(TOUR_IDS));
+        return;
       }
-      return;
-    }
-    // New user — show overview tour
-    setTimeout(() => setShowWalkthrough(true), 600);
+      // Genuinely new user — show overview tour
+      setTimeout(() => setShowWalkthrough(true), 600);
+    }).catch(() => {
+      // Firestore error — don't block, just skip auto-trigger
+    });
   }, [user, authLoading]);
 
   const handleWalkthroughComplete = useCallback(() => {

@@ -1,7 +1,7 @@
-const GEO_TTL_MS = 1000 * 60 * 60 * 24; // 24h
-const ROUTE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
-const SUGGEST_TTL_MS = 1000 * 60 * 60 * 6; // 6h
-const MISS_TTL_MS = 1000 * 60 * 5; // 5m negative cache for failed geocode/route
+const GEO_TTL_MS     = 1000 * 60 * 60 * 48;  // 48h — matches server
+const ROUTE_TTL_MS   = 1000 * 60 * 60 * 24;  // 24h — matches server
+const SUGGEST_TTL_MS = 1000 * 60 * 60 * 12;  // 12h — matches server
+const MISS_TTL_MS    = 1000 * 60 * 10;        // 10m — negative cache
 
 type CacheEntry<T> = { value: T; expiresAt: number };
 

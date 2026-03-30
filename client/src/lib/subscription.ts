@@ -17,12 +17,12 @@
  * │ Yards                │ 1      │ ∞      │ ∞        │
  * │ Team members         │ 1      │ 5      │ ∞        │
  * │ Favorite lanes       │ 5      │ 20     │ ∞        │
- * │ Monthly route quotes  │ 1,000  │ ∞      │ ∞        │
+ * │ Monthly route quotes  │ 300    │ ∞      │ ∞        │
  * │ Quote history        │ 30 day │ ∞      │ ∞        │
- * │ Branded PDF quotes   │ ✗      │ ✓      │ ✓        │
+ * │ Branded PDF export   │ ✗      │ ✓      │ ✓        │
  * │ PDF template editor  │ ✗      │ ✓      │ ✓        │
  * │ CSV export           │ ✗      │ ✓      │ ✓        │
- * │ Live EIA fuel prices │ ✗      │ ✓      │ ✓        │
+ * │ Live fuel prices     │ ✓      │ ✓      │ ✓        │
  * └──────────────────────┴────────┴────────┴──────────┘
  */
 
@@ -78,7 +78,7 @@ export function favLaneLimit(user: AppUser | null | undefined): number {
 
 /** Monthly route-quote limit. -1 = unlimited. */
 export function monthlyQuoteLimit(user: AppUser | null | undefined): number {
-  return isPaid(user) ? -1 : 1000;
+  return isPaid(user) ? -1 : 300;
 }
 
 /** Quote history retention in days. -1 = unlimited. */

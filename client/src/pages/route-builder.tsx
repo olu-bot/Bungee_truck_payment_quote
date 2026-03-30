@@ -376,7 +376,7 @@ function RouteControlsPortal({
           type="number"
           step="0.05"
           min="0"
-          className="h-7 text-[11px] w-[60px]"
+          className="h-7 text-[11px] w-[76px]"
           value={displayVal}
           onChange={(e) => {
             const raw = e.target.value;
@@ -426,14 +426,14 @@ function RouteControlsPortal({
       </div>
 
       {/* Quick Quote / Advanced toggle */}
-      <div className="inline-flex rounded-md border border-slate-300 overflow-hidden h-7 text-xs font-medium select-none">
+      <div className="inline-flex rounded-md border border-orange-300 overflow-hidden h-7 text-xs font-medium select-none">
         <button
           type="button"
           onClick={() => setQuoteMode("quick")}
           className={`px-3 flex items-center justify-center transition-colors ${
             quoteMode === "quick"
-              ? "bg-slate-700 text-white"
-              : "bg-white text-slate-500 hover:bg-slate-50"
+              ? "bg-orange-400 text-white"
+              : "bg-white text-slate-500 hover:bg-orange-50"
           }`}
         >
           Quick Quote
@@ -442,10 +442,10 @@ function RouteControlsPortal({
           type="button"
           data-testid="button-advanced"
           onClick={() => setQuoteMode("advanced")}
-          className={`px-3 flex items-center justify-center transition-colors border-l border-slate-200 ${
+          className={`px-3 flex items-center justify-center transition-colors border-l border-orange-200 ${
             quoteMode === "advanced"
-              ? "bg-slate-700 text-white"
-              : "bg-white text-slate-500 hover:bg-slate-50"
+              ? "bg-orange-400 text-white"
+              : "bg-white text-slate-500 hover:bg-orange-50"
           }`}
         >
           Advanced
@@ -495,7 +495,7 @@ export default function RouteBuilder() {
   const savedFuel = loadSavedFuel();
 
   const [fuelPrice, setFuelPrice] = useState(savedFuel.price);
-  const [defaultDockMinutes, setDefaultDockMinutes] = useState(180);
+  const [defaultDockMinutes, setDefaultDockMinutes] = useState(90);
   const [payMode, setPayMode] = useState<PayMode>("perHour");
   const [payModeManualOverride, setPayModeManualOverride] = useState(false);
   const [showLocalAlert, setShowLocalAlert] = useState(false);
@@ -603,6 +603,7 @@ export default function RouteBuilder() {
     stopOffRate: 75,         // $ per extra stop
     borderCrossing: 0,
     tonu: 0,                 // Truck Ordered Not Used
+    tailgateFee: 0,          // Tailgate / liftgate delivery fee
     customAccessorialLabel: "",
     customAccessorialAmount: 0,
     costInflationPct: 0,         // Hazmat, regulatory overhead, etc. — applied to base trip cost
@@ -616,6 +617,7 @@ export default function RouteBuilder() {
       accessorials.stopOffCount * accessorials.stopOffRate +
       accessorials.borderCrossing +
       accessorials.tonu +
+      accessorials.tailgateFee +
       accessorials.customAccessorialAmount;
     return flatCharges;
   }, [quoteMode, accessorials]);
@@ -1242,6 +1244,7 @@ export default function RouteBuilder() {
           if (a.lumperFee > 0) items.push({ label: "Lumper", amount: a.lumperFee });
           if (a.borderCrossing > 0) items.push({ label: "Border crossing", amount: a.borderCrossing });
           if (a.tonu > 0) items.push({ label: "TONU", amount: a.tonu });
+          if (a.tailgateFee > 0) items.push({ label: "Tailgate", amount: a.tailgateFee });
           if (a.customAccessorialAmount > 0) items.push({ label: a.customAccessorialLabel || "Other", amount: a.customAccessorialAmount });
           return items;
         })(),
@@ -1624,12 +1627,13 @@ export default function RouteBuilder() {
   const routeSummaryStats = useMemo(() => {
     if (!routeCalc) return null;
     const totalKm = routeCalc.totalDistanceKm;
-    const totalMin = routeCalc.totalDriveMinutes;
+    const driveMin = routeCalc.totalDriveMinutes;
+    const dockMin = routeCalc.totalDockMinutes;
     const deadheadKm =
       routeCalc.legs
         ?.filter((l) => l.isDeadhead ?? l.type === "deadhead")
         .reduce((sum, l) => sum + l.distanceKm, 0) ?? 0;
-    return { totalKm, totalMin, deadheadKm };
+    return { totalKm, driveMin, dockMin, deadheadKm };
   }, [routeCalc]);
 
   // Is the current route already saved as a favorite lane?
@@ -1772,8 +1776,11 @@ export default function RouteBuilder() {
                 {routeSummaryStats && (
                   <span className="text-[13px] text-slate-400 whitespace-nowrap">
                     {displayDistance(routeSummaryStats.totalKm, measureUnit).toFixed(0)} {dLabel}
-                    {" \u00B7 "}
-                    {Math.floor(routeSummaryStats.totalMin / 60)}h {String(Math.round(routeSummaryStats.totalMin % 60)).padStart(2, "0")}m (est.)
+                    {" · "}
+                    {Math.floor(routeSummaryStats.driveMin / 60)}h {String(Math.round(routeSummaryStats.driveMin % 60)).padStart(2, "0")}m drive
+                    {routeSummaryStats.dockMin > 0
+                      ? ` + ${Math.floor(routeSummaryStats.dockMin / 60)}h ${String(Math.round(routeSummaryStats.dockMin % 60)).padStart(2, "0")}m dock`
+                      : ""}
                     {includeReturn && routeSummaryStats.deadheadKm > 0
                       ? ` + ${displayDistance(routeSummaryStats.deadheadKm, measureUnit).toFixed(0)} ${dLabel} return`
                       : ""}
@@ -2127,7 +2134,7 @@ export default function RouteBuilder() {
                   <button
                     type="button"
                     data-testid="button-toggle-breakdown"
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 rounded px-2 py-0.5 transition-colors"
                     onClick={() => setShowBreakdown((prev) => !prev)}
                   >
                     {showBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -2228,7 +2235,7 @@ export default function RouteBuilder() {
                 {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600">+{formatCurrency(accessorialTotal)}</span>}
                 <a href="/#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600" data-testid="link-adjust-defaults">Adjust Defaults</a>
               </div>
-              <div className="grid grid-cols-6 gap-3">
+              <div className="grid grid-cols-7 gap-3">
                 {/* Detention */}
                 <div className="space-y-1">
                   <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
@@ -2288,6 +2295,18 @@ export default function RouteBuilder() {
                   </div>
                   <div className="text-[10px] text-slate-400">&nbsp;</div>
                   <Input type="number" min="0" step="50" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tonu || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tonu: parseFloat(e.target.value) || 0 }))} />
+                </div>
+                {/* Tailgate */}
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                    Tailgate
+                    <Tooltip>
+                      <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[200px] text-xs">Liftgate/tailgate fee for deliveries requiring hydraulic lift for loading or unloading.</TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="text-[10px] text-slate-400">&nbsp;</div>
+                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tailgateFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tailgateFee: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Other (custom) */}
                 <div className="space-y-1">
