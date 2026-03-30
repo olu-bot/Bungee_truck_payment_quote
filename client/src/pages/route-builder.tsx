@@ -1882,101 +1882,6 @@ export default function RouteBuilder() {
               {/* Breakdown toggle removed — now inside the Advanced panel */}
             </div>
 
-            {/* Shipment / Cargo detail card — shown when AI extracts structured data */}
-            {(activeShipment || activeFreightMeta) && (
-              <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-sm space-y-2 relative">
-                <button
-                  className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
-                  onClick={() => { setActiveShipment(null); setActiveFreightMeta(null); }}
-                  aria-label="Dismiss shipment details"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-                <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                  <Package className="h-3.5 w-3.5" />
-                  Shipment Details
-                </div>
-                {/* Freight meta: equipment, PU/DEL windows */}
-                {activeFreightMeta && (activeFreightMeta.equipment || activeFreightMeta.pickupDetails || activeFreightMeta.deliveryDetails) && (
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                    {activeFreightMeta.equipment && (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
-                        <Route className="h-3 w-3 text-slate-400" /> {activeFreightMeta.equipment}
-                      </span>
-                    )}
-                    {activeFreightMeta.pickupDetails && (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
-                        <Clock className="h-3 w-3 text-green-500" /> PU: {activeFreightMeta.pickupDetails}
-                      </span>
-                    )}
-                    {activeFreightMeta.deliveryDetails && (
-                      <span className="inline-flex items-center gap-1 text-slate-600">
-                        <Clock className="h-3 w-3 text-blue-500" /> DEL: {activeFreightMeta.deliveryDetails}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {activeShipment && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5 text-xs">
-                  {activeShipment.referenceNumber && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Hash className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span className="font-medium">{activeShipment.referenceNumber}</span>
-                    </div>
-                  )}
-                  {activeShipment.productName && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Package className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>{activeShipment.productName}</span>
-                    </div>
-                  )}
-                  {activeShipment.totalPieces != null && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Ruler className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>{activeShipment.totalPieces} pcs</span>
-                    </div>
-                  )}
-                  {activeShipment.totalWeightKg != null && (
-                    <div className="flex items-center gap-1.5 text-slate-600">
-                      <Weight className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>{activeShipment.totalWeightKg} kg</span>
-                    </div>
-                  )}
-                </div>
-                )}
-                {/* Dimensions list */}
-                {activeShipment && activeShipment.cargo.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {activeShipment.cargo.map((c, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded px-2 py-0.5 text-[11px] text-slate-600">
-                        <Ruler className="h-2.5 w-2.5 text-slate-400" />
-                        {c.dimensions}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {/* Contact info */}
-                {activeShipment && (activeShipment.contactPhone || activeShipment.contactEmail || activeShipment.contactName) && (
-                  <div className="flex flex-wrap gap-3 text-xs text-slate-500 pt-0.5 border-t border-slate-200">
-                    {activeShipment.contactName && (
-                      <span className="font-medium text-slate-600">{activeShipment.contactName}</span>
-                    )}
-                    {activeShipment.contactPhone && (
-                      <span className="flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {activeShipment.contactPhone}
-                      </span>
-                    )}
-                    {activeShipment.contactEmail && (
-                      <span className="flex items-center gap-1">
-                        <Mail className="h-3 w-3" />
-                        {activeShipment.contactEmail}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Row 2: Pricing cards — 4 columns with more room */}
             <div
@@ -2516,7 +2421,7 @@ export default function RouteBuilder() {
       {/* ═══════════════════════════════════════════════════════════
           SECTION 2 + 3: Chatbot (left) + Map & Build Route (right)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:auto-rows-fr">
           {/* ── Left: Route Chat ─────────────────────────────────── */}
           <Card className="border-slate-200 flex flex-col" data-testid="chat-panel">
             <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2 shrink-0">
@@ -2525,9 +2430,9 @@ export default function RouteBuilder() {
               </CardTitle>
             </CardHeader>
             <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
-              {/* Chat messages — fills available space */}
+              {/* Chat messages — stretches to match right column height */}
               <div
-                className="space-y-2 min-h-[180px] max-h-[360px] overflow-y-auto"
+                className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
                 data-testid="chat-messages"
               >
                 {chatHistory.map((msg, i) => (
