@@ -7,6 +7,8 @@ import { workspaceFirestoreId } from "@/lib/workspace";
 import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances } from "@/lib/geo";
 import { calculateRouteCost, getPricingAdvice, type PayMode } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
+import { useRouteStops, nextStopId, type FormStop } from "./route-builder/hooks/useRouteStops";
+import type { RouteCalculation, PricingAdvice, LegBreakdown, PricingTier } from "./route-builder/hooks/useRouteCalculation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,11 +77,6 @@ import {
   type FuelPriceData,
 } from "@/lib/fuelPriceService";
 
-let stopIdCounter = 0;
-function nextStopId(): string {
-  return `stop-${Date.now()}-${++stopIdCounter}`;
-}
-
 function marginQualityLabel(percent: number): { label: string; color: string } {
   if (percent < 10) return { label: "Low", color: "text-red-500" };
   if (percent < 25) return { label: "Fair", color: "text-amber-600" };
@@ -96,71 +93,6 @@ async function getDistance(
 ): Promise<{ distanceKm: number; durationMinutes: number } | null> {
   return getOSRMRoute(fromLat, fromLng, toLat, toLng);
 }
-
-/**
- * Extract a city/region from a detailed address string.
- * Given "123 Industrial Rd, Suite 5, Toronto, ON M5V 2T6"
- * → tries "Toronto, ON M5V 2T6" then "Toronto, ON" etc.
- * Falls back to the last comma-separated segment.
- */
-function extractCityFromAddress(address: string): string | null {
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length <= 1) return null;
-  // Try progressively shorter suffixes (skipping street-level detail)
-  for (let i = 1; i < parts.length; i++) {
-    const candidate = parts.slice(i).join(", ");
-    if (candidate.length >= 3) return candidate;
-  }
-  return null;
-}
-
-// ── Types ──────────────────────────────────────────────────────────
-
-type LegBreakdown = {
-  from: string;
-  to: string;
-  type?: string;
-  isLocal?: boolean;
-  distanceKm: number;
-  driveMinutes: number;
-  dockMinutes: number;
-  totalBillableHours: number;
-  fixedCost: number;
-  driverCost: number;
-  fuelCost: number;
-  legCost: number;
-  isDeadhead?: boolean;
-};
-
-type RouteCalculation = {
-  legs: LegBreakdown[];
-  totalDistanceKm: number;
-  totalDriveMinutes: number;
-  totalDockMinutes: number;
-  totalHours: number;
-  allInHourlyRate: number;
-  fixedCostPerHour: number;
-  fuelPerKm: number;
-  payMode: PayMode;
-  driverPayPerMile: number;
-  deadheadPayPercent: number;
-  tripCost: number;
-  deadheadCost: number;
-  fullTripCost: number;
-};
-
-type PricingTier = {
-  label: string;
-  percent: number;
-  price: number;
-};
-
-type PricingAdvice = {
-  totalCost: number;
-  tiers: (PricingTier & { marginAmount: number })[];
-  customPercent?: { label: string; percent: number; price: number; marginAmount: number } | null;
-  customQuote?: { label: string; quoteAmount: number; marginPercent: number; marginAmount: number } | null;
-};
 
 async function persistRouteBuilderQuote(
   scopeId: string,
@@ -486,50 +418,19 @@ export default function RouteBuilder() {
   const [fuelPriceDate, setFuelPriceDate] = useState("");
   const [fuelPriceManual, setFuelPriceManual] = useState(savedFuel.manual);
 
-  // ── Build Route form ──────────────────────────────────────────
-
-  type FormStop = { id: string; location: string; dockMinutes: number };
-  const [formStops, setFormStops] = useState<FormStop[]>([
-    { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
-    { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
-  ]);
-  const formStopsRef = useRef<FormStop[]>(formStops);
-  formStopsRef.current = formStops;
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  // Convenience getters for origin/destination
-  const origin = formStops[0]?.location ?? "";
-  const destination = formStops[formStops.length - 1]?.location ?? "";
-
-  // ── Stops (computed from form) ────────────────────────────────
-
-  const [stops, setStops] = useState<RouteStop[]>([]);
-  const stopsRef = useRef<RouteStop[]>([]);
-  // Keep ref in sync so debounced callbacks always see latest stops
-  stopsRef.current = stops;
-
-  // ── Cross-border route detection ──────────────────────────────
-  const CA_PROVINCES = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "ON", "PE", "QC", "SK"]);
-  const isCrossBorder = useMemo(() => {
-    if (stops.length < 2) return false;
-    const locations = stops.map((s) => s.location.toUpperCase());
-    let hasCA = false;
-    let hasUS = false;
-    for (const loc of locations) {
-      for (const prov of CA_PROVINCES) {
-        if (loc.includes(`, ${prov}`) || loc.endsWith(` ${prov}`)) { hasCA = true; break; }
-      }
-      if (!hasCA || hasUS) {
-        const parts = loc.split(",").map((p) => p.trim());
-        const last = parts[parts.length - 1];
-        if (last && last.length === 2 && !CA_PROVINCES.has(last)) hasUS = true;
-        if (loc.includes("USA") || loc.includes("UNITED STATES")) hasUS = true;
-      }
-      if (loc.includes("CANADA") || loc.includes("ONTARIO") || loc.includes("QUEBEC") || loc.includes("ALBERTA")) hasCA = true;
-    }
-    return hasCA && hasUS;
-  }, [stops]);
+  // ── Route Stops (extracted hook) ─────────────────────────────
+  const routeStopsHook = useRouteStops(defaultDockMinutes);
+  const {
+    formStops, setFormStops, formStopsRef,
+    dragIdx, dragOverIdx,
+    origin, destination,
+    stops, setStops, stopsRef,
+    isCrossBorder,
+    populateFormFromLocations,
+    buildStopsFromForm,
+    addStop, removeStop, updateStopLocation, swapOriginDest,
+    handleDragStart, handleDragOver, handleDragLeave, handleDrop, handleDragEnd,
+  } = routeStopsHook;
 
   // ── Chat ──────────────────────────────────────────────────────
 
@@ -771,118 +672,6 @@ export default function RouteBuilder() {
   }, [fuelPriceData, yardStateCode, measureUnit, fuelPriceManual, currency]);
 
   // ── Build stops from form values ──────────────────────────────
-
-  const buildStopsFromForm = useCallback(
-    async (
-      fStops: FormStop[],
-      yard: Yard | null,
-      _doReturn: boolean, // ignored — return yard is always included; calc toggle controls cost
-    ): Promise<RouteStop[]> => {
-      const locations: { name: string; type: RouteStop["type"]; dockMinutes: number; knownLat?: number; knownLng?: number }[] = [];
-
-      // Use pre-stored yard lat/lng when available to avoid re-geocoding
-      const yardLat = yard?.lat ?? undefined;
-      const yardLng = yard?.lng ?? undefined;
-
-      // Routes start at the PICKUP, not the yard.
-      // Yard is only used for the return deadhead leg at the end.
-      for (let i = 0; i < fStops.length; i++) {
-        const s = fStops[i];
-        if (!s.location.trim()) continue;
-        const type: RouteStop["type"] = i === 0 ? "pickup" : i === fStops.length - 1 ? "delivery" : "stop";
-        locations.push({ name: s.location.trim(), type, dockMinutes: s.dockMinutes });
-      }
-
-      // Append return yard for deadhead calculation.
-      // The "Include deadhead" toggle controls whether this leg enters the cost.
-      if (yard) {
-        locations.push({ name: yard.address || yard.name, type: "yard", dockMinutes: 0, knownLat: yardLat, knownLng: yardLng });
-      }
-
-      if (locations.length < 2) return [];
-
-      // Geocode all — use pre-stored coords when available, with city extraction fallback
-      const geocoded = await Promise.all(
-        locations.map(async (loc) => {
-          // If we already have valid coordinates, skip geocoding
-          if (loc.knownLat != null && loc.knownLng != null && Number.isFinite(loc.knownLat) && Number.isFinite(loc.knownLng)) {
-            return { ...loc, lat: loc.knownLat, lng: loc.knownLng };
-          }
-          // Try geocoding the full address first
-          let coords = await geocodeLocation(loc.name);
-          // If full address fails, try extracting a city/region from it
-          if (!coords) {
-            const cityPart = extractCityFromAddress(loc.name);
-            if (cityPart && cityPart !== loc.name) {
-              coords = await geocodeLocation(cityPart);
-            }
-          }
-          return { ...loc, lat: coords?.lat, lng: coords?.lng };
-        }),
-      );
-
-      // Build waypoints for multi-distance call (single OSRM request)
-      const validWaypoints: { lat: number; lng: number }[] = [];
-      const waypointIndices: number[] = []; // maps waypoint index → geocoded index
-      for (let i = 0; i < geocoded.length; i++) {
-        const g = geocoded[i];
-        if (g.lat != null && g.lng != null) {
-          validWaypoints.push({ lat: g.lat, lng: g.lng });
-          waypointIndices.push(i);
-        }
-      }
-
-      // Fetch all leg distances in one call
-      let legDistances: { distanceKm: number; durationMinutes: number }[] | null = null;
-      if (validWaypoints.length >= 2) {
-        legDistances = await getMultiWaypointDistances(validWaypoints);
-        console.log("[buildStops] Multi-waypoint distances:", legDistances);
-      }
-
-      // Build result, mapping multi-distances back to the correct legs
-      const result: RouteStop[] = [];
-      let legIdx = 0; // index into legDistances
-      for (let i = 0; i < geocoded.length; i++) {
-        const g = geocoded[i];
-        let distanceFromPrevKm = 0;
-        let driveMinutesFromPrev = 0;
-
-        if (i > 0) {
-          // Check if both this stop and the previous one were in the valid waypoints
-          const prevWpIdx = waypointIndices.indexOf(i - 1);
-          const curWpIdx = waypointIndices.indexOf(i);
-          if (prevWpIdx >= 0 && curWpIdx >= 0 && curWpIdx === prevWpIdx + 1 && legDistances && legDistances[prevWpIdx]) {
-            distanceFromPrevKm = legDistances[prevWpIdx].distanceKm;
-            driveMinutesFromPrev = legDistances[prevWpIdx].durationMinutes;
-          } else if (g.lat != null && g.lng != null) {
-            // Fallback to single-pair call if multi failed
-            const prev = geocoded[i - 1];
-            if (prev.lat != null && prev.lng != null) {
-              const dist = await getDistance(prev.lat, prev.lng, g.lat, g.lng);
-              if (dist) {
-                distanceFromPrevKm = dist.distanceKm;
-                driveMinutesFromPrev = dist.durationMinutes;
-              }
-            }
-          }
-        }
-
-        result.push({
-          id: nextStopId(),
-          type: g.type,
-          location: g.name,
-          lat: g.lat,
-          lng: g.lng,
-          dockTimeMinutes: g.dockMinutes,
-          distanceFromPrevKm,
-          driveMinutesFromPrev,
-        });
-      }
-
-      return result;
-    },
-    [],
-  );
 
   // ── Trigger route build ───────────────────────────────────────
 
@@ -1309,16 +1098,6 @@ export default function RouteBuilder() {
 
   // ── Chat route mutation ───────────────────────────────────────
 
-  function populateFormFromLocations(locations: string[]) {
-    const newStops: FormStop[] = locations.map((loc) => ({
-      id: nextStopId(),
-      location: loc,
-      dockMinutes: defaultDockMinutes,
-    }));
-    setFormStops(newStops);
-    return newStops;
-  }
-
   const chatRouteMutation = useMutation({
     mutationFn: async (payload: { message: string; userMessage: string }) =>
       processChatRoute(payload.message, defaultDockMinutes),
@@ -1515,17 +1294,6 @@ export default function RouteBuilder() {
   }, [effectiveYard?.name, user?.operatingCity, user?.operatingCountryCode]);
 
   // ── Swap origin/destination ───────────────────────────────────
-
-  function swapOriginDest() {
-    setFormStops((prev) => {
-      if (prev.length < 2) return prev;
-      const copy = [...prev];
-      const first = copy[0];
-      copy[0] = copy[copy.length - 1];
-      copy[copy.length - 1] = first;
-      return copy;
-    });
-  }
 
   // ── Route summary line ────────────────────────────────────────
 
@@ -2377,33 +2145,11 @@ export default function RouteBuilder() {
                         isDragging ? "opacity-40" : ""
                       } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
                       draggable
-                      onDragStart={(e) => {
-                        setDragIdx(idx);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setDragOverIdx(idx);
-                      }}
-                      onDragLeave={() => setDragOverIdx(null)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (dragIdx != null && dragIdx !== idx) {
-                          setFormStops((prev) => {
-                            const copy = [...prev];
-                            const [moved] = copy.splice(dragIdx, 1);
-                            copy.splice(idx, 0, moved);
-                            return copy;
-                          });
-                        }
-                        setDragIdx(null);
-                        setDragOverIdx(null);
-                      }}
-                      onDragEnd={() => {
-                        setDragIdx(null);
-                        setDragOverIdx(null);
-                      }}
+                      onDragStart={(e) => handleDragStart(idx, e)}
+                      onDragOver={(e) => handleDragOver(idx, e)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(idx, e)}
+                      onDragEnd={handleDragEnd}
                     >
                       <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                         {stopLabel}
@@ -2431,11 +2177,7 @@ export default function RouteBuilder() {
                                   : "Location"
                             }
                             value={stop.location}
-                            onChange={(v) => {
-                              setFormStops((prev) =>
-                                prev.map((s, i) => (i === idx ? { ...s, location: v } : s)),
-                              );
-                            }}
+                            onChange={(v) => updateStopLocation(idx, v)}
                             onBlur={() => {
                               setTimeout(() => {
                                 const current = formStopsRef.current;
@@ -2454,11 +2196,7 @@ export default function RouteBuilder() {
                             size="sm"
                             className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
                             data-testid={`button-remove-stop-${idx}`}
-                            onClick={() => {
-                              setFormStops((prev) =>
-                                prev.filter((_, i) => i !== idx),
-                              );
-                            }}
+                            onClick={() => removeStop(idx)}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -2474,16 +2212,7 @@ export default function RouteBuilder() {
                   size="sm"
                   className="w-full text-xs"
                   data-testid="button-add-stop"
-                  onClick={() => {
-                    setFormStops((prev) => [
-                      ...prev,
-                      {
-                        id: nextStopId(),
-                        location: "",
-                        dockMinutes: defaultDockMinutes,
-                      },
-                    ]);
-                  }}
+                  onClick={addStop}
                 >
                   <Plus className="w-3.5 h-3.5 mr-1" />
                   Add Stop
