@@ -53,13 +53,13 @@ export function QuoteShareDialog({ open, onOpenChange, quote }: QuoteShareDialog
     enabled: !!scopeId && open,
   });
 
-  function handleGenerate() {
+  async function handleGenerate() {
     if (!user) return;
     setGenerating(true);
 
-    requestAnimationFrame(() => {
+    requestAnimationFrame(async () => {
       try {
-        generateQuotePdf({
+        await generateQuotePdf({
           quote,
           user,
           referenceNumber: referenceNumber.trim(),

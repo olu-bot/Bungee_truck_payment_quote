@@ -6,8 +6,8 @@ export const queryClient = new QueryClient({
     queries: {
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      staleTime: 5 * 60 * 1000,
+      retry: 1,
       queryFn: async ({ queryKey }) => {
         const path = queryKey[0];
         if (typeof path === "string" && path.startsWith("/api/")) {

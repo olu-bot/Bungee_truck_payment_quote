@@ -8,7 +8,6 @@
  * or heavy boxes — just clean typography, thin rules, and generous whitespace.
  */
 
-import { jsPDF } from "jspdf";
 import type { Quote } from "@shared/schema";
 import type { AppUser } from "@/components/firebase-auth";
 import type { PdfTemplateSettings } from "@/lib/firebaseDb";
@@ -104,7 +103,8 @@ function formatDateTime(d: Date): string {
 
 // ── Main Export ──────────────────────────────────────────────────
 
-export function generateQuotePdf(input: QuotePdfInput): void {
+export async function generateQuotePdf(input: QuotePdfInput): Promise<void> {
+  const { jsPDF } = await import("jspdf");
   const { quote, user, referenceNumber, template } = input;
   const t = template ?? DEFAULT_PDF_TEMPLATE;
 
