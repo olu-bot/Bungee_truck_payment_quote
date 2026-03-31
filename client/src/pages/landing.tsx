@@ -144,8 +144,11 @@ export default function Landing() {
     const localized = before + block + after;
     // Sanitize to prevent XSS — allows only safe HTML tags and attributes.
     return DOMPurify.sanitize(localized, {
-      ADD_TAGS: ["section", "nav", "footer"],
-      ADD_ATTR: ["data-action", "data-scroll", "data-testid", "data-billing-toggle"],
+      ADD_TAGS: ["section", "nav", "footer", "iframe"],
+      ADD_ATTR: [
+        "data-action", "data-scroll", "data-testid", "data-billing-toggle",
+        "src", "loading", "allowfullscreen", "referrerpolicy",
+      ],
     });
   }, [countryCode, user?.operatingCountryCode]);
 
