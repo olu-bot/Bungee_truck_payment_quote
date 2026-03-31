@@ -1384,6 +1384,27 @@ export default function RouteBuilder() {
   /** All-in cost = carrier cost + accessorial pass-throughs (accessorials added after margin) */
   const allInCost = carrierCost + accessorialTotal;
 
+  // ── Stable callbacks for memoized children ─────────────────────
+  const handleOpenPdfDialog = useCallback(() => setPdfDialogOpen(true), []);
+  const handleUpgradePdf = useCallback(() => {
+    setUpgradeReason({
+      title: "Upgrade to export branded PDFs",
+      description: "Branded quote PDFs are available on Pro and Premium plans.",
+    });
+    setUpgradeOpen(true);
+  }, []);
+  const handleBlurStop = useCallback(() => {
+    setTimeout(() => {
+      const current = formStopsRef.current;
+      if (current.filter((s) => s.location.trim()).length >= 2) {
+        void triggerRouteBuild(current, false);
+      }
+    }, 0);
+  }, []);
+  const handleBuildRoute = useCallback(() => {
+    void triggerRouteBuild(undefined, true);
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────
 
   return (
@@ -1544,14 +1565,8 @@ export default function RouteBuilder() {
               lastSavedQuote={lastSavedQuote}
               canSharePdf={can(user, "quote:sharePdf")}
               canExportPdf={canExportPdf(user)}
-              onOpenPdfDialog={() => setPdfDialogOpen(true)}
-              onUpgradePdf={() => {
-                setUpgradeReason({
-                  title: "Upgrade to export branded PDFs",
-                  description: "Branded quote PDFs are available on Pro and Premium plans.",
-                });
-                setUpgradeOpen(true);
-              }}
+              onOpenPdfDialog={handleOpenPdfDialog}
+              onUpgradePdf={handleUpgradePdf}
             />
 
           </CardContent>
@@ -1905,15 +1920,8 @@ export default function RouteBuilder() {
                   onUpdateLocation={updateStopLocation}
                   onRemoveStop={removeStop}
                   onAddStop={addStop}
-                  onBlurStop={() => {
-                    setTimeout(() => {
-                      const current = formStopsRef.current;
-                      if (current.filter((s) => s.location.trim()).length >= 2) {
-                        void triggerRouteBuild(current, false);
-                      }
-                    }, 0);
-                  }}
-                  onBuildRoute={() => void triggerRouteBuild(undefined, true)}
+                  onBlurStop={handleBlurStop}
+                  onBuildRoute={handleBuildRoute}
                 />
               </CardContent>
             </Card>

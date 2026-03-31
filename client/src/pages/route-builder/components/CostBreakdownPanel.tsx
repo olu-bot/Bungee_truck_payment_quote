@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Info } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -11,7 +12,7 @@ type CostBreakdownPanelProps = {
   dLabel: string;
 };
 
-export function CostBreakdownPanel({
+export const CostBreakdownPanel = memo(function CostBreakdownPanel({
   routeCalc,
   formatCurrency,
   measureUnit,
@@ -124,4 +125,4 @@ export function CostBreakdownPanel({
       })}
     </div>
   );
-}
+});
