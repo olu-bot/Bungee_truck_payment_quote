@@ -90,6 +90,21 @@ const MEASUREMENT_UNIT_OPTIONS: { value: MeasurementUnit; label: string; hint: s
 
 const SIGNUP_FLOW_STEPS = 2;
 
+/** Minimum length for email sign-up (Firebase allows 6+; we enforce stronger policy in UI). */
+const SIGNUP_PASSWORD_MIN_LEN = 8;
+
+/** Returns a user-facing error message or null if the password meets policy. */
+function validateSignupPasswordStrength(password: string): string | null {
+  if (password.length < SIGNUP_PASSWORD_MIN_LEN) {
+    return `Use at least ${SIGNUP_PASSWORD_MIN_LEN} characters.`;
+  }
+  if (!/[a-z]/.test(password)) return "Include at least one lowercase letter.";
+  if (!/[A-Z]/.test(password)) return "Include at least one uppercase letter.";
+  if (!/[0-9]/.test(password)) return "Include at least one number.";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Include at least one symbol (e.g. ! @ # $).";
+  return null;
+}
+
 // Cost profile creation now happens on /#/profiles after signup redirect
 
 export default function Landing() {
@@ -105,6 +120,7 @@ export default function Landing() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [fleetSize, setFleetSize] = useState("");
   const [countryCode, setCountryCode] = useState("");
@@ -183,6 +199,7 @@ export default function Landing() {
     setAuthMode(mode);
     setView("onboarding");
     setSignupStep(1);
+    setConfirmPassword("");
     window.scrollTo(0, 0);
   }, []);
 
@@ -510,10 +527,19 @@ export default function Landing() {
       toast({ title: "Missing email", description: "Please enter your email.", variant: "destructive" });
       return;
     }
-    if (password.length < 6) {
+    const strengthMsg = validateSignupPasswordStrength(password);
+    if (strengthMsg) {
       toast({
-        title: "Password too short",
-        description: "Use at least 6 characters (Firebase minimum).",
+        title: "Password requirements",
+        description: strengthMsg,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast({
+        title: "Passwords do not match",
+        description: "Re-enter your password in both fields so they match.",
         variant: "destructive",
       });
       return;
@@ -872,12 +898,31 @@ export default function Landing() {
                   className="form-input"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="Minimum 6 characters"
+                  placeholder={`At least ${SIGNUP_PASSWORD_MIN_LEN} characters`}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={SIGNUP_PASSWORD_MIN_LEN}
                 />
-                <div className="form-helper">At least 6 characters (Firebase). Use a strong password in production.</div>
+                <div className="form-helper">
+                  Use {SIGNUP_PASSWORD_MIN_LEN}+ characters with uppercase, lowercase, a number, and a symbol.
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="su-password-confirm">
+                  Confirm password <span className="req">*</span>
+                </label>
+                <input
+                  id="su-password-confirm"
+                  className="form-input"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={SIGNUP_PASSWORD_MIN_LEN}
+                />
               </div>
 
               <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
