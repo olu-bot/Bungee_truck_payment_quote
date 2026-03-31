@@ -7,8 +7,11 @@ import { workspaceFirestoreId } from "@/lib/workspace";
 import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances } from "@/lib/geo";
 import { calculateRouteCost, getPricingAdvice, type PayMode } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
-import { useRouteStops, nextStopId, type FormStop } from "./route-builder/hooks/useRouteStops";
-import type { RouteCalculation, PricingAdvice, LegBreakdown, PricingTier } from "./route-builder/hooks/useRouteCalculation";
+import { useRouteStops, nextStopId, type FormStop } from "./hooks/useRouteStops";
+import type { RouteCalculation, PricingAdvice, LegBreakdown, PricingTier } from "./hooks/useRouteCalculation";
+import { CostBreakdownPanel } from "./components/CostBreakdownPanel";
+import { StopsList } from "./components/StopsList";
+import { QuotePricingPanel } from "./components/QuotePricingPanel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1521,174 +1524,35 @@ export default function RouteBuilder() {
               {/* Breakdown toggle removed — now inside the Advanced panel */}
             </div>
 
-            {/* Row 2: Pricing cards — 4 columns with more room */}
-            <div
-              className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-slate-100"
-              data-testid="pricing-row"
-            >
-              {/* CARRIER COST — base cost + surcharge only, no accessories */}
-              <div className="space-y-1 pr-4 sm:pr-6">
-                <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                  Carrier Cost
-                </div>
-                <div
-                  className="text-2xl font-bold text-orange-600 tabular-nums tracking-tight"
-                  data-testid="pricing-trip-cost"
-                >
-                  {formatCurrency(includeReturn ? carrierCost : (tripCost + costInflationAmount))}
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  {costInflationAmount > 0 && <span>+{formatCurrency(costInflationAmount)} surcharge · </span>}
-                  {includeReturn && deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead · ` : ""}
-                  with fuel
-                </div>
-              </div>
-
-              {/* Margin tiers — color-coded: 20% red, 30% default, 40% green */}
-              {(pricingAdvice?.tiers || []).map((tier) => {
-                  const tierColor = tier.label.startsWith("20%") ? "text-red-500" : tier.label.startsWith("40%") ? "text-green-600" : "text-orange-600";
-                  return (
-                  <div
-                    key={tier.label}
-                    className="space-y-1 px-4 sm:px-6"
-                    data-testid={`pricing-tier-${tier.label.toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-                      {tier.label}
-                    </div>
-                    {carrierCost > 0 ? (
-                      <>
-                        <div className={`text-2xl font-bold tabular-nums tracking-tight ${tierColor}`}>
-                          {formatCurrency(tier.price + accessorialTotal)}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          +{formatCurrency(tier.marginAmount)}{accessorialTotal > 0 ? ` +${formatCurrency(accessorialTotal)} acc.` : ""}
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="text-sm text-slate-300">&mdash;</div>
-                        <div className="text-[11px] text-slate-400">set route</div>
-                      </>
-                    )}
-                  </div>
-                  );
-              })}
-              {/* Placeholders when no tiers yet */}
-              {(!pricingAdvice?.tiers || pricingAdvice.tiers.length === 0) && (
-                <>
-                  {["20% Margin", "30% Margin", "40% Margin"].map((label) => (
-                    <div key={label} className="space-y-1 px-4 sm:px-6">
-                      <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">{label}</div>
-                      <div className="text-sm text-slate-300">&mdash;</div>
-                      <div className="text-[11px] text-slate-400">set route</div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-
-            {/* Row 3: Your Quote + Note + Save — single row */}
-            <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100">
-              {/* Your Quote inline input */}
-              <div className="flex items-center gap-1 shrink-0">
-                <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium whitespace-nowrap">Your Quote</span>
-                <div className="flex items-center border border-slate-200 rounded-md overflow-hidden h-9">
-                  <span className="text-sm text-slate-400 pl-2 pr-0.5">{currencySymbol(currency)}</span>
-                  <Input
-                    data-testid="input-custom-quote"
-                    type="number"
-                    step="1"
-                    placeholder="0"
-                    className="h-9 text-sm w-[90px] border-0 shadow-none focus-visible:ring-0 px-1"
-                    value={customQuoteAmount}
-                    onChange={(e) => setCustomQuoteAmount(e.target.value)}
-                  />
-                </div>
-                {/* Margin % indicator */}
-                {pricingAdvice?.customQuote ? (
-                  <div className="flex items-center gap-0.5 ml-0.5">
-                    <span className="text-xs font-bold">{pricingAdvice.customQuote.marginPercent.toFixed(1)}%</span>
-                    <span className={`text-[10px] ${marginQualityLabel(pricingAdvice.customQuote.marginPercent).color}`}>
-                      {marginQualityLabel(pricingAdvice.customQuote.marginPercent).label}
-                    </span>
-                  </div>
-                ) : customQuoteAmount && carrierCost > 0 ? (
-                  (() => {
-                    const amt = parseFloat(customQuoteAmount);
-                    if (!isNaN(amt) && amt > 0) {
-                      const pct = ((amt - accessorialTotal - carrierCost) / carrierCost) * 100;
-                      const q = marginQualityLabel(pct);
-                      return (
-                        <div className="flex items-center gap-0.5 ml-0.5">
-                          <span className="text-xs font-bold">{pct.toFixed(1)}%</span>
-                          <span className={`text-[10px] ${q.color}`}>{q.label}</span>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()
-                ) : null}
-              </div>
-              {/* Note field */}
-              <div className="relative flex-1">
-                <FileText className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                <Input
-                  data-testid="input-customer-note"
-                  placeholder={"Note \u2014 RFQ#, customer, lane memo..."}
-                  className="h-9 text-sm pl-8 border-slate-200"
-                  value={customerNote}
-                  onChange={(e) => setCustomerNote(e.target.value)}
-                  disabled={!routeCalc || carrierCost <= 0}
-                />
-              </div>
-              <Button
-                data-testid="button-save-quote"
-                size="sm"
-                className="h-9 w-[160px] bg-orange-400 hover:bg-orange-500 text-white gap-1.5 shrink-0 justify-center"
-                disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
-                onClick={handleSaveQuote}
-              >
-                {isSavingQuote ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Save className="w-3.5 h-3.5" />
-                )}
-                Save Quote
-              </Button>
-              {lastSavedQuote && can(user, "quote:sharePdf") && (
-                canExportPdf(user) ? (
-                  <Button
-                    data-testid="button-share-pdf"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50"
-                    onClick={() => setPdfDialogOpen(true)}
-                  >
-                    <FileDown className="w-3.5 h-3.5" />
-                    PDF
-                  </Button>
-                ) : (
-                  <Button
-                    data-testid="button-share-pdf"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5 shrink-0 text-muted-foreground"
-                    onClick={() => {
-                      setUpgradeReason({
-                        title: "Upgrade to export branded PDFs",
-                        description: "Branded quote PDFs are available on Pro and Premium plans.",
-                      });
-                      setUpgradeOpen(true);
-                    }}
-                  >
-                    <FileDown className="w-3.5 h-3.5" />
-                    PDF
-                    <Badge variant="outline" className="text-[9px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
-                  </Button>
-                )
-              )}
-            </div>
+            <QuotePricingPanel
+              pricingAdvice={pricingAdvice}
+              carrierCost={carrierCost}
+              tripCost={tripCost}
+              deadheadCost={deadheadCost}
+              includeReturn={includeReturn}
+              costInflationAmount={costInflationAmount}
+              accessorialTotal={accessorialTotal}
+              customQuoteAmount={customQuoteAmount}
+              setCustomQuoteAmount={setCustomQuoteAmount}
+              customerNote={customerNote}
+              setCustomerNote={setCustomerNote}
+              isSavingQuote={isSavingQuote}
+              routeCalcExists={!!routeCalc}
+              onSaveQuote={handleSaveQuote}
+              formatCurrency={formatCurrency}
+              currency={currency}
+              lastSavedQuote={lastSavedQuote}
+              canSharePdf={can(user, "quote:sharePdf")}
+              canExportPdf={canExportPdf(user)}
+              onOpenPdfDialog={() => setPdfDialogOpen(true)}
+              onUpgradePdf={() => {
+                setUpgradeReason({
+                  title: "Upgrade to export branded PDFs",
+                  description: "Branded quote PDFs are available on Pro and Premium plans.",
+                });
+                setUpgradeOpen(true);
+              }}
+            />
 
           </CardContent>
         </Card>
@@ -1902,111 +1766,12 @@ export default function RouteBuilder() {
 
             {/* ── BREAKDOWN: collapsed by default, toggled from header ── */}
             {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
-              <div className="space-y-2.5 pt-1" data-testid="leg-breakdown">
-                {routeCalc.legs.map((leg, i) => {
-                  const isLocal = leg.isLocal ?? leg.distanceKm < 100;
-                  const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
-                  const billableHrs = leg.totalBillableHours ?? ((leg.driveMinutes + (isDeadhead ? 0 : leg.dockMinutes)) / 60);
-                  return (
-                    <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-3 space-y-2" data-testid={`leg-card-${i}`}>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                          {isDeadhead
-                            ? `Deadhead Return \u00B7 ${leg.from} \u2192 ${leg.to}`
-                            : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
-                        </span>
-                        {!isDeadhead && (
-                          <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wide">
-                            {isLocal ? "Local" : "Long Dist."}
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-0.5 text-[13px]">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            Drive time
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="w-3 h-3 text-slate-400 cursor-help" />
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-[220px] text-xs">
-                                Google Maps may show longer times due to real-time traffic. Cost calculations use traffic-free estimates.
-                              </TooltipContent>
-                            </Tooltip>
-                          </span>
-                          <span>{`${Math.floor(leg.driveMinutes / 60)}h ${String(Math.round(leg.driveMinutes % 60)).padStart(2, "0")}m`}</span>
-                        </div>
-                        {!isDeadhead && leg.dockMinutes > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Load + Unload</span>
-                            <span>{(leg.dockMinutes / 60) % 1 === 0 ? (leg.dockMinutes / 60).toFixed(0) : (leg.dockMinutes / 60).toFixed(1)} hrs</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between font-medium">
-                          <span>Total billable hrs</span>
-                          <span>{billableHrs.toFixed(2)} hrs</span>
-                        </div>
-                        <Separator className="my-1" />
-                        {/* Fixed cost */}
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Fixed Cost</span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-muted-foreground">
-                              {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
-                            </span>
-                            <span className="font-medium">{formatCurrency(leg.fixedCost)}</span>
-                          </div>
-                        </div>
-                        {/* Driver cost — per-mile/km or per-hour */}
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : " (per hour)"}
-                            {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-muted-foreground">
-                              {routeCalc.payMode === "perMile" ? (
-                                <>
-                                  {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
-                                  {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
-                                </>
-                              ) : (
-                                <>
-                                  {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.allInHourlyRate - routeCalc.fixedCostPerHour)}/hr
-                                  {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
-                                </>
-                              )}
-                            </span>
-                            <span className="font-medium">{formatCurrency(leg.driverCost)}</span>
-                          </div>
-                        </div>
-                        {/* Fuel cost */}
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-muted-foreground">
-                              {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
-                              {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
-                            </span>
-                            <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div
-                        className="flex justify-between items-center rounded-md px-3 py-1.5 -mx-1"
-                        style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
-                      >
-                        <span className="text-[13px] font-bold text-slate-800">{isDeadhead ? "Deadhead Total w/ Fuel" : "Total w/ Fuel"}</span>
-                        <span className="text-[13px] font-bold text-orange-600 tabular-nums">
-                          {formatCurrency(leg.legCost)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <CostBreakdownPanel
+                routeCalc={routeCalc}
+                formatCurrency={formatCurrency}
+                measureUnit={measureUnit}
+                dLabel={dLabel}
+              />
             )}
           </CardContent>
         </Card>
@@ -2126,114 +1891,30 @@ export default function RouteBuilder() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 space-y-3.5">
-                {/* Unified stops list with drag-and-drop */}
-                {formStops.map((stop, idx) => {
-                  const isFirst = idx === 0;
-                  const isLast = idx === formStops.length - 1;
-                  const stopLabel = isFirst
-                    ? "Origin"
-                    : isLast
-                      ? "Destination"
-                      : `Stop ${idx}`;
-                  const isDragging = dragIdx === idx;
-                  const isDragOver = dragOverIdx === idx;
-
-                  return (
-                    <div
-                      key={stop.id}
-                      className={`space-y-1 rounded-md transition-all ${
-                        isDragging ? "opacity-40" : ""
-                      } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
-                      draggable
-                      onDragStart={(e) => handleDragStart(idx, e)}
-                      onDragOver={(e) => handleDragOver(idx, e)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(idx, e)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                        {stopLabel}
-                      </Label>
-                      <div className="flex items-center gap-1.5">
-                        {/* Drag handle */}
-                        <div
-                          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5"
-                          data-testid={`drag-handle-${idx}`}
-                        >
-                          <GripVertical className="w-4 h-4" />
-                        </div>
-
-                        {/* Location input — Google suggestions + shared geo cache */}
-                        <div className="flex-1 min-w-0">
-                          <LocationSuggestInput
-                            data-testid={`input-stop-${idx}`}
-                            leadingIcon={false}
-                            inputClassName="text-sm h-9"
-                            placeholder={
-                              isFirst
-                                ? "e.g. Mississauga"
-                                : isLast
-                                  ? "e.g. Scarborough"
-                                  : "Location"
-                            }
-                            value={stop.location}
-                            onChange={(v) => updateStopLocation(idx, v)}
-                            onBlur={() => {
-                              setTimeout(() => {
-                                const current = formStopsRef.current;
-                                if (current.filter((s) => s.location.trim()).length >= 2) {
-                                  void triggerRouteBuild(current, false);
-                                }
-                              }, 0);
-                            }}
-                          />
-                        </div>
-
-                        {/* Remove button (only for middle stops, and only if more than 2 stops) */}
-                        {!isFirst && !isLast && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                            data-testid={`button-remove-stop-${idx}`}
-                            onClick={() => removeStop(idx)}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Add Stop — inserts after the last (destination) stop */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-xs"
-                  data-testid="button-add-stop"
-                  onClick={addStop}
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  Add Stop
-                </Button>
-
-                {/* Manual Build button */}
-                {formStops.filter((s) => s.location.trim()).length >= 2 && (
-                  <Button
-                    className="w-full bg-orange-400 hover:bg-orange-500 text-white"
-                    data-testid="button-build-route"
-                    disabled={isGeocodingRoute || isCalculating}
-                    onClick={() => void triggerRouteBuild(undefined, true)}
-                  >
-                    {isGeocodingRoute || isCalculating ? (
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Route className="w-4 h-4 mr-1.5" />
-                    )}
-                    Build Route
-                  </Button>
-                )}
+                <StopsList
+                  formStops={formStops}
+                  dragIdx={dragIdx}
+                  dragOverIdx={dragOverIdx}
+                  isGeocodingRoute={isGeocodingRoute}
+                  isCalculating={isCalculating}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onDragEnd={handleDragEnd}
+                  onUpdateLocation={updateStopLocation}
+                  onRemoveStop={removeStop}
+                  onAddStop={addStop}
+                  onBlurStop={() => {
+                    setTimeout(() => {
+                      const current = formStopsRef.current;
+                      if (current.filter((s) => s.location.trim()).length >= 2) {
+                        void triggerRouteBuild(current, false);
+                      }
+                    }, 0);
+                  }}
+                  onBuildRoute={() => void triggerRouteBuild(undefined, true)}
+                />
               </CardContent>
             </Card>
           </div>
