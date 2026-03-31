@@ -22,6 +22,7 @@ const ROUTE_TTL_MS = 1000 * 60 * 60 * 6; // 6h
 const SUGGEST_TTL_MS = 1000 * 60 * 60 * 6; // 6h
 const GEO_MISS_TTL_MS = 1000 * 60 * 5; // 5m negative cache
 const FETCH_TIMEOUT_MS = 8000;
+const MAX_CACHE_SIZE = 10_000;
 
 type CacheEntry<T> = { value: T; expiresAt: number };
 
@@ -47,6 +48,11 @@ function cacheGet<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefi
 }
 
 function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
+  // Evict oldest entries if cache exceeds max size
+  if (cache.size >= MAX_CACHE_SIZE) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey !== undefined) cache.delete(firstKey);
+  }
   cache.set(key, { value, expiresAt: nowMs() + ttlMs });
 }
 
@@ -82,6 +88,16 @@ function routePairKey(
 function waypointsKey(waypoints: { lat: number; lng: number }[]): string {
   return waypoints.map((w) => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join(";");
 }
+
+// Sweep expired entries every 30 minutes to prevent memory buildup
+setInterval(() => {
+  const now = nowMs();
+  for (const cache of [geocodeCache, distanceCache, multiRouteCache, placeSuggestCache]) {
+    for (const [key, entry] of cache) {
+      if (entry.expiresAt <= now) cache.delete(key);
+    }
+  }
+}, 1000 * 60 * 30);
 
 // Derive hourly fixed cost from a cost profile
 function getFixedCostPerHour(p: CostProfile): number {
