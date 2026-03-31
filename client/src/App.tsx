@@ -8,13 +8,14 @@ import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { isOnboardingActive } from "@/lib/onboarding";
 import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-auth";
 import { FeedbackSheet } from "@/components/FeedbackSheet";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
 import { resolveMeasurementUnit } from "@/lib/measurement";
 import { getLanes } from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
-import type { Lane } from "@shared/schema";
+import type { Lane, RouteStop } from "@shared/schema";
 import { can, isManager, isSuperAdmin, getCompanyRole, ROLE_LABELS, ROLE_COLORS as PERM_ROLE_COLORS } from "@/lib/permissions";
 import { useQuoteUsage } from "@/hooks/use-quote-usage";
 import type { Permission } from "@/lib/permissions";
@@ -197,7 +198,9 @@ function AppLayout() {
       setLocation("/");
     }
     // Pass cached stops (if saved) so RouteBuilder can skip geocoding/routing API calls
-    const cachedStops = (lane as any).cachedStops ?? null;
+    const cachedStops = "cachedStops" in lane && Array.isArray((lane as Record<string, unknown>).cachedStops)
+      ? (lane as Record<string, unknown>).cachedStops as RouteStop[]
+      : null;
     // Dispatch a custom event that RouteBuilder listens for
     setTimeout(() => {
       window.dispatchEvent(
@@ -692,25 +695,27 @@ function AppLayout() {
           </div>
 
           {/* Keep RouteBuilder mounted while signed in so form/route state survives nav away from Home */}
-          <Suspense fallback={<PageLoader />}>
-            <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
-              <RouteBuilder key={routeBuilderKey} />
-            </div>
-            {!isHome &&
-              (routePath === "/profiles" ? (
-                <CostProfiles />
-              ) : routePath === "/history" ? (
-                <QuoteHistory />
-              ) : routePath === "/team" ? (
-                <TeamRoute />
-              ) : routePath === "/admin/users" ? (
-                isSuperAdmin(user) ? <AdminAllUsers /> : <NotFound />
-              ) : routePath === "/admin/feedback" ? (
-                isSuperAdmin(user) ? <AdminFeedback /> : <NotFound />
-              ) : (
-                <NotFound />
-              ))}
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
+                <RouteBuilder key={routeBuilderKey} />
+              </div>
+              {!isHome &&
+                (routePath === "/profiles" ? (
+                  <CostProfiles />
+                ) : routePath === "/history" ? (
+                  <QuoteHistory />
+                ) : routePath === "/team" ? (
+                  <TeamRoute />
+                ) : routePath === "/admin/users" ? (
+                  isSuperAdmin(user) ? <AdminAllUsers /> : <NotFound />
+                ) : routePath === "/admin/feedback" ? (
+                  isSuperAdmin(user) ? <AdminFeedback /> : <NotFound />
+                ) : (
+                  <NotFound />
+                ))}
+            </Suspense>
+          </ErrorBoundary>
         </main>
 
         {/* Footer */}
