@@ -5,6 +5,7 @@ import { registerStripeRoutes } from "./stripe";
 import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
 import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
+import { requireAuth, type AuthenticatedRequest } from "./authMiddleware";
 import { insertLaneSchema, insertCostProfileSchema, insertYardSchema, insertTeamMemberSchema, calculateRouteSchema, pricingTiersSchema, chatRouteSchema } from "@shared/schema";
 import type { CostProfile, RouteStop } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -636,7 +637,7 @@ export async function registerRoutes(
   });
 
   // === GEOCODE ===
-  app.get("/api/geocode", async (req, res) => {
+  app.get("/api/geocode", requireAuth, async (req: AuthenticatedRequest, res) => {
     const location = req.query.location as string;
     const countrycodes = req.query.countrycodes as string | undefined;
     if (!location) return res.status(400).json({ error: "location required" });
@@ -647,7 +648,7 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/place-suggestions", async (req, res) => {
+  app.get("/api/place-suggestions", requireAuth, async (req: AuthenticatedRequest, res) => {
     const q = typeof req.query.q === "string" ? req.query.q : "";
     if (q.trim().length < 2) return res.json({ suggestions: [] });
     try {
@@ -659,7 +660,7 @@ export async function registerRoutes(
   });
 
   // === DISTANCE BETWEEN TWO POINTS (OSRM) ===
-  app.get("/api/distance", async (req, res) => {
+  app.get("/api/distance", requireAuth, async (req: AuthenticatedRequest, res) => {
     const fromLat = parseFloat(req.query.fromLat as string);
     const fromLng = parseFloat(req.query.fromLng as string);
     const toLat = parseFloat(req.query.toLat as string);
@@ -673,7 +674,7 @@ export async function registerRoutes(
   });
 
   // === MULTI-WAYPOINT DISTANCE (single OSRM call, avoids rate-limits) ===
-  app.post("/api/distances", async (req, res) => {
+  app.post("/api/distances", requireAuth, async (req: AuthenticatedRequest, res) => {
     const { waypoints } = req.body as { waypoints: { lat: number; lng: number }[] };
     if (!Array.isArray(waypoints) || waypoints.length < 2) {
       return res.status(400).json({ error: "Need at least 2 waypoints" });
@@ -699,7 +700,7 @@ export async function registerRoutes(
   });
 
   // === ROUTE CALCULATION ===
-  app.post("/api/calculate-route", async (req, res) => {
+  app.post("/api/calculate-route", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const input = calculateRouteSchema.parse(req.body);
       const profile = await storage.getCostProfile(input.profileId);
@@ -715,7 +716,7 @@ export async function registerRoutes(
   });
 
   // === PRICING ADVICE ===
-  app.post("/api/pricing-advice", async (req, res) => {
+  app.post("/api/pricing-advice", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { totalCost, customMarginPercent, customQuoteAmount } = pricingTiersSchema.parse(req.body);
       const tiers = [
@@ -807,7 +808,7 @@ export async function registerRoutes(
     marginValue: z.number(),
   });
 
-  app.post("/api/calculate", async (req, res) => {
+  app.post("/api/calculate", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const body = calculateQuoteBody.parse(req.body);
       const rates = await storage.getRates();
@@ -865,7 +866,7 @@ export async function registerRoutes(
     marginValue: z.number(),
   });
 
-  app.post("/api/calculate-local", async (req, res) => {
+  app.post("/api/calculate-local", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const body = calculateLocalBody.parse(req.body);
       const hourlyList = await storage.getHourlyRates();
@@ -935,7 +936,7 @@ export async function registerRoutes(
   });
 
   // === CHATBOT ROUTE PARSING ===
-  app.post("/api/chat-route", async (req, res) => {
+  app.post("/api/chat-route", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const { message, dockTimeMinutes: clientDockTime } = chatRouteSchema.parse(req.body);
       const dockTimeMin = clientDockTime ?? 60;
@@ -1096,7 +1097,7 @@ export async function registerRoutes(
     area: z.string().max(200).optional().default(""),
   });
 
-  app.post("/api/feedback", async (req, res) => {
+  app.post("/api/feedback", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const parsed = feedbackBodySchema.parse(req.body);
       const result = await sendFeedbackEmail(parsed);
