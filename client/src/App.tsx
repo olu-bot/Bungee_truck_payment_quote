@@ -15,6 +15,7 @@ import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react
 import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
 import { isConnectGuestUser } from "@/lib/connectGuest";
 import { resolveMeasurementUnit } from "@/lib/measurement";
+import { safeStorageGet, safeStorageSet } from "@/lib/safeStorage";
 import { getLanes, getProfiles, createProfile } from "@/lib/firebaseDb";
 import { convertCurrency } from "@/lib/currency";
 import type { SupportedCurrency } from "@/lib/currency";
@@ -25,7 +26,7 @@ import { useQuoteUsage } from "@/hooks/use-quote-usage";
 import type { Permission } from "@/lib/permissions";
 
 // ── Lazy-loaded page components (code-split per route) ──────────
-const Landing = lazy(() => import("@/pages/landing"));
+import Landing from "@/pages/landing";
 const RouteBuilder = lazy(() => import("@/pages/route-builder"));
 const CostProfiles = lazy(() => import("@/pages/cost-profiles"));
 const QuoteHistory = lazy(() => import("@/pages/quote-history"));
@@ -78,7 +79,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-/** Lightweight loading placeholder shown while lazy chunks download */
+/** Lightweight loading placeholder while session/auth restores */
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -172,23 +173,15 @@ function ConfettiCelebration() {
 function ThemeToggle() {
   const [dark, setDark] = useState(() => {
     // Default to light on first load (especially for Home), unless the user previously chose a theme.
-    try {
-      const saved = window.localStorage.getItem("bungee_theme");
-      if (saved === "dark") return true;
-      if (saved === "light") return false;
-    } catch {
-      // ignore
-    }
+    const saved = safeStorageGet("bungee_theme", "local");
+    if (saved === "dark") return true;
+    if (saved === "light") return false;
     return false;
   });
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
-    try {
-      window.localStorage.setItem("bungee_theme", dark ? "dark" : "light");
-    } catch {
-      // ignore
-    }
+    safeStorageSet("bungee_theme", dark ? "dark" : "light", "local");
   }, [dark]);
 
   return (
@@ -244,6 +237,10 @@ function AppLayout() {
   /** Bump to remount RouteBuilder (clear home) — logo click while already on Home, or full page reload */
   const [routeBuilderKey, setRouteBuilderKey] = useState(0);
   const { user, logout, authLoading } = useFirebaseAuth();
+  const isMobileBrowser = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
+  }, []);
   /** Firebase session is restoring — avoid treating as logged out (no signup flash on refresh). */
   const sessionPending = authLoading && !user;
   const routePath = useMemo(() => location.split("?")[0] || "/", [location]);
@@ -266,12 +263,12 @@ function AppLayout() {
     const done = new Set<TourId>();
     TOUR_IDS.forEach((id) => {
       // Only read UID-scoped keys — non-scoped keys could belong to another user on this browser
-      if (localStorage.getItem(`bungee_tour_done_${user.uid}_${id}`) === "1") done.add(id);
+      if (safeStorageGet(`bungee_tour_done_${user.uid}_${id}`, "local") === "1") done.add(id);
     });
     // Also handle the old single-key format (uid-scoped)
-    if (localStorage.getItem(`bungee_tour_done_${user.uid}`)) {
+    if (safeStorageGet(`bungee_tour_done_${user.uid}`, "local")) {
       if (!done.has("overview")) {
-        localStorage.setItem(`bungee_tour_done_${user.uid}_overview`, "1");
+        safeStorageSet(`bungee_tour_done_${user.uid}_overview`, "1", "local");
         done.add("overview");
       }
     }
@@ -281,7 +278,7 @@ function AppLayout() {
   const allToursComplete = completedTours.size === TOUR_IDS.length;
 
   const markTourDone = useCallback((id: TourId) => {
-    localStorage.setItem(tourDoneKey(id), "1");
+    safeStorageSet(tourDoneKey(id), "1", "local");
     setCompletedTours((prev) => new Set(prev).add(id));
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 3500);
@@ -295,8 +292,8 @@ function AppLayout() {
 
     // Already completed overview tour? Don't show.
     // ONLY check UID-scoped keys — non-scoped keys belong to a previous user on this browser.
-    if (localStorage.getItem(`bungee_tour_done_${uid}_overview`) === "1") return;
-    if (localStorage.getItem(`bungee_tour_done_${uid}`)) return;
+    if (safeStorageGet(`bungee_tour_done_${uid}_overview`, "local") === "1") return;
+    if (safeStorageGet(`bungee_tour_done_${uid}`, "local")) return;
 
     // Check Firestore for existing data — if user has profiles or lanes, they're not new
     const companyId = workspaceFirestoreId(user);
@@ -306,7 +303,7 @@ function AppLayout() {
       const hasExistingData = (profiles && profiles.length > 0) || (lanes && lanes.length > 0);
       if (hasExistingData) {
         // Returning user — mark all tours as done so checklist doesn't show
-        TOUR_IDS.forEach((id) => localStorage.setItem(`bungee_tour_done_${uid}_${id}`, "1"));
+        TOUR_IDS.forEach((id) => safeStorageSet(`bungee_tour_done_${uid}_${id}`, "1", "local"));
         setCompletedTours(new Set(TOUR_IDS));
         return;
       }
@@ -322,7 +319,7 @@ function AppLayout() {
     markTourDone(activeTourId);
     // Also set legacy key for overview tour backward compat
     if (user && activeTourId === "overview") {
-      window.localStorage.setItem(`bungee_tour_done_${user.uid}`, "1");
+      safeStorageSet(`bungee_tour_done_${user.uid}`, "1", "local");
     }
   }, [user, activeTourId, markTourDone]);
 
@@ -331,7 +328,7 @@ function AppLayout() {
     // Dismissing a tour also counts as "done" so it doesn't keep bugging the user
     markTourDone(activeTourId);
     if (user && activeTourId === "overview") {
-      window.localStorage.setItem(`bungee_tour_done_${user.uid}`, "1");
+      safeStorageSet(`bungee_tour_done_${user.uid}`, "1", "local");
     }
   }, [user, activeTourId, markTourDone]);
 
@@ -455,21 +452,19 @@ function AppLayout() {
 
   // Guest (unified site): marketing home at #/ or #/signup — user chooses Sign up / Log in in the page (no forced wizard).
   if (user && isConnectGuestUser(user) && (routePath === "/" || routePath === "/signup")) {
-    return (
-      <Suspense fallback={<PageLoader />}>
-        <Landing />
-      </Suspense>
-    );
+    return <Landing />;
+  }
+
+  // Mobile-first fail-safe: always show Landing immediately when no real user session yet.
+  // This bypasses any interim loading gate that can appear as a blank screen on some mobile browsers.
+  if (isMobileBrowser && (!user || sessionPending)) {
+    return <Landing />;
   }
 
   // Definitely signed out — marketing home first; deep links to app routes go to #/.
   if (!authLoading && !user) {
     if (routePath === "/" || routePath === "/signup") {
-      return (
-        <Suspense fallback={<PageLoader />}>
-          <Landing />
-        </Suspense>
-      );
+      return <Landing />;
     }
     return (
       <>
@@ -481,11 +476,7 @@ function AppLayout() {
 
   // Session restoring: same public landing as home (never mount main app with null user).
   if (sessionPending && (routePath === "/" || routePath === "/signup")) {
-    return (
-      <Suspense fallback={<PageLoader />}>
-        <Landing />
-      </Suspense>
-    );
+    return <Landing />;
   }
   if (sessionPending) {
     return <PageLoader />;
@@ -493,7 +484,7 @@ function AppLayout() {
 
   // Signed in on /signup: onboarding vs home.
   if (user && routePath === "/signup") {
-    if (isOnboardingActive()) return <Suspense fallback={<PageLoader />}><Landing /></Suspense>;
+    if (isOnboardingActive()) return <Landing />;
     return <Redirect to="/" />;
   }
 

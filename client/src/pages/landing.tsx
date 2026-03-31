@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
-import DOMPurify from "dompurify";
 import marketingHtml from "./landing-hero.html?raw";
 import "./landing.css";
 import { useToast } from "@/hooks/use-toast";
@@ -17,9 +16,11 @@ import {
 import { auth, db, firebaseConfigured } from "@/lib/firebase";
 import { collection, doc, setDoc } from "firebase/firestore";
 import { currencyForCountryCode, currencySymbol } from "@/lib/currency";
+import { safeStorageSet } from "@/lib/safeStorage";
 import type { MeasurementUnit } from "@/lib/measurement";
-import { City, State, type ICity } from "country-state-city";
+import { fetchPlaceSuggestions, resolvePlaceDetails, type PlaceDetails } from "@/lib/geo";
 import { isConnectGuestUser } from "@/lib/connectGuest";
+import { Eye, EyeOff } from "lucide-react";
 
 /** User closed Google popup or dismissed it — not a sign-in failure */
 function isGooglePopupCancelled(err: unknown): boolean {
@@ -73,6 +74,148 @@ function sanitizeAuthErrorMessage(
   return trimmed.length > 0 ? trimmed : fallback;
 }
 
+function getFirebaseAuthErrorCode(err: unknown): string | undefined {
+  if (err && typeof err === "object" && "code" in err) {
+    const c = (err as { code?: unknown }).code;
+    if (typeof c === "string" && c.startsWith("auth/")) return c;
+  }
+  return undefined;
+}
+
+/** Maps Firebase Auth errors to inline login form state (field highlights + messages). */
+type LoginAuthUiState = {
+  emailError?: string;
+  passwordError?: string;
+  formBanner?: string;
+  highlightEmail?: boolean;
+  highlightPassword?: boolean;
+};
+
+function mapLoginAuthUiErrors(err: unknown): LoginAuthUiState {
+  const code = getFirebaseAuthErrorCode(err);
+  switch (code) {
+    case "auth/invalid-email":
+      return {
+        emailError: "Enter a valid email address.",
+        highlightEmail: true,
+      };
+    case "auth/user-disabled":
+      return {
+        emailError: "This account has been disabled.",
+        highlightEmail: true,
+      };
+    case "auth/user-not-found":
+      return {
+        emailError: "No account found with this email.",
+        highlightEmail: true,
+      };
+    case "auth/wrong-password":
+      return {
+        passwordError: "Incorrect password.",
+        highlightPassword: true,
+      };
+    case "auth/invalid-credential":
+    case "auth/invalid-login-credentials":
+      return {
+        formBanner: "Email or password doesn't match our records. Check both fields.",
+        highlightEmail: true,
+        highlightPassword: true,
+      };
+    case "auth/too-many-requests":
+      return {
+        formBanner: "Too many sign-in attempts. Try again in a few minutes.",
+      };
+    case "auth/network-request-failed":
+      return {
+        formBanner: "Network error. Check your connection and try again.",
+      };
+    case "auth/operation-not-allowed":
+      return {
+        formBanner: "Email/password sign-in is not enabled for this app.",
+      };
+    case "auth/missing-email":
+      return {
+        emailError: "Enter your email.",
+        highlightEmail: true,
+      };
+    case "auth/internal-error":
+      return {
+        formBanner: "Something went wrong. Try again.",
+      };
+    default:
+      return {
+        formBanner: "Couldn't sign you in. Try again.",
+      };
+  }
+}
+
+/** Sign-up errors: do NOT use sanitizeAuthErrorMessage — Firebase messages always contain auth/ / firebase. */
+function mapSignupErrorToast(err: unknown): { title: string; description: string } {
+  const code = getFirebaseAuthErrorCode(err);
+  switch (code) {
+    case "auth/email-already-in-use":
+      return {
+        title: "Email already registered",
+        description: "An account already uses this email. Try logging in, or use a different email.",
+      };
+    case "auth/invalid-email":
+      return {
+        title: "Invalid email",
+        description: "Go back to step 1 and enter a valid email address.",
+      };
+    case "auth/weak-password":
+      return {
+        title: "Password too weak",
+        description: "Use at least 8 characters with uppercase, lowercase, a number, and a symbol.",
+      };
+    case "auth/operation-not-allowed":
+      return {
+        title: "Sign-up unavailable",
+        description: "Email/password registration is not enabled. Contact support.",
+      };
+    case "auth/network-request-failed":
+      return {
+        title: "Connection problem",
+        description: "Check your internet connection and try again.",
+      };
+    case "auth/too-many-requests":
+      return {
+        title: "Too many attempts",
+        description: "Wait a few minutes, then try again.",
+      };
+    case "auth/internal-error":
+      return {
+        title: "Something went wrong",
+        description: "Try again in a moment. If it keeps happening, contact support.",
+      };
+    default:
+      break;
+  }
+
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  if (/not configured|VITE_FIREBASE|missing.*env/i.test(raw)) {
+    return {
+      title: "App configuration",
+      description: "Sign-up is not fully configured on this site. Please contact support.",
+    };
+  }
+
+  if (err && typeof err === "object" && "code" in err) {
+    const c = String((err as { code?: unknown }).code);
+    if (c === "permission-denied") {
+      return {
+        title: "Could not save profile",
+        description: "Permission was denied. Try again or contact support.",
+      };
+    }
+  }
+
+  return {
+    title: "Sign up failed",
+    description: "Something went wrong. Check your company details and try again. If you already have an account, use Log in instead.",
+  };
+}
+
 type View = "landing" | "onboarding";
 type AuthMode = "login" | "signup";
 
@@ -124,49 +267,73 @@ export default function Landing() {
   const [companyName, setCompanyName] = useState("");
   const [fleetSize, setFleetSize] = useState("");
   const [countryCode, setCountryCode] = useState("");
-  const [stateProvince, setStateProvince] = useState("");
-  const [cityListIndex, setCityListIndex] = useState(-1);
-  const [cityManual, setCityManual] = useState("");
+  const [cityInput, setCityInput] = useState("");
+  const [resolvedPlace, setResolvedPlace] = useState<PlaceDetails | null>(null);
+  const [cityResolving, setCityResolving] = useState(false);
+  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
+  const [cityDropOpen, setCityDropOpen] = useState(false);
+  const cityDropRef = useRef<HTMLDivElement>(null);
+  const cityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [measurementUnit, setMeasurementUnit] = useState<MeasurementUnit | "">("");
   const [preferredCurrency, setPreferredCurrency] = useState("");
-  const [stateSearch, setStateSearch] = useState("");
-  const [citySearch, setCitySearch] = useState("");
-  const [stateDropOpen, setStateDropOpen] = useState(false);
-  const [cityDropOpen, setCityDropOpen] = useState(false);
-  const stateDropRef = useRef<HTMLDivElement>(null);
-  const cityDropRef = useRef<HTMLDivElement>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [termsShake, setTermsShake] = useState(false);
+  const [loginAuthUi, setLoginAuthUi] = useState<LoginAuthUiState>({});
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showSignupPasswordConfirm, setShowSignupPasswordConfirm] = useState(false);
+
+  // Fetch city autocomplete suggestions as user types (debounced, uses Google Places via server).
+  useEffect(() => {
+    const q = cityInput.trim();
+    if (q.length < 2) { setCitySuggestions([]); return; }
+    if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current);
+    cityDebounceRef.current = setTimeout(() => {
+      fetchPlaceSuggestions(q).then(setCitySuggestions).catch(() => setCitySuggestions([]));
+    }, 300);
+    return () => { if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current); };
+  }, [cityInput]);
+
+  // Close city dropdown on outside click.
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (cityDropRef.current && !cityDropRef.current.contains(e.target as Node)) {
+        setCityDropOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   const marketingRef = useRef<HTMLDivElement>(null);
 
   const marketingHtmlLocalized = useMemo(() => {
+    if (view !== "landing") return "";
     const currency = currencyForCountryCode(countryCode || user?.operatingCountryCode);
     const sym = currencySymbol(currency);
-    // Localize $ elsewhere on the page, but keep literal "$" in the pricing / paywall section only.
-    const pricingBlock = marketingHtml.match(
-      /<section class="pricing" id="pricing"[^>]*>[\s\S]*?<\/section>/,
-    );
-    if (!pricingBlock || pricingBlock.index === undefined) {
-      return marketingHtml.replaceAll("$", sym);
+    try {
+      // Keep processing simple for iOS Safari/Chrome: avoid heavy regex/sanitize paths that can overflow stack.
+      const openTag = '<section class="pricing" id="pricing"';
+      const start = marketingHtml.indexOf(openTag);
+      if (start === -1) {
+        return marketingHtml.replaceAll("$", sym);
+      }
+      const end = marketingHtml.indexOf("</section>", start);
+      if (end === -1) return marketingHtml.replaceAll("$", sym);
+      const pricingSectionEnd = end + "</section>".length;
+      const before = marketingHtml.slice(0, start).replaceAll("$", sym);
+      const block = marketingHtml.slice(start, pricingSectionEnd);
+      const after = marketingHtml.slice(pricingSectionEnd).replaceAll("$", sym);
+      // Source is a local checked-in HTML file (not user input), so no runtime sanitization needed here.
+      return before + block + after;
+    } catch (err) {
+      console.error("[landing] Failed to prepare marketing HTML", err);
+      return marketingHtml;
     }
-    const { index } = pricingBlock;
-    const block = pricingBlock[0];
-    const before = marketingHtml.slice(0, index).replaceAll("$", sym);
-    const after = marketingHtml.slice(index + block.length).replaceAll("$", sym);
-    const localized = before + block + after;
-    // Sanitize to prevent XSS — allows only safe HTML tags and attributes.
-    return DOMPurify.sanitize(localized, {
-      ADD_TAGS: ["section", "nav", "footer", "iframe"],
-      ADD_ATTR: [
-        "data-action", "data-scroll", "data-testid", "data-billing-toggle",
-        "src", "loading", "allowfullscreen", "referrerpolicy",
-      ],
-    });
-  }, [countryCode, user?.operatingCountryCode]);
+  }, [countryCode, user?.operatingCountryCode, view]);
 
   useEffect(() => {
     if (!user && isOnboardingActive()) setOnboardingActive(false);
@@ -178,7 +345,7 @@ export default function Landing() {
     const step = getOnboardingStep();
     if (step != null && step >= 3) {
       // Step 3+ now handled by the cost profiles page, not the onboarding widget
-      localStorage.setItem("bungee_open_cost_wizard", "1");
+      safeStorageSet("bungee_open_cost_wizard", "1", "local");
       setOnboardingActive(false);
       setLocation("/profiles");
     }
@@ -200,6 +367,10 @@ export default function Landing() {
     setView("onboarding");
     setSignupStep(1);
     setConfirmPassword("");
+    setLoginAuthUi({});
+    setShowLoginPassword(false);
+    setShowSignupPassword(false);
+    setShowSignupPasswordConfirm(false);
     window.scrollTo(0, 0);
   }, []);
 
@@ -275,13 +446,26 @@ export default function Landing() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
+    setLoginAuthUi({});
     setLoginLoading(true);
     try {
       await login({ email: email.trim(), password });
+      setLoginAuthUi({});
       toast({ title: "Logged in", description: "Welcome back." });
     } catch (err: unknown) {
-      const msg = sanitizeAuthErrorMessage(err, "Please check your credentials.");
-      toast({ title: "Login failed", description: msg, variant: "destructive" });
+      const ui = mapLoginAuthUiErrors(err);
+      setLoginAuthUi(ui);
+      queueMicrotask(() => {
+        if (ui.highlightEmail) {
+          document.getElementById("login-email")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          document.getElementById("login-email")?.focus();
+        } else if (ui.highlightPassword) {
+          document.getElementById("login-password")?.scrollIntoView({ behavior: "smooth", block: "center" });
+          document.getElementById("login-password")?.focus();
+        } else if (ui.formBanner) {
+          document.getElementById("login-auth-banner")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
     } finally {
       setLoginLoading(false);
     }
@@ -367,50 +551,22 @@ export default function Landing() {
       toast({ title: "Fleet size required", description: "Select your fleet size.", variant: "destructive" });
       return;
     }
-    if (!countryCode) {
-      toast({ title: "Country required", description: "Select your country.", variant: "destructive" });
+    if (!resolvedPlace && !countryCode) {
+      toast({ title: "City required", description: "Type your city and select a suggestion from the list.", variant: "destructive" });
+      document.getElementById("su-city")?.focus();
       return;
     }
-    if (!stateProvince) {
-      toast({ title: "State/Province required", description: "Select your state or province.", variant: "destructive" });
+    if (!resolvedPlace) {
+      toast({ title: "City required", description: "Type your city and select a suggestion from the list.", variant: "destructive" });
+      document.getElementById("su-city")?.focus();
       return;
     }
-    const stateRecord = availableStates.find((s) => s.isoCode === stateProvince);
-    const stateName = stateRecord?.name;
-    if (!stateName) {
-      toast({ title: "State/Province required", description: "Select your state or province.", variant: "destructive" });
-      return;
-    }
-    let operatingCityValue = "";
-    if (cityRows.length > 0) {
-      if (cityListIndex < 0 || cityListIndex >= cityRows.length) {
-        toast({ title: "City required", description: "Select your city.", variant: "destructive" });
-        return;
-      }
-      operatingCityValue = cityRows[cityListIndex].name;
-    } else {
-      const manual = cityManual.trim();
-      if (!manual) {
-        toast({
-          title: "City required",
-          description: "Enter your city (no preset list for this state/territory).",
-          variant: "destructive",
-        });
-        return;
-      }
-      operatingCityValue = manual;
-    }
-    let yardLat: number | null = null;
-    let yardLng: number | null = null;
-    if (cityRows.length > 0 && cityListIndex >= 0 && cityListIndex < cityRows.length) {
-      const c = cityRows[cityListIndex];
-      const la = Number(c.latitude);
-      const lo = Number(c.longitude);
-      if (Number.isFinite(la) && Number.isFinite(lo)) {
-        yardLat = la;
-        yardLng = lo;
-      }
-    }
+    const stateName = resolvedPlace.stateName;
+    const operatingCityValue = resolvedPlace.city || cityInput.trim();
+    const yardLat: number | null = resolvedPlace.lat ?? null;
+    const yardLng: number | null = resolvedPlace.lng ?? null;
+    // Use resolved country if the user left the country dropdown blank.
+    const effectiveCountryCode = countryCode || resolvedPlace.countryCode;
     if (!measurementUnit) {
       toast({
         title: "Units required",
@@ -423,9 +579,11 @@ export default function Landing() {
     setOnboardingActive(true);
     setOnboardingStep(3);
     try {
-      const countries = COUNTRY_OPTIONS.filter((c) => c.value === countryCode).map((c) => c.label);
-      const operatingRegions = [stateName];
-      if (user) {
+      const resolvedCountryLabel = resolvedPlace.countryName || COUNTRY_OPTIONS.find((c) => c.value === effectiveCountryCode)?.label || effectiveCountryCode;
+      const countries = resolvedCountryLabel ? [resolvedCountryLabel] : COUNTRY_OPTIONS.filter((c) => c.value === effectiveCountryCode).map((c) => c.label);
+      const operatingRegions = stateName ? [stateName] : [];
+      // Guest mode uses a synthetic user with reserved Firestore ids — never write those paths.
+      if (user && !isConnectGuestUser(user)) {
         const companyId = user.companyId || doc(collection(db, "companies")).id;
         await setDoc(
           doc(db, "companies", companyId),
@@ -434,7 +592,7 @@ export default function Landing() {
             name: companyName.trim(),
             sector: "carriers",
             fleetSize,
-            operatingCountryCode: countryCode,
+            operatingCountryCode: effectiveCountryCode,
             operatingCountries: countries,
             operatingRegions,
             operatingCity: operatingCityValue,
@@ -452,7 +610,7 @@ export default function Landing() {
             companyName: companyName.trim(),
             sector: "carriers",
             fleetSize,
-            operatingCountryCode: countryCode,
+            operatingCountryCode: effectiveCountryCode,
             operatingCountries: countries,
             operatingRegions,
             operatingCity: operatingCityValue,
@@ -474,7 +632,7 @@ export default function Landing() {
           await queryClient.invalidateQueries({ queryKey: ["firebase", "yards", companyId] });
         }
         // Redirect to cost profiles page with auto-open wizard flag
-        localStorage.setItem("bungee_open_cost_wizard", "1");
+        safeStorageSet("bungee_open_cost_wizard", "1", "local");
         setOnboardingActive(false);
         setLocation("/profiles");
         toast({ title: "Company profile saved", description: "Set up your equipment cost profile to get started." });
@@ -493,21 +651,22 @@ export default function Landing() {
         email: email.trim(),
         password,
         fleetSize,
-        operatingCountryCode: countryCode,
+        operatingCountryCode: effectiveCountryCode,
         operatingCountries: countries,
         operatingRegions,
         operatingCity: operatingCityValue,
         measurementUnit,
       });
       // Redirect to cost profiles page with auto-open wizard flag
-      localStorage.setItem("bungee_open_cost_wizard", "1");
+      safeStorageSet("bungee_open_cost_wizard", "1", "local");
       setOnboardingActive(false);
       setLocation("/profiles");
       toast({ title: "Account created", description: "Set up your equipment cost profile to get started." });
     } catch (err: unknown) {
       setOnboardingActive(false);
-      const msg = sanitizeAuthErrorMessage(err, "Please check your details.");
-      toast({ title: "Sign up failed", description: msg, variant: "destructive" });
+      if (import.meta.env.DEV) console.error("[landing signup]", err);
+      const { title, description } = mapSignupErrorToast(err);
+      toast({ title, description, variant: "destructive" });
     } finally {
       setSignupLoading(false);
     }
@@ -548,71 +707,20 @@ export default function Landing() {
     window.scrollTo(0, 0);
   }
 
-  function formatCityOptionLabel(c: ICity, rows: ICity[]): string {
-    const dups = rows.filter((r) => r.name === c.name).length;
-    if (dups <= 1) return c.name;
-    return `${c.name} (${c.latitude}, ${c.longitude})`;
-  }
-
-  const availableStates = useMemo(() => {
-    if (!countryCode) return [];
-    return State.getStatesOfCountry(countryCode)
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name));
+  // Reset city when country changes.
+  useEffect(() => {
+    setCityInput("");
+    setResolvedPlace(null);
+    setCitySuggestions([]);
   }, [countryCode]);
 
-  const cityRows = useMemo(() => {
-    if (!countryCode || !stateProvince) return [];
-    return City.getCitiesOfState(countryCode, stateProvince)
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [countryCode, stateProvince]);
-
-  // Filtered states for autocomplete
-  const filteredStates = useMemo(() => {
-    if (!stateSearch.trim()) return availableStates;
-    const q = stateSearch.toLowerCase();
-    return availableStates.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.isoCode.toLowerCase().includes(q)
-    );
-  }, [availableStates, stateSearch]);
-
-  // Filtered cities for autocomplete
-  const filteredCities = useMemo(() => {
-    if (!citySearch.trim()) return cityRows;
-    const q = citySearch.toLowerCase();
-    return cityRows.filter((c) => c.name.toLowerCase().includes(q));
-  }, [cityRows, citySearch]);
-
-  // Close dropdowns on outside click
+  // Signed-in real users shouldn't see this screen unless they're in onboarding.
+  // Use an effect to navigate away so the component never renders blank.
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (stateDropRef.current && !stateDropRef.current.contains(e.target as Node)) {
-        setStateDropOpen(false);
-      }
-      if (cityDropRef.current && !cityDropRef.current.contains(e.target as Node)) {
-        setCityDropOpen(false);
-      }
+    if (user && !isConnectGuestUser(user) && !isOnboardingActive()) {
+      setLocation("/");
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  useEffect(() => {
-    setStateProvince("");
-    setStateSearch("");
-    setCityListIndex(-1);
-    setCityManual("");
-    setCitySearch("");
-  }, [countryCode]);
-
-  useEffect(() => {
-    setCityListIndex(-1);
-    setCityManual("");
-    setCitySearch("");
-  }, [stateProvince]);
-
-  // Signed-in real users shouldn't see this screen unless they're in onboarding — but never hide for Connect guest.
+  }, [user, setLocation]);
   if (user && !isConnectGuestUser(user) && !isOnboardingActive()) return null;
 
   const signupProgressPct =
@@ -713,6 +821,11 @@ export default function Landing() {
             <form className="card" onSubmit={handleLogin} style={{ marginTop: 0 }}>
               <h2 className="card-title">Welcome back</h2>
               <p className="card-sub">Sign in with Google or use your email and password.</p>
+              {loginAuthUi.formBanner ? (
+                <div id="login-auth-banner" className="login-auth-banner" role="alert">
+                  {loginAuthUi.formBanner}
+                </div>
+              ) : null}
               <div className="sso-row">
                 <button
                   type="button"
@@ -752,29 +865,59 @@ export default function Landing() {
                 </label>
                 <input
                   id="login-email"
-                  className="form-input"
+                  className={`form-input${loginAuthUi.highlightEmail || loginAuthUi.emailError ? " form-input-error" : ""}`}
                   type="email"
                   autoComplete="email"
                   placeholder="john@myfleet.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setLoginAuthUi({});
+                  }}
+                  aria-invalid={Boolean(loginAuthUi.emailError || loginAuthUi.highlightEmail)}
+                  aria-describedby={loginAuthUi.emailError ? "login-email-error" : undefined}
                   required
                 />
+                {loginAuthUi.emailError ? (
+                  <div id="login-email-error" className="form-error-text">
+                    {loginAuthUi.emailError}
+                  </div>
+                ) : null}
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="login-password">
                   Password <span className="req">*</span>
                 </label>
-                <input
-                  id="login-password"
-                  className="form-input"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+                <div className="password-input-wrap">
+                  <input
+                    id="login-password"
+                    className={`form-input form-input-password${loginAuthUi.highlightPassword || loginAuthUi.passwordError ? " form-input-error" : ""}`}
+                    type={showLoginPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="Your password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setLoginAuthUi({});
+                    }}
+                    aria-invalid={Boolean(loginAuthUi.passwordError || loginAuthUi.highlightPassword)}
+                    aria-describedby={loginAuthUi.passwordError ? "login-password-error" : undefined}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    aria-label={showLoginPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowLoginPassword((v) => !v)}
+                  >
+                    {showLoginPassword ? <EyeOff className="password-toggle-icon" /> : <Eye className="password-toggle-icon" />}
+                  </button>
+                </div>
+                {loginAuthUi.passwordError ? (
+                  <div id="login-password-error" className="form-error-text">
+                    {loginAuthUi.passwordError}
+                  </div>
+                ) : null}
               </div>
               <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
                 <button type="submit" className="btn btn-primary" style={{ padding: "10px 28px", fontSize: 14 }} disabled={loginLoading}>
@@ -893,17 +1036,27 @@ export default function Landing() {
                 <label className="form-label" htmlFor="su-password">
                   Password <span className="req">*</span>
                 </label>
-                <input
-                  id="su-password"
-                  className="form-input"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder={`At least ${SIGNUP_PASSWORD_MIN_LEN} characters`}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={SIGNUP_PASSWORD_MIN_LEN}
-                />
+                <div className="password-input-wrap">
+                  <input
+                    id="su-password"
+                    className="form-input form-input-password"
+                    type={showSignupPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder={`At least ${SIGNUP_PASSWORD_MIN_LEN} characters`}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={SIGNUP_PASSWORD_MIN_LEN}
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    aria-label={showSignupPassword ? "Hide password" : "Show password"}
+                    onClick={() => setShowSignupPassword((v) => !v)}
+                  >
+                    {showSignupPassword ? <EyeOff className="password-toggle-icon" /> : <Eye className="password-toggle-icon" />}
+                  </button>
+                </div>
                 <div className="form-helper">
                   Use {SIGNUP_PASSWORD_MIN_LEN}+ characters with uppercase, lowercase, a number, and a symbol.
                 </div>
@@ -912,17 +1065,27 @@ export default function Landing() {
                 <label className="form-label" htmlFor="su-password-confirm">
                   Confirm password <span className="req">*</span>
                 </label>
-                <input
-                  id="su-password-confirm"
-                  className="form-input"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Re-enter your password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  minLength={SIGNUP_PASSWORD_MIN_LEN}
-                />
+                <div className="password-input-wrap">
+                  <input
+                    id="su-password-confirm"
+                    className="form-input form-input-password"
+                    type={showSignupPasswordConfirm ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder="Re-enter your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    minLength={SIGNUP_PASSWORD_MIN_LEN}
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    aria-label={showSignupPasswordConfirm ? "Hide confirm password" : "Show confirm password"}
+                    onClick={() => setShowSignupPasswordConfirm((v) => !v)}
+                  >
+                    {showSignupPasswordConfirm ? <EyeOff className="password-toggle-icon" /> : <Eye className="password-toggle-icon" />}
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
@@ -1011,146 +1174,78 @@ export default function Landing() {
                 </select>
               </div>
 
-              {/* ── Searchable State / Province ─────────── */}
-              <div className="form-group" ref={stateDropRef} style={{ position: "relative" }}>
-                <label className="form-label" htmlFor="su-regions">
-                  State / Province <span className="req">*</span>
+              {/* ── City autocomplete (Google Places, US/CA) ── */}
+              <div className="form-group" ref={cityDropRef} style={{ position: "relative" }}>
+                <label className="form-label" htmlFor="su-city">
+                  City / Province <span className="req">*</span>
                 </label>
                 <input
-                  id="su-regions"
+                  id="su-city"
                   className="form-input"
                   type="text"
                   autoComplete="off"
-                  placeholder={availableStates.length === 0 ? "Select a country first" : "Type to search…"}
-                  value={stateDropOpen ? stateSearch : (availableStates.find((s) => s.isoCode === stateProvince)?.name ?? stateSearch)}
+                  placeholder="e.g. Toronto, Hamilton, Dallas…"
+                  value={cityInput}
                   onChange={(e) => {
-                    setStateSearch(e.target.value);
-                    setStateDropOpen(true);
-                    // Clear selection when user types
-                    if (stateProvince) setStateProvince("");
+                    setCityInput(e.target.value);
+                    setResolvedPlace(null);
+                    setCityDropOpen(true);
                   }}
-                  onFocus={() => { setStateDropOpen(true); setStateSearch(""); }}
-                  disabled={availableStates.length === 0}
-                  required={!stateProvince}
+                  onFocus={() => { if (citySuggestions.length > 0) setCityDropOpen(true); }}
+                  required={!resolvedPlace}
                 />
-                {/* Hidden input to carry the required value for form validation */}
-                <input type="hidden" value={stateProvince} required />
-                {stateDropOpen && filteredStates.length > 0 && (
+                {/* Hidden input satisfies native form required validation once a place is resolved */}
+                <input type="hidden" value={resolvedPlace ? resolvedPlace.city : ""} required />
+                {cityResolving && (
+                  <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#888" }}>
+                    Resolving…
+                  </span>
+                )}
+                {cityDropOpen && citySuggestions.length > 0 && (
                   <div
                     style={{
                       position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
-                      maxHeight: 200, overflowY: "auto",
+                      maxHeight: 220, overflowY: "auto",
                       background: "var(--bg, #fff)", border: "1px solid var(--border, #ddd)",
                       borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", marginTop: 2,
                     }}
                   >
-                    {filteredStates.map((s) => (
+                    {citySuggestions.map((s, i) => (
                       <div
-                        key={s.isoCode}
-                        onClick={() => {
-                          setStateProvince(s.isoCode);
-                          setStateSearch(s.name);
-                          setStateDropOpen(false);
+                        key={`${s}-${i}`}
+                        onMouseDown={async (e) => {
+                          e.preventDefault();
+                          setCityInput(s);
+                          setCityDropOpen(false);
+                          setCitySuggestions([]);
+                          setCityResolving(true);
+                          try {
+                            const details = await resolvePlaceDetails(s);
+                            if (details) {
+                              setResolvedPlace(details);
+                              // Auto-fill country if blank
+                              if (!countryCode && details.countryCode) setCountryCode(details.countryCode);
+                            }
+                          } finally {
+                            setCityResolving(false);
+                          }
                         }}
                         style={{
                           padding: "8px 12px", cursor: "pointer", fontSize: 14,
-                          background: s.isoCode === stateProvince ? "var(--orange-light, #fff7ed)" : "transparent",
+                          background: "transparent",
                         }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--orange-light, #fff7ed)"; }}
-                        onMouseLeave={(e) => {
-                          (e.currentTarget as HTMLDivElement).style.background =
-                            s.isoCode === stateProvince ? "var(--orange-light, #fff7ed)" : "transparent";
-                        }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
                       >
-                        {s.name} <span style={{ color: "#999", fontSize: 12 }}>({s.isoCode})</span>
+                        📍 {s}
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-
-              {/* ── Searchable City ─────────── */}
-              <div className="form-group" ref={cityDropRef} style={{ position: "relative" }}>
-                <label className="form-label" htmlFor="su-city">
-                  City <span className="req">*</span>
-                </label>
-                {cityRows.length > 0 ? (
-                  <>
-                    <input
-                      id="su-city"
-                      className="form-input"
-                      type="text"
-                      autoComplete="off"
-                      placeholder={stateProvince ? "Type to search city…" : "Select state / province first"}
-                      value={
-                        cityDropOpen
-                          ? citySearch
-                          : (cityListIndex >= 0 && cityListIndex < cityRows.length
-                              ? formatCityOptionLabel(cityRows[cityListIndex], cityRows)
-                              : citySearch)
-                      }
-                      onChange={(e) => {
-                        setCitySearch(e.target.value);
-                        setCityDropOpen(true);
-                        if (cityListIndex >= 0) setCityListIndex(-1);
-                      }}
-                      onFocus={() => { setCityDropOpen(true); setCitySearch(""); }}
-                      disabled={!stateProvince}
-                      required={cityListIndex < 0}
-                    />
-                    <input type="hidden" value={cityListIndex >= 0 ? cityRows[cityListIndex]?.name ?? "" : ""} required />
-                    {cityDropOpen && filteredCities.length > 0 && (
-                      <div
-                        style={{
-                          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
-                          maxHeight: 200, overflowY: "auto",
-                          background: "var(--bg, #fff)", border: "1px solid var(--border, #ddd)",
-                          borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", marginTop: 2,
-                        }}
-                      >
-                        {filteredCities.slice(0, 100).map((c, i) => {
-                          const realIdx = cityRows.indexOf(c);
-                          return (
-                            <div
-                              key={`${c.name}-${c.latitude}-${c.longitude}-${i}`}
-                              onClick={() => {
-                                setCityListIndex(realIdx);
-                                setCitySearch(formatCityOptionLabel(c, cityRows));
-                                setCityDropOpen(false);
-                              }}
-                              style={{
-                                padding: "8px 12px", cursor: "pointer", fontSize: 14,
-                                background: realIdx === cityListIndex ? "var(--orange-light, #fff7ed)" : "transparent",
-                              }}
-                              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = "var(--orange-light, #fff7ed)"; }}
-                              onMouseLeave={(e) => {
-                                (e.currentTarget as HTMLDivElement).style.background =
-                                  realIdx === cityListIndex ? "var(--orange-light, #fff7ed)" : "transparent";
-                              }}
-                            >
-                              {formatCityOptionLabel(c, cityRows)}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <input
-                    id="su-city"
-                    className="form-input"
-                    type="text"
-                    autoComplete="address-level2"
-                    placeholder={
-                      stateProvince
-                        ? "Enter your city (no preset list for this area)"
-                        : "Select state / province first"
-                    }
-                    value={cityManual}
-                    onChange={(e) => setCityManual(e.target.value)}
-                    disabled={!stateProvince}
-                    required
-                  />
+                {resolvedPlace && (
+                  <div style={{ fontSize: 12, color: "var(--orange, #ea580c)", marginTop: 4, fontWeight: 500 }}>
+                    ✓ {resolvedPlace.city}{resolvedPlace.stateName ? `, ${resolvedPlace.stateName}` : ""}{resolvedPlace.countryName ? `, ${resolvedPlace.countryName}` : ""}
+                  </div>
                 )}
               </div>
 

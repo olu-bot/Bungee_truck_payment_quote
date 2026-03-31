@@ -6,6 +6,7 @@ import {
   memoryLocalCache,
   type Firestore,
 } from "firebase/firestore";
+import { isStorageAvailable } from "@/lib/safeStorage";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
@@ -25,14 +26,7 @@ const envKeysPresent = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId
  */
 function browserStorageLikelyBlocked(): boolean {
   if (typeof window === "undefined") return false;
-  try {
-    const k = "__bungee_ls_probe__";
-    window.localStorage.setItem(k, "1");
-    window.localStorage.removeItem(k);
-    return false;
-  } catch {
-    return true;
-  }
+  return !isStorageAvailable("local");
 }
 
 function openFirestore(app: FirebaseApp): Firestore {

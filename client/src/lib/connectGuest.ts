@@ -1,5 +1,6 @@
 import type { CostProfile } from "@shared/schema";
 import { convertCurrency, type SupportedCurrency } from "@/lib/currency";
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from "@/lib/safeStorage";
 
 export const CONNECT_GUEST_UID = "__connect_guest__";
 export const CONNECT_GUEST_COMPANY_ID = "__connect_guest_co__";
@@ -59,18 +60,10 @@ export function buildConnectGuestQuickProfile(currency: SupportedCurrency): Cost
 const GUEST_DECLINED_KEY = "bungee_connect_guest_declined";
 
 export function readConnectGuestDeclined(): boolean {
-  try {
-    return sessionStorage.getItem(GUEST_DECLINED_KEY) === "1";
-  } catch {
-    return false;
-  }
+  return safeStorageGet(GUEST_DECLINED_KEY, "session") === "1";
 }
 
 export function setConnectGuestDeclined(declined: boolean): void {
-  try {
-    if (declined) sessionStorage.setItem(GUEST_DECLINED_KEY, "1");
-    else sessionStorage.removeItem(GUEST_DECLINED_KEY);
-  } catch {
-    /* ignore */
-  }
+  if (declined) safeStorageSet(GUEST_DECLINED_KEY, "1", "session");
+  else safeStorageRemove(GUEST_DECLINED_KEY, "session");
 }

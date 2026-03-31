@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { safeStorageGet, safeStorageRemove } from "@/lib/safeStorage";
 import {
   Plus,
   Trash2,
@@ -1654,8 +1655,8 @@ export default function CostProfiles() {
 
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     // Auto-open wizard if redirected from signup onboarding
-    if (localStorage.getItem("bungee_open_cost_wizard") === "1") {
-      localStorage.removeItem("bungee_open_cost_wizard");
+    if (safeStorageGet("bungee_open_cost_wizard", "local") === "1") {
+      safeStorageRemove("bungee_open_cost_wizard", "local");
       return "wizard";
     }
     // Support deep-linking: /#/profiles?action=create
