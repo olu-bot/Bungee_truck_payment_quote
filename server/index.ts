@@ -3,12 +3,30 @@ import express, { type Request } from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
+import { validateEnv } from "./env";
 
 type RequestWithRaw = Request & { rawBody?: Buffer };
 
 async function main() {
+  validateEnv();
   const app = express();
-  app.use(cors({ origin: true, credentials: true }));
+  const allowedOrigins = [
+    process.env.PUBLIC_APP_URL,
+    "http://localhost:5000",
+    "http://localhost:5173",
+  ].filter(Boolean) as string[];
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (server-to-server, curl, mobile apps)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.some((allowed) => origin.startsWith(allowed))) {
+        return callback(null, true);
+      }
+      callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  }));
 
   app.use(
     "/api/stripe/webhook",
