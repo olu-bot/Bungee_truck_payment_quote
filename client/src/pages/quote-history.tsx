@@ -54,6 +54,7 @@ import {
   displayDistance,
   distanceLabel,
 } from "@/lib/measurement";
+import { shortLocation } from "@/pages/route-builder";
 
 // ── Helpers ──────────────────────────────────────────────────────
 
@@ -178,7 +179,7 @@ function RouteBuilderSnapshotView({ snap, currency, measureUnit }: { snap: Route
             return (
               <div key={i} className="rounded border border-slate-200 p-3 space-y-1.5 text-xs">
                 <div className="font-medium flex items-center gap-1.5">
-                  {isDeadhead ? `Deadhead · ${leg.from} → ${leg.to}` : `Leg ${legNum} · ${leg.from} → ${leg.to}`}
+                  {isDeadhead ? `Deadhead · ${shortLocation(leg.from)} → ${shortLocation(leg.to)}` : `Leg ${legNum} · ${shortLocation(leg.from)} → ${shortLocation(leg.to)}`}
                   {isDeadhead && <Badge className="text-[10px] bg-orange-600 text-white border-0 py-0">EMPTY</Badge>}
                   {!isDeadhead && leg.isLocal && <Badge variant="secondary" className="text-[10px] py-0">LOCAL</Badge>}
                 </div>
@@ -245,28 +246,61 @@ function QuoteRow({
   const qStatus = q.status || "pending";
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50/30 transition-colors" data-testid={`card-quote-${q.id}`}>
-      {/* Status badge */}
-      <div className="shrink-0" data-testid="status-badge">
-        <StatusBadge status={q.status} />
+    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50/30 transition-colors" data-testid={`card-quote-${q.id}`}>
+      {/* Top row on mobile: status + actions */}
+      <div className="flex items-center justify-between sm:contents">
+        <div className="shrink-0" data-testid="status-badge">
+          <StatusBadge status={q.status} />
+        </div>
+        {/* Actions — shown inline on mobile, at end on desktop */}
+        <div className="flex items-center gap-0.5 shrink-0 sm:order-last">
+          {qStatus === "pending" && (
+            <>
+              <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30" onClick={onWon} data-testid="button-won">
+                <Trophy className="w-3 h-3" />
+              </Button>
+              <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={onLost} data-testid="button-lost">
+                <XCircle className="w-3 h-3" />
+              </Button>
+            </>
+          )}
+          {(qStatus === "won" || qStatus === "lost") && (
+            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-slate-500" onClick={onReset} title="Reset to pending" data-testid="button-reset-status">
+              <Clock className="w-3 h-3" />
+            </Button>
+          )}
+          {canSharePdf && (
+            <Button variant="ghost" size="sm" onClick={onSharePdf} className="h-6 w-6 p-0 text-slate-500 hover:text-orange-500" title="Download PDF" data-testid="button-download-pdf">
+              <FileDown className="w-3.5 h-3.5" />
+            </Button>
+          )}
+          {rbSnap && (
+            <Button variant="ghost" size="sm" onClick={onView} className="h-6 w-6 p-0 text-slate-500" title="View details" data-testid="button-view-details">
+              <Eye className="w-3.5 h-3.5" />
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onDelete} className="h-6 w-6 p-0 text-slate-500 hover:text-destructive" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* Route + quote number + time */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {rbSnap?.routeSummary ? (
             <span className="text-sm font-medium truncate">{rbSnap.routeSummary}</span>
           ) : (
             <>
-              <span className="text-sm font-medium truncate">{q.origin}</span>
+              <span className="text-sm font-medium truncate max-w-[40%] sm:max-w-none">{q.origin}</span>
               <ArrowRight className="w-3 h-3 text-slate-500 shrink-0" />
-              <span className="text-sm font-medium truncate">{q.destination}</span>
+              <span className="text-sm font-medium truncate max-w-[40%] sm:max-w-none">{q.destination}</span>
             </>
           )}
           <span className="text-[10px] text-slate-500 font-mono ml-1">{q.quoteNumber}</span>
           <span className="text-[10px] text-slate-500 ml-auto shrink-0">{formatDateTime(q.createdAt)}</span>
         </div>
-        <div className="flex items-center gap-3 text-xs mt-0.5">
+        <div className="flex items-center gap-2 sm:gap-3 text-xs mt-0.5 flex-wrap">
           <span className="text-slate-500">Cost <span className="font-medium text-slate-900">{formatCurrency(q.totalCarrierCost)}</span></span>
           <span className="text-slate-500">Quoted <span className="font-semibold text-orange-600">{formatCurrency(q.customerPrice)}</span></span>
           <span className="text-slate-500">Margin <span className="font-semibold text-green-600 dark:text-green-400">{q.profitMarginPercent.toFixed(1)}%</span></span>
@@ -277,44 +311,12 @@ function QuoteRow({
             <span className="text-red-500 font-medium text-xs">Target: {formatCurrency(q.lostTargetPrice)}</span>
           )}
           {q.customerNote && (
-            <span className="text-blue-600 dark:text-blue-400 truncate max-w-[160px]" title={q.customerNote}>{q.customerNote}</span>
+            <span className="text-blue-600 dark:text-blue-400 truncate max-w-[120px] sm:max-w-[160px]" title={q.customerNote}>{q.customerNote}</span>
           )}
           {q.statusNote && (
-            <span className={`truncate max-w-[140px] ${qStatus === "lost" ? "text-red-500" : "text-green-600"}`} title={q.statusNote}>{q.statusNote}</span>
+            <span className={`truncate max-w-[120px] sm:max-w-[140px] ${qStatus === "lost" ? "text-red-500" : "text-green-600"}`} title={q.statusNote}>{q.statusNote}</span>
           )}
         </div>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-0.5 shrink-0">
-        {qStatus === "pending" && (
-          <>
-            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30" onClick={onWon} data-testid="button-won">
-              <Trophy className="w-3 h-3" />
-            </Button>
-            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30" onClick={onLost} data-testid="button-lost">
-              <XCircle className="w-3 h-3" />
-            </Button>
-          </>
-        )}
-        {(qStatus === "won" || qStatus === "lost") && (
-          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5 text-slate-500" onClick={onReset} title="Reset to pending" data-testid="button-reset-status">
-            <Clock className="w-3 h-3" />
-          </Button>
-        )}
-        {canSharePdf && (
-          <Button variant="ghost" size="sm" onClick={onSharePdf} className="h-6 w-6 p-0 text-slate-500 hover:text-orange-500" title="Download PDF" data-testid="button-download-pdf">
-            <FileDown className="w-3.5 h-3.5" />
-          </Button>
-        )}
-        {rbSnap && (
-          <Button variant="ghost" size="sm" onClick={onView} className="h-6 w-6 p-0 text-slate-500" title="View details" data-testid="button-view-details">
-            <Eye className="w-3.5 h-3.5" />
-          </Button>
-        )}
-        <Button variant="ghost" size="sm" onClick={onDelete} className="h-6 w-6 p-0 text-slate-500 hover:text-destructive" title="Delete">
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
       </div>
     </div>
   );

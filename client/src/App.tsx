@@ -938,8 +938,9 @@ function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar (replaces full header on small screens) */}
         <header className="md:hidden sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="px-4 h-14 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="px-4 h-14 grid grid-cols-3 items-center">
+            {/* Left: hamburger */}
+            <div className="flex items-center">
               <Button
                 variant="ghost"
                 size="sm"
@@ -949,6 +950,9 @@ function AppLayout() {
               >
                 <Menu className="w-4 h-4" />
               </Button>
+            </div>
+            {/* Centre: logo */}
+            <div className="flex justify-center">
               <Link
                 href="/"
                 onClick={(e) => {
@@ -961,11 +965,12 @@ function AppLayout() {
                 <img
                   src={`${import.meta.env.BASE_URL}lottie/BungeeConnect-logo.png`}
                   alt="Bungee Connect"
-                  className="h-7 shrink-0 object-contain"
+                  className="h-7 object-contain"
                 />
               </Link>
             </div>
-            <div className="flex items-center gap-1">
+            {/* Right: user badge */}
+            <div className="flex items-center justify-end gap-1">
               {user && (
                 <Badge variant="outline" className={`text-xs gap-1 ${userRoleColor} hidden sm:flex`}>
                   <Shield className="w-3 h-3" />
@@ -984,7 +989,7 @@ function AppLayout() {
             <h1 className="text-sm font-semibold" data-testid="text-page-title">
               {page.title}
             </h1>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
               <p className="text-xs text-slate-500">
                 {page.subtitle}
               </p>
@@ -1000,8 +1005,8 @@ function AppLayout() {
                   </span>
                 </div>
               )}
-              {/* Portal target for RouteBuilder controls (profile, fuel, toggle) */}
-              {isHome && <div id="route-controls-portal" className="flex items-center gap-3 ml-auto" />}
+              {/* Portal target for RouteBuilder controls — own row on mobile, inline on desktop */}
+              {isHome && <div id="route-controls-portal" className="flex items-center gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0" />}
             </div>
           </div>
 

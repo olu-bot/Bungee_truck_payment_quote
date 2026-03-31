@@ -1112,7 +1112,7 @@ function AccessorialPolicySection() {
       <CardContent className="px-4 pb-4 pt-2">
         {editing ? (
           <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <label className="text-[11px] font-medium text-slate-500">Detention Rate</label>
                 <div className="flex items-center gap-1.5">
