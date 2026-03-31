@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from "@/lib/safeStorage";
 import { useQuoteUsage } from "@/hooks/use-quote-usage";
 import {
   MapPin,
@@ -399,7 +400,11 @@ function RouteControlsPortal({
               const valToStore = isImp
                 ? String(Math.round((parseFloat(raw) / LITRES_PER_GAL) * 1000) / 1000)
                 : raw;
-              localStorage.setItem(FUEL_STORAGE_KEY, JSON.stringify({ price: valToStore, savedAt: Date.now() }));
+              safeStorageSet(
+                FUEL_STORAGE_KEY,
+                JSON.stringify({ price: valToStore, savedAt: Date.now() }),
+                "local",
+              );
             } catch { /* ignore */ }
           }}
         />
@@ -421,7 +426,7 @@ function RouteControlsPortal({
             title="Reset to the latest regional fuel price from EIA weekly data"
             onClick={() => {
               setFuelPriceManual(false);
-              try { localStorage.removeItem(FUEL_STORAGE_KEY); } catch { /* ignore */ }
+              safeStorageRemove(FUEL_STORAGE_KEY, "local");
             }}
           >
             Reset
@@ -468,7 +473,7 @@ export default function RouteBuilder() {
   // ── Controls ──────────────────────────────────────────────────
 
   const [selectedProfileId, setSelectedProfileId] = useState(
-    () => localStorage.getItem("bungee_selected_profile") || "",
+    () => safeStorageGet("bungee_selected_profile", "local") || "",
   );
   const [selectedYardId, setSelectedYardId] = useState("none");
   const [includeReturn, setIncludeReturn] = useState(false);
@@ -477,13 +482,13 @@ export default function RouteBuilder() {
 
   function loadSavedFuel(): { price: string; manual: boolean } {
     try {
-      const raw = localStorage.getItem(FUEL_STORAGE_KEY);
+      const raw = safeStorageGet(FUEL_STORAGE_KEY, "local");
       if (raw) {
         const { price, savedAt } = JSON.parse(raw);
         if (Date.now() - savedAt < FUEL_TTL_MS) {
           return { price, manual: true };
         }
-        localStorage.removeItem(FUEL_STORAGE_KEY);
+        safeStorageRemove(FUEL_STORAGE_KEY, "local");
       }
     } catch { /* ignore */ }
     // Use best available EIA price from cache/defaults instead of a stale hardcoded value
@@ -590,12 +595,13 @@ export default function RouteBuilder() {
   // ── Quote Mode (Quick / Advanced) — persisted to localStorage ──
   const QUOTE_MODE_KEY = "bungee_quote_mode";
   const [quoteMode, setQuoteModeRaw] = useState<"quick" | "advanced">(() => {
-    try { const v = localStorage.getItem(QUOTE_MODE_KEY); if (v === "advanced") return "advanced"; } catch { /* ignore */ }
+    const v = safeStorageGet(QUOTE_MODE_KEY, "local");
+    if (v === "advanced") return "advanced";
     return "quick";
   });
   const setQuoteMode = useCallback((mode: "quick" | "advanced") => {
     setQuoteModeRaw(mode);
-    try { localStorage.setItem(QUOTE_MODE_KEY, mode); } catch { /* ignore */ }
+    safeStorageSet(QUOTE_MODE_KEY, mode, "local");
   }, []);
 
   // ── Accessorial Charges (one-time per-load, Advanced mode) ────
@@ -747,7 +753,7 @@ export default function RouteBuilder() {
   // Persist selected profile to localStorage
   useEffect(() => {
     if (selectedProfileId) {
-      localStorage.setItem("bungee_selected_profile", selectedProfileId);
+      safeStorageSet("bungee_selected_profile", selectedProfileId, "local");
     }
   }, [selectedProfileId]);
 

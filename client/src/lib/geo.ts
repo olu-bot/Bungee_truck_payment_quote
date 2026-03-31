@@ -205,6 +205,39 @@ export async function getDirectionsByName(
   }
 }
 
+/** Structured result from /api/place-resolve — used by signup city autocomplete. */
+export type PlaceDetails = {
+  city: string;
+  stateName: string;
+  stateCode: string;
+  countryName: string;
+  countryCode: string;
+  lat: number;
+  lng: number;
+};
+
+const placeResolveCache = new Map<string, CacheEntry<PlaceDetails | null>>();
+
+/** Resolve a place description (e.g. "Toronto, ON, Canada") into structured fields. */
+export async function resolvePlaceDetails(q: string): Promise<PlaceDetails | null> {
+  const key = normalizeKey(q);
+  if (!key) return null;
+  const hit = cacheGet(placeResolveCache, key);
+  if (hit !== undefined) return hit;
+  try {
+    const res = await fetch(`/api/place-resolve?q=${encodeURIComponent(q)}`);
+    if (!res.ok) {
+      cacheSet(placeResolveCache, key, null, MISS_TTL_MS);
+      return null;
+    }
+    const data = await res.json() as PlaceDetails;
+    cacheSet(placeResolveCache, key, data, GEO_TTL_MS);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 /** Google-backed place lines (server uses Places Autocomplete + cache). */
 export async function fetchPlaceSuggestions(query: string): Promise<string[]> {
   const q = query.trim();

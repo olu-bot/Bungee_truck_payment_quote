@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -87,6 +88,10 @@ type FirebaseAuthContextValue = {
   logout: () => Promise<void>;
 };
 
+const SESSION_RESTORE_TIMEOUT_MS = 8000;
+const AUTH_REQUEST_TIMEOUT_MS = 6000;
+const MAX_AUTH_RESOLVE_EVENTS_PER_UID = 3;
+
 const AuthContext = createContext<FirebaseAuthContextValue>({
   user: null,
   authLoading: true,
@@ -133,6 +138,15 @@ async function loadUserProfileWithRetry(
     await new Promise((r) => setTimeout(r, delayMs));
   }
   return null;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label}_timeout`)), timeoutMs),
+    ),
+  ]);
 }
 
 /**
@@ -213,6 +227,8 @@ function buildFallbackUser(fbUser: FirebaseUser): AppUser {
 export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  /** Prevent repeated auth-resolution retries from looping when browser storage/session is unstable. */
+  const authResolveAttemptsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (!firebaseConfigured) {
@@ -225,8 +241,17 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    return onAuthStateChanged(auth, async (fbUser) => {
+    const sessionRestoreTimeout = setTimeout(() => {
+      setAuthLoading((prev) => {
+        if (!prev) return prev;
+        console.warn("[recovery] Session restore timeout; switching to degraded state");
+        return false;
+      });
+    }, SESSION_RESTORE_TIMEOUT_MS);
+
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
+        authResolveAttemptsRef.current.clear();
         if (isConnectGuestBuild() && !readConnectGuestDeclined()) {
           setUser(connectGuestAppUser() as AppUser);
         } else {
@@ -237,16 +262,27 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       }
 
       setConnectGuestDeclined(false);
+      const previousAttempts = authResolveAttemptsRef.current.get(fbUser.uid) ?? 0;
+      authResolveAttemptsRef.current.set(fbUser.uid, previousAttempts + 1);
+      const allowRetryPass = previousAttempts === 0;
+      if (previousAttempts >= MAX_AUTH_RESOLVE_EVENTS_PER_UID) {
+        console.warn("[recovery] Session resolve capped for uid; falling back", fbUser.uid);
+        setUser((prev) => (prev?.uid === fbUser.uid ? prev : buildFallbackUser(fbUser)));
+        setAuthLoading(false);
+        return;
+      }
 
       try {
-        const existing = await loadUserProfile(fbUser);
+        const existing = await withTimeout(loadUserProfile(fbUser), AUTH_REQUEST_TIMEOUT_MS, "load_user_profile");
         if (existing?.companyId) {
+          authResolveAttemptsRef.current.delete(fbUser.uid);
           setUser(existing);
           setAuthLoading(false);
           return;
         }
         if (existing && !existing.companyId) {
-          const fixed = await resolveAppUser(fbUser);
+          const fixed = await withTimeout(resolveAppUser(fbUser), AUTH_REQUEST_TIMEOUT_MS, "resolve_user_profile");
+          authResolveAttemptsRef.current.delete(fbUser.uid);
           setUser(fixed);
           setAuthLoading(false);
           return;
@@ -267,31 +303,47 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const retried = await loadUserProfileWithRetry(fbUser);
+        const retried = allowRetryPass
+          ? await withTimeout(loadUserProfileWithRetry(fbUser), AUTH_REQUEST_TIMEOUT_MS, "retry_load_user_profile")
+          : null;
         if (retried?.companyId) {
+          authResolveAttemptsRef.current.delete(fbUser.uid);
           setUser(retried);
           setAuthLoading(false);
           return;
         }
         if (retried && !retried.companyId) {
-          const fixed = await resolveAppUser(fbUser);
+          const fixed = await withTimeout(resolveAppUser(fbUser), AUTH_REQUEST_TIMEOUT_MS, "resolve_user_profile_retry");
+          authResolveAttemptsRef.current.delete(fbUser.uid);
           setUser(fixed);
           setAuthLoading(false);
           return;
         }
 
+        if (!allowRetryPass) {
+          setUser((prev) => (prev?.uid === fbUser.uid ? prev : buildFallbackUser(fbUser)));
+          setAuthLoading(false);
+          return;
+        }
+
         try {
-          const created = await resolveAppUser(fbUser);
+          const created = await withTimeout(resolveAppUser(fbUser), AUTH_REQUEST_TIMEOUT_MS, "resolve_create_user_profile");
+          authResolveAttemptsRef.current.delete(fbUser.uid);
           setUser(created);
         } catch {
           setUser(buildFallbackUser(fbUser));
         }
         setAuthLoading(false);
-      } catch {
+      } catch (e) {
+        console.warn("[recovery] Session restore request failed; using fallback", e);
         setUser((prev) => (prev?.uid === fbUser.uid ? prev : buildFallbackUser(fbUser)));
         setAuthLoading(false);
       }
     });
+    return () => {
+      clearTimeout(sessionRestoreTimeout);
+      unsub();
+    };
   }, []);
 
   const login = useCallback(async (args: { email: string; password: string }) => {

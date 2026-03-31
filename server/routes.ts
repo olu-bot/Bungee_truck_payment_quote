@@ -5,6 +5,7 @@ import { registerStripeRoutes } from "./stripe";
 import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
 import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
+import { registerEmployeeCalculatorAuthRoutes } from "./employeeCalculatorAuth";
 import { insertLaneSchema, insertCostProfileSchema, insertYardSchema, insertTeamMemberSchema, calculateRouteSchema, pricingTiersSchema, chatRouteSchema } from "@shared/schema";
 import type { CostProfile, RouteStop } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -960,6 +961,8 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  registerEmployeeCalculatorAuthRoutes(app);
+
   // === COST PROFILES ===
   app.get("/api/profiles", async (_req, res) => {
     res.json(await storage.getCostProfiles());
@@ -1079,6 +1082,48 @@ export async function registerRoutes(
       res.json({ suggestions });
     } catch {
       res.json({ suggestions: [] });
+    }
+  });
+
+  /** Resolves a place description (e.g. "Toronto, ON, Canada") into structured fields.
+   *  Used by the signup form city autocomplete to extract city/state/country/lat/lng. */
+  app.get("/api/place-resolve", async (req, res) => {
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    if (!q) return res.status(400).json({ error: "q required" });
+    const gKey = googleMapsServerKey();
+    if (!gKey) return res.status(503).json({ error: "Maps not configured" });
+    try {
+      const params = new URLSearchParams({ address: q, key: gKey });
+      const data = await fetchJsonWithTimeout(
+        `https://maps.googleapis.com/maps/api/geocode/json?${params}`,
+      ) as {
+        status: string;
+        results: Array<{
+          geometry: { location: { lat: number; lng: number } };
+          address_components: Array<{ long_name: string; short_name: string; types: string[] }>;
+        }>;
+      };
+      if (data.status !== "OK" || !data.results?.length) {
+        return res.status(404).json({ error: "Not found" });
+      }
+      const r = data.results[0];
+      const get = (type: string, key: "long_name" | "short_name") =>
+        r.address_components.find((c) => c.types.includes(type))?.[key] ?? "";
+      return res.json({
+        city:
+          get("locality", "long_name") ||
+          get("sublocality_level_1", "long_name") ||
+          get("postal_town", "long_name") ||
+          q.split(",")[0].trim(),
+        stateName: get("administrative_area_level_1", "long_name"),
+        stateCode: get("administrative_area_level_1", "short_name"),
+        countryName: get("country", "long_name"),
+        countryCode: get("country", "short_name"),
+        lat: r.geometry.location.lat,
+        lng: r.geometry.location.lng,
+      });
+    } catch {
+      return res.status(500).json({ error: "Geocoding failed" });
     }
   });
 
@@ -1723,6 +1768,38 @@ export async function registerRoutes(
       replyEmailedAt: new Date().toISOString(),
     });
     res.status(202).json({ ok: true });
+  });
+
+  const clientErrorSchema = z.object({
+    category: z.enum(["window-error", "unhandled-rejection", "react-boundary", "recovery"]),
+    message: z.string().min(1).max(4000),
+    stack: z.string().max(12000).optional(),
+    code: z.string().max(200).optional(),
+    detail: z.string().max(1000).optional(),
+    href: z.string().max(4000).optional().default(""),
+    ua: z.string().max(1000).optional().default(""),
+    ts: z.string().max(100).optional().default(""),
+  });
+
+  app.post("/api/client-error", async (req, res) => {
+    try {
+      const e = clientErrorSchema.parse(req.body);
+      const safeMessage = e.message.replace(/\s+/g, " ").slice(0, 500);
+      const safeStack = (e.stack || "").slice(0, 1200);
+      console.warn(
+        `[client-error] ${e.category}${e.code ? `:${e.code}` : ""} ${safeMessage}`,
+        {
+          href: e.href.slice(0, 300),
+          ua: e.ua.slice(0, 180),
+          ts: e.ts,
+          detail: e.detail?.slice(0, 300),
+          stack: safeStack,
+        },
+      );
+      return res.status(202).json({ ok: true });
+    } catch {
+      return res.status(202).json({ ok: true });
+    }
   });
 
   registerStripeRoutes(app);
