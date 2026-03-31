@@ -19,8 +19,8 @@ function getNumberFormatter(currency: SupportedCurrency): Intl.NumberFormat {
   const formatter = new Intl.NumberFormat(LOCALE_BY_CURRENCY[currency], {
     style: "currency",
     currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   });
   NUMBER_FORMATTERS[currency] = formatter;
   return formatter;
