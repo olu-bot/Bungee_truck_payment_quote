@@ -76,10 +76,10 @@ const PERMISSION_MATRIX: Record<CompanyRole, Set<Permission>> = {
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-/** Resolve the effective company role — defaults legacy users to "owner". */
+/** Resolve the effective company role — defaults legacy users to "member" (least privilege). */
 export function getCompanyRole(user: AppUser | null | undefined): CompanyRole {
   if (!user) return "member";
-  return user.companyRole ?? (user.role === "admin" ? "owner" : "owner");
+  return user.companyRole ?? "member";
 }
 
 /** Check if the user has a specific permission. */

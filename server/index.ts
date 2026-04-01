@@ -3,12 +3,24 @@ import express, { type Request } from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
+import { validateEnv } from "./envValidation";
 
 type RequestWithRaw = Request & { rawBody?: Buffer };
 
 async function main() {
+  validateEnv();
+
   const app = express();
-  app.use(cors({ origin: true, credentials: true }));
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map(s => s.trim())
+    : undefined;
+
+  app.use(cors({
+    origin: process.env.NODE_ENV === "production" && allowedOrigins
+      ? allowedOrigins
+      : true,
+    credentials: true,
+  }));
 
   app.use(
     "/api/stripe/webhook",

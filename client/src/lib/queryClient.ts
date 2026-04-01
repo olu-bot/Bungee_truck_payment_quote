@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { apiUrl } from "@/lib/apiUrl";
+import { auth } from "@/lib/firebase";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -11,7 +12,10 @@ export const queryClient = new QueryClient({
       queryFn: async ({ queryKey }) => {
         const path = queryKey[0];
         if (typeof path === "string" && path.startsWith("/api/")) {
-          const res = await fetch(apiUrl(path));
+          const token = await auth?.currentUser?.getIdToken();
+          const headers: Record<string, string> = {};
+          if (token) headers["Authorization"] = `Bearer ${token}`;
+          const res = await fetch(apiUrl(path), { headers });
           if (!res.ok) throw new Error(await res.text());
           return res.json();
         }
@@ -24,9 +28,13 @@ export const queryClient = new QueryClient({
 
 export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
   const resolved = url.startsWith("/api/") ? apiUrl(url) : url;
+  const token = await auth?.currentUser?.getIdToken();
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (data) headers["Content-Type"] = "application/json";
   const res = await fetch(resolved, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: data !== undefined ? JSON.stringify(data) : undefined,
     credentials: "include",
   });

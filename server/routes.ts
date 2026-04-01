@@ -5,6 +5,7 @@ import { registerStripeRoutes } from "./stripe";
 import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
 import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
+import { requireAuth } from "./authMiddleware";
 import { registerEmployeeCalculatorAuthRoutes } from "./employeeCalculatorAuth";
 import { insertLaneSchema, insertCostProfileSchema, insertYardSchema, insertTeamMemberSchema, calculateRouteSchema, pricingTiersSchema, chatRouteSchema } from "@shared/schema";
 import type { CostProfile, RouteStop } from "@shared/schema";
@@ -964,11 +965,11 @@ export async function registerRoutes(
   registerEmployeeCalculatorAuthRoutes(app);
 
   // === COST PROFILES ===
-  app.get("/api/profiles", async (_req, res) => {
+  app.get("/api/profiles", requireAuth, async (_req, res) => {
     res.json(await storage.getCostProfiles());
   });
 
-  app.get("/api/profiles/:id", async (req, res) => {
+  app.get("/api/profiles/:id", requireAuth, async (req, res) => {
     const p = await storage.getCostProfile(req.params.id);
     if (!p) return res.status(404).json({ error: "Profile not found" });
     res.json({
@@ -978,7 +979,7 @@ export async function registerRoutes(
     });
   });
 
-  app.post("/api/profiles", async (req, res) => {
+  app.post("/api/profiles", requireAuth, async (req, res) => {
     try {
       const parsed = insertCostProfileSchema.parse(req.body);
       const profile = await storage.createCostProfile(parsed);
@@ -988,7 +989,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/profiles/:id", async (req, res) => {
+  app.put("/api/profiles/:id", requireAuth, async (req, res) => {
     try {
       const updated = await storage.updateCostProfile(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Profile not found" });
@@ -998,17 +999,17 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/profiles/:id", async (req, res) => {
+  app.delete("/api/profiles/:id", requireAuth, async (req, res) => {
     const deleted = await storage.deleteCostProfile(req.params.id);
     deleted ? res.status(204).end() : res.status(404).json({ error: "Not found" });
   });
 
   // === YARDS ===
-  app.get("/api/yards", async (_req, res) => {
+  app.get("/api/yards", requireAuth, async (_req, res) => {
     res.json(await storage.getYards());
   });
 
-  app.post("/api/yards", async (req, res) => {
+  app.post("/api/yards", requireAuth, async (req, res) => {
     try {
       const parsed = insertYardSchema.parse(req.body);
       const yard = await storage.createYard(parsed);
@@ -1018,23 +1019,23 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/yards/:id", async (req, res) => {
+  app.put("/api/yards/:id", requireAuth, async (req, res) => {
     const updated = await storage.updateYard(req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: "Yard not found" });
     res.json(updated);
   });
 
-  app.delete("/api/yards/:id", async (req, res) => {
+  app.delete("/api/yards/:id", requireAuth, async (req, res) => {
     const deleted = await storage.deleteYard(req.params.id);
     deleted ? res.status(204).end() : res.status(404).json({ error: "Not found" });
   });
 
   // === TEAM MEMBERS ===
-  app.get("/api/team", async (_req, res) => {
+  app.get("/api/team", requireAuth, async (_req, res) => {
     res.json(await storage.getTeamMembers());
   });
 
-  app.post("/api/team", async (req, res) => {
+  app.post("/api/team", requireAuth, async (req, res) => {
     try {
       const parsed = insertTeamMemberSchema.parse(req.body);
       const member = await storage.createTeamMember(parsed);
@@ -1044,13 +1045,13 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/team/:id", async (req, res) => {
+  app.put("/api/team/:id", requireAuth, async (req, res) => {
     const updated = await storage.updateTeamMember(req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: "Member not found" });
     res.json(updated);
   });
 
-  app.delete("/api/team/:id", async (req, res) => {
+  app.delete("/api/team/:id", requireAuth, async (req, res) => {
     const deleted = await storage.deleteTeamMember(req.params.id);
     deleted ? res.status(204).end() : res.status(404).json({ error: "Not found" });
   });
@@ -1128,7 +1129,7 @@ export async function registerRoutes(
   });
 
   // === DISTANCE BETWEEN TWO POINTS (Google Directions → OSRM fallback) ===
-  app.get("/api/distance", async (req, res) => {
+  app.get("/api/distance", requireAuth, async (req, res) => {
     const fromLat = parseFloat(req.query.fromLat as string);
     const fromLng = parseFloat(req.query.fromLng as string);
     const toLat = parseFloat(req.query.toLat as string);
@@ -1145,7 +1146,7 @@ export async function registerRoutes(
   // Accepts location *names* instead of coordinates — the server passes them
   // straight to Google Directions API so the resolved distance/duration exactly
   // matches what the Google Maps Embed shows on the map.
-  app.post("/api/directions-by-name", async (req, res) => {
+  app.post("/api/directions-by-name", requireAuth, async (req, res) => {
     const { locations } = req.body as { locations: string[] };
     if (!Array.isArray(locations) || locations.length < 2 || locations.some((l) => typeof l !== "string" || !l.trim())) {
       return res.status(400).json({ error: "Need at least 2 non-empty location strings" });
@@ -1187,7 +1188,7 @@ export async function registerRoutes(
   });
 
   // === MULTI-WAYPOINT DISTANCE (Google Directions → OSRM fallback) ===
-  app.post("/api/distances", async (req, res) => {
+  app.post("/api/distances", requireAuth, async (req, res) => {
     const { waypoints } = req.body as { waypoints: { lat: number; lng: number }[] };
     if (!Array.isArray(waypoints) || waypoints.length < 2) {
       return res.status(400).json({ error: "Need at least 2 waypoints" });
@@ -1213,7 +1214,7 @@ export async function registerRoutes(
   });
 
   // === ROUTE CALCULATION ===
-  app.post("/api/calculate-route", async (req, res) => {
+  app.post("/api/calculate-route", requireAuth, async (req, res) => {
     try {
       const input = calculateRouteSchema.parse(req.body);
       const profile = await storage.getCostProfile(input.profileId);
@@ -1229,7 +1230,7 @@ export async function registerRoutes(
   });
 
   // === PRICING ADVICE ===
-  app.post("/api/pricing-advice", async (req, res) => {
+  app.post("/api/pricing-advice", requireAuth, async (req, res) => {
     try {
       const { totalCost, customMarginPercent, customQuoteAmount } = pricingTiersSchema.parse(req.body);
       const tiers = [
@@ -1287,11 +1288,11 @@ export async function registerRoutes(
   }
 
   // === RATE TABLES (quote calculator) ===
-  app.get("/api/rates", async (_req, res) => {
+  app.get("/api/rates", requireAuth, async (_req, res) => {
     res.json(await storage.getRates());
   });
 
-  app.put("/api/rates/:truckType", async (req, res) => {
+  app.put("/api/rates/:truckType", requireAuth, async (req, res) => {
     const updated = await storage.updateRate(req.params.truckType, {
       ratePerMile: Number(req.body.ratePerMile),
       fuelSurchargePercent: Number(req.body.fuelSurchargePercent),
@@ -1300,11 +1301,11 @@ export async function registerRoutes(
     updated ? res.json(updated) : res.status(404).json({ error: "Unknown truck type" });
   });
 
-  app.get("/api/hourly-rates", async (_req, res) => {
+  app.get("/api/hourly-rates", requireAuth, async (_req, res) => {
     res.json(await storage.getHourlyRates());
   });
 
-  app.put("/api/hourly-rates/:truckType", async (req, res) => {
+  app.put("/api/hourly-rates/:truckType", requireAuth, async (req, res) => {
     const { truckType, ...rest } = { truckType: req.params.truckType, ...req.body };
     const updated = await storage.updateHourlyRate(req.params.truckType, rest);
     updated ? res.json(updated) : res.status(404).json({ error: "Unknown truck type" });
@@ -1321,7 +1322,7 @@ export async function registerRoutes(
     marginValue: z.number(),
   });
 
-  app.post("/api/calculate", async (req, res) => {
+  app.post("/api/calculate", requireAuth, async (req, res) => {
     try {
       const body = calculateQuoteBody.parse(req.body);
       const rates = await storage.getRates();
@@ -1449,7 +1450,7 @@ export async function registerRoutes(
   });
 
   // === CHATBOT ROUTE PARSING ===
-  app.post("/api/chat-route", async (req, res) => {
+  app.post("/api/chat-route", requireAuth, async (req, res) => {
     try {
       const { message, dockTimeMinutes: clientDockTime } = chatRouteSchema.parse(req.body);
       const dockTimeMin = clientDockTime ?? 60;
@@ -1654,10 +1655,10 @@ export async function registerRoutes(
   });
 
   // === SAVED ROUTES ===
-  app.get("/api/routes", async (_req, res) => {
+  app.get("/api/routes", requireAuth, async (_req, res) => {
     res.json(await storage.getRoutes());
   });
-  app.post("/api/routes", async (req, res) => {
+  app.post("/api/routes", requireAuth, async (req, res) => {
     try {
       const route = await storage.createRoute(req.body);
       res.status(201).json(route);
@@ -1665,16 +1666,16 @@ export async function registerRoutes(
       res.status(400).json({ error: err.message });
     }
   });
-  app.delete("/api/routes/:id", async (req, res) => {
+  app.delete("/api/routes/:id", requireAuth, async (req, res) => {
     const deleted = await storage.deleteRoute(req.params.id);
     deleted ? res.status(204).end() : res.status(404).json({ error: "Not found" });
   });
 
   // === LANES ===
-  app.get("/api/lanes", async (_req, res) => {
+  app.get("/api/lanes", requireAuth, async (_req, res) => {
     res.json(await storage.getLanes());
   });
-  app.post("/api/lanes", async (req, res) => {
+  app.post("/api/lanes", requireAuth, async (req, res) => {
     try {
       const parsed = insertLaneSchema.parse(req.body);
       const lane = await storage.createLane(parsed);
@@ -1683,16 +1684,16 @@ export async function registerRoutes(
       res.status(400).json({ error: err.message });
     }
   });
-  app.delete("/api/lanes/:id", async (req, res) => {
+  app.delete("/api/lanes/:id", requireAuth, async (req, res) => {
     const deleted = await storage.deleteLane(req.params.id);
     deleted ? res.status(204).end() : res.status(404).json({ error: "Not found" });
   });
 
   // === QUOTES ===
-  app.get("/api/quotes", async (_req, res) => {
+  app.get("/api/quotes", requireAuth, async (_req, res) => {
     res.json(await storage.getQuotes());
   });
-  app.post("/api/quotes", async (req, res) => {
+  app.post("/api/quotes", requireAuth, async (req, res) => {
     try {
       const quoteNumber = `BQ-${Date.now().toString(36).toUpperCase()}`;
       const quote = await storage.createQuote({
@@ -1705,7 +1706,7 @@ export async function registerRoutes(
       res.status(400).json({ error: err.message });
     }
   });
-  app.delete("/api/quotes/:id", async (req, res) => {
+  app.delete("/api/quotes/:id", requireAuth, async (req, res) => {
     const deleted = await storage.deleteQuote(req.params.id);
     deleted ? res.status(204).end() : res.status(404).json({ error: "Not found" });
   });
