@@ -22,6 +22,7 @@
  * │ Branded PDF export   │ ✗      │ ✓      │ ✓        │
  * │ PDF template editor  │ ✗      │ ✓      │ ✓        │
  * │ CSV export           │ ✗      │ ✓      │ ✓        │
+ * │ IFTA fuel tax         │ ✗      │ ✓      │ ✓        │
  * │ Live fuel prices     │ ✓      │ ✓      │ ✓        │
  * └──────────────────────┴────────┴────────┴──────────┘
  */
@@ -105,6 +106,26 @@ export function canCustomizePdfTemplate(user: AppUser | null | undefined): boole
 
 /** Whether the user can export CSV. */
 export function canExportCsv(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
+/** Whether the user can see the IFTA fuel tax breakdown on routes. */
+export function canUseIFTA(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
+/** Whether the user can view the Analytics dashboard tab (charts, KPIs). Pro/Premium only. */
+export function canUseAnalytics(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
+/** Whether the user can see lane intelligence hints in route builder. Pro/Premium only. */
+export function canUseLaneIntelligence(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
+/** Whether the user can see AI-powered pricing suggestions. Pro + Premium only. */
+export function canUsePricingSuggestions(user: AppUser | null | undefined): boolean {
   return isPaid(user);
 }
 

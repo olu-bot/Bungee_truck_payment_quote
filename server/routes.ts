@@ -6,7 +6,6 @@ import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
 import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
 import { registerEmployeeCalculatorAuthRoutes } from "./employeeCalculatorAuth";
-import { requireAuth, type AuthenticatedRequest } from "./authMiddleware";
 import { insertLaneSchema, insertCostProfileSchema, insertYardSchema, insertTeamMemberSchema, calculateRouteSchema, pricingTiersSchema, chatRouteSchema } from "@shared/schema";
 import type { CostProfile, RouteStop } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -24,6 +23,7 @@ const ROUTE_TTL_MS    = 1000 * 60 * 60 * 24;  // 24h — road distances are stab
 const SUGGEST_TTL_MS  = 1000 * 60 * 60 * 12;  // 12h — place suggestions
 const GEO_MISS_TTL_MS = 1000 * 60 * 10;       // 10m — negative cache for misses
 const FETCH_TIMEOUT_MS = 8000;
+
 // Max entries per cache to prevent unbounded memory growth
 const MAX_CACHE_SIZE = 10_000;
 
@@ -67,11 +67,6 @@ function cacheEvict<T>(cache: Map<string, CacheEntry<T>>): void {
 }
 
 function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T, ttlMs: number): void {
-  // Evict oldest entries if cache exceeds max size
-  if (cache.size >= MAX_CACHE_SIZE) {
-    const firstKey = cache.keys().next().value;
-    if (firstKey !== undefined) cache.delete(firstKey);
-  }
   cache.set(key, { value, expiresAt: nowMs() + ttlMs });
   cacheEvict(cache);
 }
@@ -118,16 +113,6 @@ function routePairKey(
 function waypointsKey(waypoints: { lat: number; lng: number }[]): string {
   return waypoints.map((w) => `${w.lat.toFixed(5)},${w.lng.toFixed(5)}`).join(";");
 }
-
-// Sweep expired entries every 30 minutes to prevent memory buildup
-setInterval(() => {
-  const now = nowMs();
-  for (const cache of [geocodeCache, distanceCache, multiRouteCache, placeSuggestCache]) {
-    for (const [key, entry] of cache) {
-      if (entry.expiresAt <= now) cache.delete(key);
-    }
-  }
-}, 1000 * 60 * 30);
 
 // Derive hourly fixed cost from a cost profile
 function getFixedCostPerHour(p: CostProfile): number {
@@ -1078,7 +1063,7 @@ export async function registerRoutes(
   });
 
   // === GEOCODE ===
-  app.get("/api/geocode", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/geocode", async (req, res) => {
     const location = req.query.location as string;
     const countrycodes = req.query.countrycodes as string | undefined;
     if (!location) return res.status(400).json({ error: "location required" });
@@ -1089,7 +1074,7 @@ export async function registerRoutes(
     res.json(result);
   });
 
-  app.get("/api/place-suggestions", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/place-suggestions", async (req, res) => {
     const q = typeof req.query.q === "string" ? req.query.q : "";
     if (q.trim().length < 2) return res.json({ suggestions: [] });
     try {
@@ -1143,7 +1128,7 @@ export async function registerRoutes(
   });
 
   // === DISTANCE BETWEEN TWO POINTS (Google Directions → OSRM fallback) ===
-  app.get("/api/distance", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/distance", async (req, res) => {
     const fromLat = parseFloat(req.query.fromLat as string);
     const fromLng = parseFloat(req.query.fromLng as string);
     const toLat = parseFloat(req.query.toLat as string);
@@ -1160,7 +1145,7 @@ export async function registerRoutes(
   // Accepts location *names* instead of coordinates — the server passes them
   // straight to Google Directions API so the resolved distance/duration exactly
   // matches what the Google Maps Embed shows on the map.
-  app.post("/api/directions-by-name", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/directions-by-name", async (req, res) => {
     const { locations } = req.body as { locations: string[] };
     if (!Array.isArray(locations) || locations.length < 2 || locations.some((l) => typeof l !== "string" || !l.trim())) {
       return res.status(400).json({ error: "Need at least 2 non-empty location strings" });
@@ -1202,7 +1187,7 @@ export async function registerRoutes(
   });
 
   // === MULTI-WAYPOINT DISTANCE (Google Directions → OSRM fallback) ===
-  app.post("/api/distances", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/distances", async (req, res) => {
     const { waypoints } = req.body as { waypoints: { lat: number; lng: number }[] };
     if (!Array.isArray(waypoints) || waypoints.length < 2) {
       return res.status(400).json({ error: "Need at least 2 waypoints" });
@@ -1228,7 +1213,7 @@ export async function registerRoutes(
   });
 
   // === ROUTE CALCULATION ===
-  app.post("/api/calculate-route", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/calculate-route", async (req, res) => {
     try {
       const input = calculateRouteSchema.parse(req.body);
       const profile = await storage.getCostProfile(input.profileId);
@@ -1244,7 +1229,7 @@ export async function registerRoutes(
   });
 
   // === PRICING ADVICE ===
-  app.post("/api/pricing-advice", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/pricing-advice", async (req, res) => {
     try {
       const { totalCost, customMarginPercent, customQuoteAmount } = pricingTiersSchema.parse(req.body);
       const tiers = [
@@ -1336,7 +1321,7 @@ export async function registerRoutes(
     marginValue: z.number(),
   });
 
-  app.post("/api/calculate", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/calculate", async (req, res) => {
     try {
       const body = calculateQuoteBody.parse(req.body);
       const rates = await storage.getRates();
@@ -1394,7 +1379,7 @@ export async function registerRoutes(
     marginValue: z.number(),
   });
 
-  app.post("/api/calculate-local", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/calculate-local", async (req, res) => {
     try {
       const body = calculateLocalBody.parse(req.body);
       const hourlyList = await storage.getHourlyRates();
@@ -1464,7 +1449,7 @@ export async function registerRoutes(
   });
 
   // === CHATBOT ROUTE PARSING ===
-  app.post("/api/chat-route", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/chat-route", async (req, res) => {
     try {
       const { message, dockTimeMinutes: clientDockTime } = chatRouteSchema.parse(req.body);
       const dockTimeMin = clientDockTime ?? 60;
@@ -1736,7 +1721,7 @@ export async function registerRoutes(
     area: z.string().max(200).optional().default(""),
   });
 
-  app.post("/api/feedback", requireAuth, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/feedback", async (req, res) => {
     try {
       const parsed = feedbackBodySchema.parse(req.body);
       const result = await sendFeedbackEmail(parsed);

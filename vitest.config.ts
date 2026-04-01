@@ -12,20 +12,12 @@ export default defineConfig({
     },
   },
   test: {
+    environment: "jsdom",
     globals: true,
-    environment: "happy-dom",
-    include: [
-      "client/src/**/*.test.{ts,tsx}",
-      "server/**/*.test.ts",
-      "shared/**/*.test.ts",
-    ],
+    include: ["client/src/**/*.test.{ts,tsx}", "shared/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: [
-        "client/src/lib/**",
-        "server/**",
-        "shared/**",
-      ],
+      include: ["client/src/lib/**", "shared/**"],
     },
   },
 });

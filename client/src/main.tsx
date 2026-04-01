@@ -5,6 +5,8 @@ import "./index.css";
 import { safeStorageGet, safeStorageSet } from "@/lib/safeStorage";
 import { reportClientError } from "@/lib/clientErrorBeacon";
 
+const CHUNK_RELOAD_TS_KEY = "bungee_chunk_reload_ts";
+// Keep for backward compat read only — no longer written
 const CHUNK_RELOAD_ONCE_KEY = "bungee_chunk_reload_once";
 const BOOT_WATCHDOG_KEY = "bungee_boot_watchdog_once";
 
@@ -18,7 +20,8 @@ function isChunkLoadError(err: unknown): boolean {
   return (
     msg.includes("chunkloaderror") ||
     msg.includes("loading chunk") ||
-    msg.includes("failed to fetch dynamically imported module")
+    msg.includes("failed to fetch dynamically imported module") ||
+    msg.includes("importing a module script failed")
   );
 }
 
@@ -26,15 +29,21 @@ function isMaxStackError(err: unknown): boolean {
   return getErrorMessage(err).toLowerCase().includes("maximum call stack size exceeded");
 }
 
+// Allow one reload per 60 seconds to recover from stale chunk errors after
+// deployments. Timestamp-based so a successful reload doesn't permanently
+// block recovery for future navigations in the same tab.
+const CHUNK_RELOAD_THROTTLE_MS = 60_000;
+
 function reloadOnceForChunkError(err: unknown): void {
   if (!isChunkLoadError(err)) return;
-  if (safeStorageGet(CHUNK_RELOAD_ONCE_KEY, "session") === "1") return;
-  safeStorageSet(CHUNK_RELOAD_ONCE_KEY, "1", "session");
+  const lastTs = Number(safeStorageGet(CHUNK_RELOAD_TS_KEY, "session") ?? "0");
+  if (Date.now() - lastTs < CHUNK_RELOAD_THROTTLE_MS) return;
+  safeStorageSet(CHUNK_RELOAD_TS_KEY, String(Date.now()), "session");
   reportClientError({
     category: "recovery",
     code: "chunk-reload-once",
     message: getErrorMessage(err) || "Chunk load failed",
-    detail: "Reloading once for chunk failure",
+    detail: "Reloading for stale chunk — timestamp throttle applied",
   });
   window.location.reload();
 }
@@ -133,10 +142,20 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { err: Error 
       message: error.message || "React boundary error",
       stack: `${error.stack || ""}\n${info.componentStack || ""}`.trim(),
     });
+    // Auto-reload once for chunk/module load failures — prevents any error flash
+    reloadOnceForChunkError(error);
   }
 
   render(): ReactNode {
     if (this.state.err) {
+      // If it's a chunk/module error and we haven't recently reloaded,
+      // return null so nothing flashes — componentDidCatch handles the silent reload.
+      const lastTs = Number(safeStorageGet(CHUNK_RELOAD_TS_KEY, "session") ?? "0");
+      const recentlyReloaded = Date.now() - lastTs < CHUNK_RELOAD_THROTTLE_MS;
+      if (isChunkLoadError(this.state.err) && !recentlyReloaded) {
+        return null;
+      }
+      // Persistent failure after the auto-reload — show actionable error UI
       return (
         <div
           style={{
@@ -147,7 +166,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { err: Error 
             lineHeight: 1.5,
           }}
         >
-          <h1 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>Bungee Connect couldn’t start</h1>
+          <h1 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>Bungee Connect couldn't start</h1>
           <p style={{ color: "#444", marginBottom: "1rem" }}>
             This is often caused by a <strong>browser extension</strong> (look for errors mentioning{" "}
             <code>content.js</code>, <code>excalidraw</code>, or <code>ChunkLoadError</code> in the console) or by{" "}

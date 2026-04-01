@@ -58,3 +58,13 @@
     font-family: "DM Sans", system-ui, sans-serif;
   }
 }
+
+/* ── Mobile touch targets & iOS zoom prevention ───────────────── */
+@media (max-width: 639px) {
+  /* Prevent iOS zoom on input focus (requires 16px minimum) */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

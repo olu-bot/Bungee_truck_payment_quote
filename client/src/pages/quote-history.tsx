@@ -573,11 +573,11 @@ export default function QuoteHistory() {
         )}
 
         {/* Stats bar */}
-        <div className="flex items-center gap-4 flex-wrap" data-testid="quote-stats-bar">
-          <p className="text-sm font-medium">
+        <div data-testid="quote-stats-bar">
+          <p className="text-sm font-medium mb-2">
             {effectiveQuotes.length} quote{effectiveQuotes.length !== 1 ? "s" : ""}
           </p>
-          <div className="flex items-center gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-3 text-xs">
             <span className="flex items-center gap-1 text-slate-500">
               <Clock className="w-3 h-3" /> {pendingQuotes.length} pending
             </span>
@@ -602,7 +602,7 @@ export default function QuoteHistory() {
             placeholder="Search by lane, quote #, status, note..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 text-sm"
+            className="pl-9 h-11 sm:h-9 text-sm"
             data-testid="input-search-quotes"
           />
         </div>

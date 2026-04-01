@@ -53,7 +53,7 @@ export function QuoteShareDialog({ open, onOpenChange, quote }: QuoteShareDialog
     enabled: !!scopeId && open,
   });
 
-  async function handleGenerate() {
+  function handleGenerate() {
     if (!user) return;
     setGenerating(true);
 

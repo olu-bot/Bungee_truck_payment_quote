@@ -280,7 +280,7 @@ export default function TeamManagement() {
   const availableRoles = assignableRoles(user);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* ─── Header + Invite Button ───────────────────────────── */}
       {canManageTeam && (
         <div className="flex items-center justify-between">
@@ -331,9 +331,9 @@ export default function TeamManagement() {
 
       {/* ─── Members List ─────────────────────────────────────── */}
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="w-4 h-4" />
+        <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Users className="w-4 h-4 text-orange-500" />
             Team Members
           </CardTitle>
         </CardHeader>
@@ -356,7 +356,7 @@ export default function TeamManagement() {
                 return (
                   <div
                     key={m.uid}
-                    className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                    className="flex items-center gap-3 py-3.5 sm:py-3 first:pt-0 last:pb-0"
                   >
                     <Avatar name={m.name} />
                     <div className="flex-1 min-w-0">
@@ -436,7 +436,7 @@ export default function TeamManagement() {
               {pendingInvites.map((inv) => (
                 <div
                   key={inv.id}
-                  className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                  className="flex items-center gap-3 py-3.5 sm:py-3 first:pt-0 last:pb-0"
                 >
                   <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
                     <Send className="w-4 h-4 text-muted-foreground" />

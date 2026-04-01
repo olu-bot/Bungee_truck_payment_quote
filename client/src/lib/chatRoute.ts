@@ -1,4 +1,5 @@
 import type { RouteStop } from "@shared/schema";
+import { auth } from "@/lib/firebase";
 
 export type CargoItem = {
   dimensions: string;
@@ -63,9 +64,12 @@ export async function processChatRoute(message: string, dockTimeMinutes?: number
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), CHAT_TIMEOUT_MS);
     try {
+      const token = await auth?.currentUser?.getIdToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       const res = await fetch("/api/chat-route", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ message, ...(dockTimeMinutes != null ? { dockTimeMinutes } : {}) }),
         signal: ctrl.signal,
       });

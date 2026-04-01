@@ -1,4 +1,5 @@
 import { Switch, Route, Router, Link, Redirect, useLocation } from "wouter";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -8,9 +9,9 @@ import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { isOnboardingActive } from "@/lib/onboarding";
 import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-auth";
 import { FeedbackSheet } from "@/components/FeedbackSheet";
+import { MobileTabBar } from "@/components/MobileTabBar";
 import Walkthrough from "@/components/Walkthrough";
 import type { TourId } from "@/components/Walkthrough";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { db, firebaseConfigured } from "@/lib/firebase";
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { resolveWorkspaceCurrency, currencySymbol } from "@/lib/currency";
@@ -21,7 +22,7 @@ import { getLanes, getProfiles, createProfile } from "@/lib/firebaseDb";
 import { convertCurrency } from "@/lib/currency";
 import type { SupportedCurrency } from "@/lib/currency";
 import { workspaceFirestoreId } from "@/lib/workspace";
-import type { Lane, RouteStop } from "@shared/schema";
+import type { Lane } from "@shared/schema";
 import { can, isManager, isSuperAdmin, getCompanyRole, ROLE_LABELS, ROLE_COLORS as PERM_ROLE_COLORS } from "@/lib/permissions";
 import { useQuoteUsage } from "@/hooks/use-quote-usage";
 import type { Permission } from "@/lib/permissions";
@@ -31,6 +32,7 @@ import Landing from "@/pages/landing";
 const RouteBuilder = lazy(() => import("@/pages/route-builder"));
 const CostProfiles = lazy(() => import("@/pages/cost-profiles"));
 const QuoteHistory = lazy(() => import("@/pages/quote-history"));
+const Analytics = lazy(() => import("@/pages/analytics"));
 const TeamManagement = lazy(() => import("@/pages/team-management"));
 const AdminAllUsers = lazy(() => import("@/pages/admin-all-users"));
 const AdminFeedback = lazy(() => import("@/pages/admin-feedback"));
@@ -221,7 +223,7 @@ const NAV_ITEMS: Array<{
   superAdminOnly?: boolean;
 }> = [
   { path: "/", label: "Home", icon: RouteIcon, requiredPermission: null },
-  { path: "/history", label: "Quote History", icon: History, requiredPermission: null },
+  { path: "/analytics", label: "Analytics", icon: BarChart3, requiredPermission: null },
   { path: "/profiles", label: "Settings", icon: Settings, requiredPermission: null },
   { path: "/team", label: "Team", icon: Users, requiredPermission: "team:view" },
   // { path: "/help", label: "Help", icon: HelpCircle, requiredPermission: null }, // Hidden — no real content yet
@@ -355,7 +357,7 @@ function AppLayout() {
     setActiveTourId(tourId);
     // Navigate to the correct starting page for each tour
     if (tourId === "quote-history") {
-      window.location.hash = "#/history";
+      window.location.hash = "#/analytics";
     } else {
       window.location.hash = "#/";
     }
@@ -405,9 +407,7 @@ function AppLayout() {
       setLocation("/");
     }
     // Pass cached stops (if saved) so RouteBuilder can skip geocoding/routing API calls
-    const cachedStops = "cachedStops" in lane && Array.isArray((lane as Record<string, unknown>).cachedStops)
-      ? (lane as Record<string, unknown>).cachedStops as RouteStop[]
-      : null;
+    const cachedStops = (lane as Lane & { cachedStops?: unknown }).cachedStops ?? null;
     // Dispatch a custom event that RouteBuilder listens for
     setTimeout(() => {
       window.dispatchEvent(
@@ -435,7 +435,8 @@ function AppLayout() {
   const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
     "/": { title: "Home", subtitle: "Build routes, calculate costs, and get pricing advice." },
     "/profiles": { title: "Settings", subtitle: "Manage your account, company info, and equipment cost profiles." },
-    "/history": { title: "Quote History", subtitle: "View and manage your saved quotes." },
+    "/analytics": { title: "Analytics", subtitle: "Dashboard insights and quote history." },
+    "/history": { title: "Analytics", subtitle: "Dashboard insights and quote history." },
     "/team": { title: "Team Management", subtitle: "Manage team members and access roles." },
     "/admin/users": {
       title: "All users",
@@ -941,7 +942,7 @@ function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar (replaces full header on small screens) */}
         <header className="md:hidden sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="px-4 h-14 grid grid-cols-3 items-center">
+          <div className="px-4 h-12 grid grid-cols-3 items-center">
             {/* Left: hamburger */}
             <div className="flex items-center">
               <Button
@@ -955,9 +956,10 @@ function AppLayout() {
               </Button>
             </div>
             {/* Centre: logo */}
-            <div className="flex justify-center">
+            <div className="flex items-center justify-center h-full">
               <Link
                 href="/"
+                className="flex items-center"
                 onClick={(e) => {
                   if (location === "/") {
                     e.preventDefault();
@@ -987,7 +989,7 @@ function AppLayout() {
         <FeedbackSheet open={feedbackOpen} onOpenChange={setFeedbackOpen} />
 
         {/* Main */}
-        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-6xl mx-auto">
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 sm:pb-6 max-w-6xl mx-auto">
           <div className="mb-3">
             <h1 className="text-sm font-semibold" data-testid="text-page-title">
               {page.title}
@@ -1009,43 +1011,48 @@ function AppLayout() {
                 </div>
               )}
               {/* Portal target for RouteBuilder controls — own row on mobile, inline on desktop */}
-              {isHome && <div id="route-controls-portal" className="flex items-center gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0" />}
+              {isHome && <div id="route-controls-portal" className="flex items-center gap-1.5 sm:gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0 [&>*]:h-7 [&_input]:h-7 [&_button]:h-7" />}
             </div>
           </div>
 
           {/* Keep RouteBuilder mounted while signed in so form/route state survives nav away from Home */}
           <ErrorBoundary>
-            <Suspense fallback={<PageLoader />}>
-              <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
-                <RouteBuilder key={routeBuilderKey} />
-              </div>
-              {!isHome &&
-                (routePath === "/profiles" ? (
-                  <CostProfiles />
-                ) : routePath === "/history" ? (
-                  <QuoteHistory />
-                ) : routePath === "/team" ? (
-                  <TeamRoute />
-                ) : routePath === "/help" ? (
-                  <HelpCenter />
-                ) : routePath === "/admin/users" ? (
-                  isSuperAdmin(user) ? <AdminAllUsers /> : <NotFound />
-                ) : routePath === "/admin/feedback" ? (
-                  isSuperAdmin(user) ? <AdminFeedback /> : <NotFound />
-                ) : (
-                  <NotFound />
-                ))}
-            </Suspense>
+          <Suspense fallback={<PageLoader />}>
+            <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
+              <RouteBuilder key={routeBuilderKey} />
+            </div>
+            {!isHome &&
+              (routePath === "/profiles" ? (
+                <CostProfiles />
+              ) : routePath === "/analytics" ? (
+                <Analytics />
+              ) : routePath === "/history" ? (
+                <Analytics />
+              ) : routePath === "/team" ? (
+                <TeamRoute />
+              ) : routePath === "/help" ? (
+                <HelpCenter />
+              ) : routePath === "/admin/users" ? (
+                isSuperAdmin(user) ? <AdminAllUsers /> : <NotFound />
+              ) : routePath === "/admin/feedback" ? (
+                isSuperAdmin(user) ? <AdminFeedback /> : <NotFound />
+              ) : (
+                <NotFound />
+              ))}
+          </Suspense>
           </ErrorBoundary>
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-border py-3 mt-auto">
+        <footer className="hidden sm:block border-t border-border py-3 mt-auto">
           <div className="px-4 sm:px-6 flex items-center justify-center">
             <span className="text-[11px] text-slate-400">&copy; {new Date().getFullYear()} Bungee Supply Chain Ltd.</span>
           </div>
         </footer>
       </div>
+
+      {/* Bottom tab bar (mobile only) */}
+      <MobileTabBar />
 
       {/* Multi-tour walkthrough overlay (first login + Help page replay) */}
       {showWalkthrough && (

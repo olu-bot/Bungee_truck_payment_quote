@@ -8,6 +8,7 @@
  * or heavy boxes — just clean typography, thin rules, and generous whitespace.
  */
 
+import type { jsPDF } from "jspdf";
 import type { Quote } from "@shared/schema";
 import type { AppUser } from "@/components/firebase-auth";
 import type { PdfTemplateSettings } from "@/lib/firebaseDb";

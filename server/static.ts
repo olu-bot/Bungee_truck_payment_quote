@@ -3,9 +3,20 @@ import fs from "node:fs";
 import path from "node:path";
 
 function serveConnectOnly(app: Express, connectDist: string): void {
-  app.use(express.static(connectDist));
+  app.use(
+    express.static(connectDist, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }),
+  );
   app.get("*", (req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith("/api")) return next();
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(connectDist, "index.html"));
   });
 }
@@ -39,11 +50,20 @@ export function serveStatic(app: Express): void {
 
   // Do not 308 /connect → /connect/ (some LBs normalize paths and cause a redirect loop).
 
+  // Hash-named assets: cache aggressively (1 year, immutable).
+  // index.html: never cache — must always be fresh after deployments so browsers
+  // load the latest chunk filenames instead of stale ones.
   app.use(
     "/connect",
     express.static(connectDist, {
       index: false,
-      maxAge: "1h",
+      setHeaders(res, filePath) {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
     }),
   );
 
@@ -52,17 +72,25 @@ export function serveStatic(app: Express): void {
     if (req.method !== "GET" && req.method !== "HEAD") return next();
     if (req.path.startsWith("/connect/assets/")) return next();
     if (/\.[a-zA-Z0-9]{2,8}$/.test(req.path)) return next();
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(connectDist, "index.html"));
   });
 
   app.use(
     express.static(marketing, {
       index: false,
-      maxAge: "1h",
+      setHeaders(res, filePath) {
+        if (filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=86400");
+        }
+      },
     }),
   );
 
   app.get("/", (_req, res) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(marketing, "index.html"));
   });
 
@@ -71,6 +99,7 @@ export function serveStatic(app: Express): void {
     if (req.path.startsWith("/connect")) return next();
     if (req.method !== "GET" && req.method !== "HEAD") return next();
     if (/\.[a-zA-Z0-9]{2,8}$/.test(req.path)) return next();
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.sendFile(path.join(marketing, "index.html"));
   });
 }

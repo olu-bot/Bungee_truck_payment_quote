@@ -7,19 +7,14 @@ export const queryClient = new QueryClient({
     queries: {
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000,
-      retry: 1,
+      staleTime: Infinity,
+      retry: false,
       queryFn: async ({ queryKey }) => {
         const path = queryKey[0];
         if (typeof path === "string" && path.startsWith("/api/")) {
+          const token = await auth?.currentUser?.getIdToken();
           const headers: Record<string, string> = {};
-          const currentUser = auth?.currentUser;
-          if (currentUser) {
-            try {
-              const token = await currentUser.getIdToken();
-              headers["Authorization"] = `Bearer ${token}`;
-            } catch { /* continue without */ }
-          }
+          if (token) headers["Authorization"] = `Bearer ${token}`;
           const res = await fetch(apiUrl(path), { headers });
           if (!res.ok) throw new Error(await res.text());
           return res.json();
@@ -33,19 +28,10 @@ export const queryClient = new QueryClient({
 
 export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
   const resolved = url.startsWith("/api/") ? apiUrl(url) : url;
+  const token = await auth?.currentUser?.getIdToken();
   const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   if (data) headers["Content-Type"] = "application/json";
-
-  const currentUser = auth?.currentUser;
-  if (currentUser) {
-    try {
-      const token = await currentUser.getIdToken();
-      headers["Authorization"] = `Bearer ${token}`;
-    } catch {
-      // Continue without token
-    }
-  }
-
   const res = await fetch(resolved, {
     method,
     headers,
