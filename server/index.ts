@@ -3,12 +3,9 @@ import express, { type Request } from "express";
 import cors from "cors";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
-import { validateEnv } from "./env";
-
 type RequestWithRaw = Request & { rawBody?: Buffer };
 
 async function main() {
-  validateEnv();
   const app = express();
   const allowedOrigins = [
     process.env.PUBLIC_APP_URL,
