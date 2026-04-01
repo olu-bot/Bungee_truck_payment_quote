@@ -624,7 +624,7 @@ export default function Landing() {
               <button
                 type="button"
                 className="onboarding-back"
-                onClick={showLanding}
+                onClick={() => { window.location.href = "/connect/"; }}
               >
                 ← Back to site
               </button>
