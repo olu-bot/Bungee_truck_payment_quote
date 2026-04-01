@@ -66,9 +66,11 @@ import { LocationSuggestInput } from "@/components/LocationSuggestInput";
 import { QuoteShareDialog } from "@/components/QuoteShareDialog";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { can } from "@/lib/permissions";
-import { favLaneLimit, canExportPdf, canUseIFTA, tierLabel, canUseLaneIntelligence } from "@/lib/subscription";
+import { favLaneLimit, canExportPdf, canUseIFTA, tierLabel, canUseLaneIntelligence, canUsePricingSuggestions } from "@/lib/subscription";
 import { calculateIFTA, type IFTAResult } from "@/lib/iftaCalc";
 import { computeLaneStats, matchLane, type LaneStats } from "@/lib/laneIntelligence";
+import { computeSuggestion } from "@/lib/pricingSuggestion";
+import { PricingSuggestionCard } from "@/components/PricingSuggestionCard";
 import { UpgradeDialog } from "@/components/UpgradeDialog";
 import {
   currencyPerLitreLabel,
@@ -1844,6 +1846,14 @@ export default function RouteBuilder() {
   /** All-in cost = carrier cost + accessorial pass-throughs (accessorials added after margin) */
   const allInCost = carrierCost + accessorialTotal;
 
+  // ── AI Pricing Suggestion (Phase 1: internal signal only) ────────
+  const pricingSuggestionResult = useMemo(() => {
+    if (!canUsePricingSuggestions(user)) return null;
+    // laneStats comes from Feature 3's lane intelligence integration
+    if (typeof currentLaneStats === "undefined") return null;
+    return computeSuggestion(currentLaneStats ?? null, carrierCost, accessorialTotal);
+  }, [user, currentLaneStats, carrierCost, accessorialTotal]);
+
   // ── IFTA fuel tax calculation ─────────────────────────────────
   const iftaResult = useMemo<IFTAResult | null>(() => {
     if (!routeCalc || !stops || stops.length < 2) return null;
@@ -2215,6 +2225,15 @@ export default function RouteBuilder() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── AI Pricing Suggestion ──────────────────────────────── */}
+      {pricingSuggestionResult && routeCalc && carrierCost > 0 && (
+        <PricingSuggestionCard
+          suggestion={pricingSuggestionResult}
+          onUsePrice={(price) => setCustomQuoteAmount(String(price))}
+          formatCurrency={formatCurrency}
+        />
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           ACCESSORIAL CHARGES (Advanced mode only)
