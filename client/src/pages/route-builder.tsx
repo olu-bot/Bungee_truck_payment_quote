@@ -54,6 +54,7 @@ import {
   Ruler,
   Weight,
   X,
+  History,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
@@ -61,8 +62,10 @@ import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
 import { RouteMapGoogle } from "@/components/RouteMapGoogle";
 import { LocationSuggestInput } from "@/components/LocationSuggestInput";
 import { QuoteShareDialog } from "@/components/QuoteShareDialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { can } from "@/lib/permissions";
-import { favLaneLimit, canExportPdf, tierLabel } from "@/lib/subscription";
+import { favLaneLimit, canExportPdf, tierLabel, canUseLaneIntelligence } from "@/lib/subscription";
+import { computeLaneStats, matchLane, type LaneStats } from "@/lib/laneIntelligence";
 import { UpgradeDialog } from "@/components/UpgradeDialog";
 import {
   currencyPerLitreLabel,
@@ -767,6 +770,31 @@ export default function RouteBuilder() {
     }));
     setFavLaneIds(keys);
   }, [savedLanes]);
+
+  // ── Lane intelligence ──────────────────────────────────────────
+  const showLaneIntel = canUseLaneIntelligence(user);
+
+  const { data: allQuotes = [] } = useQuery<Quote[]>({
+    queryKey: ["firebase", "quotes", scopeId ?? ""],
+    queryFn: () => firebaseDb.getQuotes(scopeId),
+    enabled: !!scopeId && showLaneIntel,
+  });
+
+  const laneStatsMap = useMemo(
+    () => (showLaneIntel ? computeLaneStats(allQuotes) : new Map()),
+    [allQuotes, showLaneIntel],
+  );
+
+  // Match current route's origin/destination against historical lanes
+  const currentLaneStats: LaneStats | null = useMemo(() => {
+    if (!showLaneIntel || stops.length < 2) return null;
+    const nonYard = stops.filter((s) => s.type !== "yard");
+    if (nonYard.length < 2) return null;
+    const originLoc = nonYard[0]?.location;
+    const dest = nonYard[nonYard.length - 1]?.location;
+    if (!originLoc || !dest) return null;
+    return matchLane(originLoc, dest, laneStatsMap);
+  }, [showLaneIntel, stops, laneStatsMap]);
 
   const selectedYard = useMemo(
     () => yards.find((y) => y.id === selectedYardId) ?? null,
@@ -1720,6 +1748,101 @@ export default function RouteBuilder() {
     });
   }
 
+  // ── Lane Intelligence Popover ──────────────────────────────────
+  function LaneIntelligencePopover({ stats }: { stats: LaneStats }) {
+    const wsCurrency = resolveWorkspaceCurrency(user) as SupportedCurrency;
+    const sym = currencySymbol(wsCurrency);
+    const lastDate = stats.lastQuotedAt
+      ? new Date(stats.lastQuotedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : "--";
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 transition-colors"
+            aria-label="Lane history"
+          >
+            <History className="w-3.5 h-3.5" />
+            <span className="text-[11px] font-medium">{stats.totalQuotes} prev</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="bottom"
+          align="start"
+          className="w-[260px] p-3 text-xs"
+        >
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+              {stats.displayOrigin}
+              <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+              {stats.displayDestination}
+              <span className="text-[11px] font-normal text-slate-400 ml-auto">
+                {stats.totalQuotes} quotes
+              </span>
+            </div>
+            <div className="border-t border-slate-100 pt-2 space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Win rate</span>
+                <span className="text-slate-900 font-medium">
+                  {Math.round(stats.winRate * 100)}% ({stats.wonQuotes}/{stats.wonQuotes + stats.lostQuotes})
+                </span>
+              </div>
+              {stats.avgWinningPrice > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Avg winning price</span>
+                  <span className="text-slate-900 font-medium">
+                    {sym}{formatCurrencyAmount(stats.avgWinningPrice, wsCurrency)}
+                  </span>
+                </div>
+              )}
+              {stats.avgLosingTarget > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Avg losing target</span>
+                  <span className="text-slate-900 font-medium">
+                    {sym}{formatCurrencyAmount(stats.avgLosingTarget, wsCurrency)}
+                  </span>
+                </div>
+              )}
+              {stats.avgMarginPercent > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Your avg margin</span>
+                  <span className="text-slate-900 font-medium">
+                    {stats.avgMarginPercent.toFixed(1)}%
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-500">Last quoted</span>
+                <span className="text-slate-400">{lastDate}</span>
+              </div>
+            </div>
+            {stats.lastWinningPrice > 0 && (
+              <div className="border-t border-slate-100 pt-2">
+                <p className="text-[11px] text-slate-400">
+                  Last won at <span className="text-orange-600 font-medium">{sym}{formatCurrencyAmount(stats.lastWinningPrice, wsCurrency)}</span>
+                </p>
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
+  // Auto-suggest last winning price when lane is detected and no custom quote entered yet
+  useEffect(() => {
+    if (
+      currentLaneStats &&
+      currentLaneStats.lastWinningPrice > 0 &&
+      !customQuoteAmount // Only suggest if user hasn't already typed a value
+    ) {
+      setCustomQuoteAmount(String(Math.round(currentLaneStats.lastWinningPrice)));
+    }
+    // Only run when lane stats change (new route entered), not on every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLaneStats?.laneKey]);
+
   // ── Route summary line ────────────────────────────────────────
 
   const routeSummaryText = useMemo(() => {
@@ -1895,6 +2018,8 @@ export default function RouteBuilder() {
                         : ""}
                     </span>
                   )}
+                  {/* Lane Intelligence — show when a matching lane exists */}
+                  {currentLaneStats && <LaneIntelligencePopover stats={currentLaneStats} />}
                   {isGeocodingRoute && (
                     <span className="flex items-center gap-1 text-xs text-slate-400">
                       <Loader2 className="w-3 h-3 animate-spin" />
@@ -2073,6 +2198,12 @@ export default function RouteBuilder() {
                   </Button>
                 </div>
               </div>
+              {currentLaneStats && currentLaneStats.lastWinningPrice > 0 && (
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Last won at {currencySymbol(resolveWorkspaceCurrency(user) as SupportedCurrency)}
+                  {formatCurrencyAmount(currentLaneStats.lastWinningPrice, resolveWorkspaceCurrency(user) as SupportedCurrency)}
+                </p>
+              )}
               {/* Note field — mobile only (second row below quote + buttons) */}
               <Input
                 data-testid="input-customer-note-mobile"
