@@ -13,6 +13,7 @@ import {
   canInviteTeam,
   canExportPdf,
   canExportCsv,
+  canUseIFTA,
   tierLabel,
   limitLabel,
 } from "./subscription";
@@ -111,6 +112,13 @@ describe("feature gates", () => {
   it("canExportCsv requires paid tier", () => {
     expect(canExportCsv(makeUser("free"))).toBe(false);
     expect(canExportCsv(makeUser("pro"))).toBe(true);
+  });
+
+  it("canUseIFTA requires paid tier", () => {
+    expect(canUseIFTA(makeUser("free"))).toBe(false);
+    expect(canUseIFTA(null)).toBe(false);
+    expect(canUseIFTA(makeUser("pro"))).toBe(true);
+    expect(canUseIFTA(makeUser("fleet"))).toBe(true);
   });
 });
 
