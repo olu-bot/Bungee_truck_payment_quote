@@ -108,6 +108,16 @@ export function canExportCsv(user: AppUser | null | undefined): boolean {
   return isPaid(user);
 }
 
+/** Whether the user can view the Analytics dashboard tab (charts, KPIs). Pro/Premium only. */
+export function canUseAnalytics(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
+/** Whether the user can see lane intelligence hints in route builder. Pro/Premium only. */
+export function canUseLaneIntelligence(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
 // ── Display helpers ─────────────────────────────────────────────
 
 export const TIER_LABELS: Record<SubscriptionTier, string> = {
