@@ -124,6 +124,11 @@ export function canUseLaneIntelligence(user: AppUser | null | undefined): boolea
   return isPaid(user);
 }
 
+/** Whether the user can see AI-powered pricing suggestions. Pro + Premium only. */
+export function canUsePricingSuggestions(user: AppUser | null | undefined): boolean {
+  return isPaid(user);
+}
+
 // ── Display helpers ─────────────────────────────────────────────
 
 export const TIER_LABELS: Record<SubscriptionTier, string> = {

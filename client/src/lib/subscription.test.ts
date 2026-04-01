@@ -16,6 +16,7 @@ import {
   canUseIFTA,
   canUseAnalytics,
   canUseLaneIntelligence,
+  canUsePricingSuggestions,
   tierLabel,
   limitLabel,
 } from "./subscription";
@@ -148,6 +149,24 @@ describe("canUseLaneIntelligence", () => {
   });
   it("returns true for fleet", () => {
     expect(canUseLaneIntelligence(makeUser("fleet"))).toBe(true);
+  });
+});
+
+// ── Pricing Suggestions gate ───────────────────────────────────
+
+describe("canUsePricingSuggestions", () => {
+  it("returns false for free tier", () => {
+    expect(canUsePricingSuggestions(makeUser("free"))).toBe(false);
+    expect(canUsePricingSuggestions(null)).toBe(false);
+    expect(canUsePricingSuggestions(undefined)).toBe(false);
+  });
+
+  it("returns true for pro tier", () => {
+    expect(canUsePricingSuggestions(makeUser("pro"))).toBe(true);
+  });
+
+  it("returns true for fleet/premium tier", () => {
+    expect(canUsePricingSuggestions(makeUser("fleet"))).toBe(true);
   });
 });
 
