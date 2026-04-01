@@ -119,6 +119,10 @@ export default function Landing() {
   const [cityDropOpen, setCityDropOpen] = useState(false);
   const stateDropRef = useRef<HTMLDivElement>(null);
   const cityDropRef = useRef<HTMLDivElement>(null);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPasswordLogin, setShowPasswordLogin] = useState(false);
+  const [showPasswordSignup, setShowPasswordSignup] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -510,12 +514,17 @@ export default function Landing() {
       toast({ title: "Missing email", description: "Please enter your email.", variant: "destructive" });
       return;
     }
-    if (password.length < 6) {
-      toast({
-        title: "Password too short",
-        description: "Use at least 6 characters (Firebase minimum).",
-        variant: "destructive",
-      });
+    if (password.length < 8) {
+      toast({ title: "Password too short", description: "Password must be at least 8 characters.", variant: "destructive" });
+      return;
+    }
+    const strongPw = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()\-_=+])/;
+    if (!strongPw.test(password)) {
+      toast({ title: "Weak password", description: "Include uppercase, lowercase, a number, and a special character (e.g. @$!%*?).", variant: "destructive" });
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast({ title: "Passwords don't match", description: "Please make sure both password fields are identical.", variant: "destructive" });
       return;
     }
     setSignupStep(2);
@@ -615,7 +624,7 @@ export default function Landing() {
               <button
                 type="button"
                 className="onboarding-back"
-                onClick={showLanding}
+                onClick={() => { window.location.href = "/"; }}
               >
                 ← Back to site
               </button>
@@ -739,16 +748,25 @@ export default function Landing() {
                 <label className="form-label" htmlFor="login-password">
                   Password <span className="req">*</span>
                 </label>
-                <input
-                  id="login-password"
-                  className="form-input"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Your password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
+                <div className="password-input-wrap">
+                  <input
+                    id="login-password"
+                    className="form-input form-input-password"
+                    type={showPasswordLogin ? "text" : "password"}
+                    autoComplete="current-password"
+                    placeholder="Your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button type="button" className="password-toggle-btn" onClick={() => setShowPasswordLogin(v => !v)} aria-label={showPasswordLogin ? "Hide password" : "Show password"}>
+                    {showPasswordLogin ? (
+                      <svg className="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    ) : (
+                      <svg className="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    )}
+                  </button>
+                </div>
               </div>
               <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
                 <button type="submit" className="btn btn-primary" style={{ padding: "10px 28px", fontSize: 14 }} disabled={loginLoading}>
@@ -867,17 +885,50 @@ export default function Landing() {
                 <label className="form-label" htmlFor="su-password">
                   Password <span className="req">*</span>
                 </label>
-                <input
-                  id="su-password"
-                  className="form-input"
-                  type="password"
-                  autoComplete="new-password"
-                  placeholder="Minimum 6 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-                <div className="form-helper">At least 6 characters (Firebase). Use a strong password in production.</div>
+                <div className="password-input-wrap">
+                  <input
+                    id="su-password"
+                    className="form-input form-input-password"
+                    type={showPasswordSignup ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder="Min 8 chars, uppercase, number, symbol"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button type="button" className="password-toggle-btn" onClick={() => setShowPasswordSignup(v => !v)} aria-label={showPasswordSignup ? "Hide password" : "Show password"}>
+                    {showPasswordSignup ? (
+                      <svg className="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    ) : (
+                      <svg className="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    )}
+                  </button>
+                </div>
+                <div className="form-helper">At least 8 characters with uppercase, lowercase, number &amp; special character.</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="su-confirm-password">
+                  Confirm Password <span className="req">*</span>
+                </label>
+                <div className="password-input-wrap">
+                  <input
+                    id="su-confirm-password"
+                    className="form-input form-input-password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    placeholder="Re-enter your password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                  />
+                  <button type="button" className="password-toggle-btn" onClick={() => setShowConfirmPassword(v => !v)} aria-label={showConfirmPassword ? "Hide password" : "Show password"}>
+                    {showConfirmPassword ? (
+                      <svg className="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    ) : (
+                      <svg className="password-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div style={{ display: "flex", borderTop: "none", marginTop: 24, paddingTop: 0, flexDirection: "column", gap: 16, alignItems: "flex-end" }}>
