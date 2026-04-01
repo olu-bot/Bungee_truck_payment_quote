@@ -11,3 +11,4 @@ dist/
 bungee-calculator-*.json
 *-firebase-adminsdk-*.json
 .superpowers/
+.claude/worktrees/
