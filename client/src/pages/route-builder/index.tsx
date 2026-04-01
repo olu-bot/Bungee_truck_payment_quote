@@ -7,6 +7,8 @@ import { workspaceFirestoreId } from "@/lib/workspace";
 import { geocodeLocation, getOSRMRoute, getMultiWaypointDistances, getDirectionsByName } from "@/lib/geo";
 import { calculateRouteCost, getPricingAdvice, type PayMode } from "@/lib/routeCalc";
 import { processChatRoute, type ChatRouteResult } from "@/lib/chatRoute";
+import { useRouteStops, nextStopId, extractCityFromAddress, type FormStop } from "./hooks/useRouteStops";
+import type { RouteCalculation, PricingAdvice, LegBreakdown, PricingTier } from "./hooks/useRouteCalculation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,11 +88,6 @@ import {
   type FuelPriceData,
 } from "@/lib/fuelPriceService";
 
-let stopIdCounter = 0;
-function nextStopId(): string {
-  return `stop-${Date.now()}-${++stopIdCounter}`;
-}
-
 function marginQualityLabel(percent: number): { label: string; color: string } {
   if (percent < 10) return { label: "Low", color: "text-red-500" };
   if (percent < 25) return { label: "Fair", color: "text-amber-600" };
@@ -107,71 +104,6 @@ async function getDistance(
 ): Promise<{ distanceKm: number; durationMinutes: number } | null> {
   return getOSRMRoute(fromLat, fromLng, toLat, toLng);
 }
-
-/**
- * Extract a city/region from a detailed address string.
- * Given "123 Industrial Rd, Suite 5, Toronto, ON M5V 2T6"
- * → tries "Toronto, ON M5V 2T6" then "Toronto, ON" etc.
- * Falls back to the last comma-separated segment.
- */
-function extractCityFromAddress(address: string): string | null {
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
-  if (parts.length <= 1) return null;
-  // Try progressively shorter suffixes (skipping street-level detail)
-  for (let i = 1; i < parts.length; i++) {
-    const candidate = parts.slice(i).join(", ");
-    if (candidate.length >= 3) return candidate;
-  }
-  return null;
-}
-
-// ── Types ──────────────────────────────────────────────────────────
-
-type LegBreakdown = {
-  from: string;
-  to: string;
-  type?: string;
-  isLocal?: boolean;
-  distanceKm: number;
-  driveMinutes: number;
-  dockMinutes: number;
-  totalBillableHours: number;
-  fixedCost: number;
-  driverCost: number;
-  fuelCost: number;
-  legCost: number;
-  isDeadhead?: boolean;
-};
-
-type RouteCalculation = {
-  legs: LegBreakdown[];
-  totalDistanceKm: number;
-  totalDriveMinutes: number;
-  totalDockMinutes: number;
-  totalHours: number;
-  allInHourlyRate: number;
-  fixedCostPerHour: number;
-  fuelPerKm: number;
-  payMode: PayMode;
-  driverPayPerMile: number;
-  deadheadPayPercent: number;
-  tripCost: number;
-  deadheadCost: number;
-  fullTripCost: number;
-};
-
-type PricingTier = {
-  label: string;
-  percent: number;
-  price: number;
-};
-
-type PricingAdvice = {
-  totalCost: number;
-  tiers: (PricingTier & { marginAmount: number })[];
-  customPercent?: { label: string; percent: number; price: number; marginAmount: number } | null;
-  customQuote?: { label: string; quoteAmount: number; marginPercent: number; marginAmount: number } | null;
-};
 
 async function persistRouteBuilderQuote(
   scopeId: string,
@@ -554,50 +486,18 @@ export default function RouteBuilder() {
   const [fuelPriceDate, setFuelPriceDate] = useState("");
   const [fuelPriceManual, setFuelPriceManual] = useState(savedFuel.manual);
 
-  // ── Build Route form ──────────────────────────────────────────
-
-  type FormStop = { id: string; location: string; dockMinutes: number };
-  const [formStops, setFormStops] = useState<FormStop[]>([
-    { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
-    { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
-  ]);
-  const formStopsRef = useRef<FormStop[]>(formStops);
-  formStopsRef.current = formStops;
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  // Convenience getters for origin/destination
-  const origin = formStops[0]?.location ?? "";
-  const destination = formStops[formStops.length - 1]?.location ?? "";
-
-  // ── Stops (computed from form) ────────────────────────────────
-
-  const [stops, setStops] = useState<RouteStop[]>([]);
-  const stopsRef = useRef<RouteStop[]>([]);
-  // Keep ref in sync so debounced callbacks always see latest stops
-  stopsRef.current = stops;
-
-  // ── Cross-border route detection ──────────────────────────────
-  const CA_PROVINCES = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "ON", "PE", "QC", "SK"]);
-  const isCrossBorder = useMemo(() => {
-    if (stops.length < 2) return false;
-    const locations = stops.map((s) => s.location.toUpperCase());
-    let hasCA = false;
-    let hasUS = false;
-    for (const loc of locations) {
-      for (const prov of CA_PROVINCES) {
-        if (loc.includes(`, ${prov}`) || loc.endsWith(` ${prov}`)) { hasCA = true; break; }
-      }
-      if (!hasCA || hasUS) {
-        const parts = loc.split(",").map((p) => p.trim());
-        const last = parts[parts.length - 1];
-        if (last && last.length === 2 && !CA_PROVINCES.has(last)) hasUS = true;
-        if (loc.includes("USA") || loc.includes("UNITED STATES")) hasUS = true;
-      }
-      if (loc.includes("CANADA") || loc.includes("ONTARIO") || loc.includes("QUEBEC") || loc.includes("ALBERTA")) hasCA = true;
-    }
-    return hasCA && hasUS;
-  }, [stops]);
+  // ── Route Stops (extracted hook) ─────────────────────────────
+  const routeStopsHook = useRouteStops(defaultDockMinutes);
+  const {
+    formStops, setFormStops, formStopsRef,
+    dragIdx, setDragIdx, dragOverIdx, setDragOverIdx,
+    origin, destination,
+    stops, setStops, stopsRef,
+    isCrossBorder,
+    populateFormFromLocations,
+    addStop, removeStop, updateStopLocation, swapOriginDest,
+    handleDragStart, handleDragOver, handleDragLeave, handleDrop, handleDragEnd,
+  } = routeStopsHook;
 
   // ── Chat ──────────────────────────────────────────────────────
 
@@ -1488,16 +1388,6 @@ export default function RouteBuilder() {
 
   // ── Chat route mutation ───────────────────────────────────────
 
-  function populateFormFromLocations(locations: string[]) {
-    const newStops: FormStop[] = locations.map((loc) => ({
-      id: nextStopId(),
-      location: loc,
-      dockMinutes: defaultDockMinutes,
-    }));
-    setFormStops(newStops);
-    return newStops;
-  }
-
   const chatRouteMutation = useMutation({
     mutationFn: async (payload: { message: string; userMessage: string }) =>
       processChatRoute(payload.message, defaultDockMinutes),
@@ -1709,17 +1599,6 @@ export default function RouteBuilder() {
 
   // ── Swap origin/destination ───────────────────────────────────
 
-  function swapOriginDest() {
-    setFormStops((prev) => {
-      if (prev.length < 2) return prev;
-      const copy = [...prev];
-      const first = copy[0];
-      copy[0] = copy[copy.length - 1];
-      copy[copy.length - 1] = first;
-      return copy;
-    });
-  }
-
   // ── Route summary line ────────────────────────────────────────
 
   const routeSummaryText = useMemo(() => {
@@ -1763,6 +1642,27 @@ export default function RouteBuilder() {
   const carrierCost = fullTripCost + costInflationAmount;
   /** All-in cost = carrier cost + accessorial pass-throughs (accessorials added after margin) */
   const allInCost = carrierCost + accessorialTotal;
+
+  // ── Stable callbacks for memoized children ─────────────────────
+  const handleOpenPdfDialog = useCallback(() => setPdfDialogOpen(true), []);
+  const handleUpgradePdf = useCallback(() => {
+    setUpgradeReason({
+      title: "Upgrade to export branded PDFs",
+      description: "Branded quote PDFs are available on Pro and Premium plans.",
+    });
+    setUpgradeOpen(true);
+  }, []);
+  const handleBlurStop = useCallback(() => {
+    setTimeout(() => {
+      const current = formStopsRef.current;
+      if (current.filter((s) => s.location.trim()).length >= 2) {
+        void triggerRouteBuild(current, false);
+      }
+    }, 0);
+  }, []);
+  const handleBuildRoute = useCallback(() => {
+    void triggerRouteBuild(undefined, true);
+  }, []);
 
   // ── Render ────────────────────────────────────────────────────
 

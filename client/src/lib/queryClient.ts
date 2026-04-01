@@ -1,17 +1,26 @@
 import { QueryClient } from "@tanstack/react-query";
 import { apiUrl } from "@/lib/apiUrl";
+import { auth } from "@/lib/firebase";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      staleTime: 5 * 60 * 1000,
+      retry: 1,
       queryFn: async ({ queryKey }) => {
         const path = queryKey[0];
         if (typeof path === "string" && path.startsWith("/api/")) {
-          const res = await fetch(apiUrl(path));
+          const headers: Record<string, string> = {};
+          const currentUser = auth?.currentUser;
+          if (currentUser) {
+            try {
+              const token = await currentUser.getIdToken();
+              headers["Authorization"] = `Bearer ${token}`;
+            } catch { /* continue without */ }
+          }
+          const res = await fetch(apiUrl(path), { headers });
           if (!res.ok) throw new Error(await res.text());
           return res.json();
         }
@@ -24,9 +33,22 @@ export const queryClient = new QueryClient({
 
 export async function apiRequest(method: string, url: string, data?: unknown): Promise<Response> {
   const resolved = url.startsWith("/api/") ? apiUrl(url) : url;
+  const headers: Record<string, string> = {};
+  if (data) headers["Content-Type"] = "application/json";
+
+  const currentUser = auth?.currentUser;
+  if (currentUser) {
+    try {
+      const token = await currentUser.getIdToken();
+      headers["Authorization"] = `Bearer ${token}`;
+    } catch {
+      // Continue without token
+    }
+  }
+
   const res = await fetch(resolved, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: data !== undefined ? JSON.stringify(data) : undefined,
     credentials: "include",
   });

@@ -1,0 +1,54 @@
+import { z } from "zod";
+
+const envSchema = z.object({
+  // Required in production
+  VITE_FIREBASE_API_KEY: z.string().min(1, "Firebase API key is required"),
+  VITE_FIREBASE_AUTH_DOMAIN: z.string().min(1),
+  VITE_FIREBASE_PROJECT_ID: z.string().min(1),
+
+  // Optional but warned
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
+  VITE_GOOGLE_MAPS_API_KEY: z.string().optional(),
+  PUBLIC_APP_URL: z.string().url().optional(),
+});
+
+type EnvWarning = { key: string; message: string };
+
+export function validateEnv(): void {
+  const isProd = process.env.NODE_ENV === "production";
+  const result = envSchema.safeParse(process.env);
+
+  if (!result.success) {
+    const missing = result.error.issues.map(
+      (i) => `  - ${i.path.join(".")}: ${i.message}`
+    );
+    if (isProd) {
+      console.error("[env] Missing required environment variables:\n" + missing.join("\n"));
+      process.exit(1);
+    } else {
+      console.warn("[env] Missing environment variables (dev mode — continuing):\n" + missing.join("\n"));
+    }
+  }
+
+  // Warn about important optional vars
+  const warnings: EnvWarning[] = [];
+  if (!process.env.STRIPE_SECRET_KEY) {
+    warnings.push({ key: "STRIPE_SECRET_KEY", message: "Stripe checkout will return 503" });
+  }
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.K_SERVICE) {
+    warnings.push({ key: "FIREBASE_SERVICE_ACCOUNT_JSON", message: "Firebase Admin unavailable — webhook sync and admin features disabled" });
+  }
+  if (!process.env.GOOGLE_MAPS_API_KEY && !process.env.VITE_GOOGLE_MAPS_API_KEY) {
+    warnings.push({ key: "GOOGLE_MAPS_API_KEY", message: "Place suggestions will be disabled" });
+  }
+
+  if (warnings.length > 0) {
+    console.warn("[env] Optional variables not set:");
+    for (const w of warnings) {
+      console.warn(`  - ${w.key}: ${w.message}`);
+    }
+  }
+}
