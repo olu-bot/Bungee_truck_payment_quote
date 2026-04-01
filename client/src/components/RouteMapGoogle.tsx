@@ -115,18 +115,18 @@ export function RouteMapGoogle({
 
   if (!src) {
     return (
-      <div className="h-64 w-full rounded-md border border-dashed border-border bg-muted/30 flex items-center justify-center text-xs text-muted-foreground px-4 text-center">
+      <div className="h-[420px] w-full rounded-md border border-dashed border-border bg-muted/30 flex items-center justify-center text-xs text-muted-foreground px-4 text-center">
         Map preview unavailable. Add locations to build a route.
       </div>
     );
   }
 
   return (
-    <div className="h-64 w-full rounded-md border border-border overflow-hidden relative">
+    <div className="h-[420px] w-full rounded-md border border-border overflow-hidden relative">
       <iframe
         title="Route map"
         className="absolute w-full border-0"
-        style={{ top: "-120px", height: "calc(100% + 120px)" }}
+        style={{ top: "-60px", height: "calc(100% + 60px)" }}
         src={src}
         referrerPolicy="no-referrer-when-downgrade"
         loading="lazy"
