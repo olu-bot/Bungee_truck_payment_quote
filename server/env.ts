@@ -1,13 +1,8 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  // VITE_FIREBASE_* are build-time frontend variables baked into the JS bundle.
-  // The server never reads them at runtime — do NOT require them here.
-  VITE_FIREBASE_API_KEY: z.string().optional(),
-  VITE_FIREBASE_AUTH_DOMAIN: z.string().optional(),
-  VITE_FIREBASE_PROJECT_ID: z.string().optional(),
-
-  // Optional but warned
+  // VITE_FIREBASE_* are baked into the frontend bundle at build time — not needed here.
+  // Optional server-side vars (warn if missing, but don't crash)
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
