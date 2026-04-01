@@ -5,8 +5,7 @@ import "./index.css";
 import { safeStorageGet, safeStorageSet } from "@/lib/safeStorage";
 import { reportClientError } from "@/lib/clientErrorBeacon";
 
-const CHUNK_RELOAD_TS_KEY = "bungee_chunk_reload_ts";
-// Keep for backward compat read only — no longer written
+const CHUNK_RELOAD_TS_KEY = "bungee_chunk_reload_ts_v2";
 const CHUNK_RELOAD_ONCE_KEY = "bungee_chunk_reload_once";
 const BOOT_WATCHDOG_KEY = "bungee_boot_watchdog_once";
 
