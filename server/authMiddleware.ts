@@ -12,6 +12,19 @@ declare global {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const app = getFirebaseAdmin();
+
+  // In development without Firebase Admin configured, skip auth to allow local testing.
+  // In production, Firebase Admin is always configured via service account.
+  if (!app) {
+    if (process.env.NODE_ENV !== "production") {
+      next();
+      return;
+    }
+    res.status(401).json({ error: "Firebase Admin not configured" });
+    return;
+  }
+
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Missing or invalid Authorization header" });
@@ -19,11 +32,6 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
   const token = header.slice(7);
   try {
-    const app = getFirebaseAdmin();
-    if (!app) {
-      res.status(401).json({ error: "Firebase Admin not configured" });
-      return;
-    }
     const decoded = await admin.auth(app).verifyIdToken(token);
     req.firebaseUser = decoded;
     next();
