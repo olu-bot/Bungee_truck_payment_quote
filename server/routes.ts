@@ -533,6 +533,32 @@ async function googlePlaceSuggestions(query: string): Promise<string[]> {
 
 // ── Route Cost Calculation ──────────────────────────────────────
 
+interface RouteLeg {
+  from: string;
+  to: string;
+  type: string;
+  isLocal: boolean;
+  distanceKm: number;
+  driveMinutes: number;
+  dockMinutes: number;
+  totalBillableHours: number;
+  fixedCost: number;
+  driverCost: number;
+  fuelCost: number;
+  legCost: number;
+}
+
+interface StopWithGeo {
+  id: string;
+  type: string;
+  location: string;
+  lat?: number;
+  lng?: number;
+  dockTimeMinutes: number;
+  distanceFromPrevKm: number;
+  driveMinutesFromPrev: number;
+}
+
 function calculateRouteCost(
   profile: CostProfile,
   stops: RouteStop[],
@@ -547,7 +573,7 @@ function calculateRouteCost(
   let totalDriveMinutes = 0;
   let totalDockMinutes = 0;
   let totalDistanceKm = 0;
-  const legs: any[] = [];
+  const legs: RouteLeg[] = [];
 
   for (let i = 1; i < stops.length; i++) {
     const from = stops[i - 1];
@@ -619,7 +645,7 @@ function calculateRouteCost(
   const totalCost = timeCost + fuelCost;
 
   // Calculate delivery cost (without deadhead return)
-  const deliveryCost = legs.filter(l => l.type !== "return").reduce((sum: number, l: any) => sum + l.legCost, 0);
+  const deliveryCost = legs.filter(l => l.type !== "return").reduce((sum, l) => sum + l.legCost, 0);
   const deadheadCost = returnLeg ? returnLeg.legCost : 0;
 
   return {
@@ -984,8 +1010,8 @@ export async function registerRoutes(
       const parsed = insertCostProfileSchema.parse(req.body);
       const profile = await storage.createCostProfile(parsed);
       res.status(201).json(profile);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -994,8 +1020,8 @@ export async function registerRoutes(
       const updated = await storage.updateCostProfile(req.params.id, req.body);
       if (!updated) return res.status(404).json({ error: "Profile not found" });
       res.json(updated);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1014,8 +1040,8 @@ export async function registerRoutes(
       const parsed = insertYardSchema.parse(req.body);
       const yard = await storage.createYard(parsed);
       res.status(201).json(yard);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1040,8 +1066,8 @@ export async function registerRoutes(
       const parsed = insertTeamMemberSchema.parse(req.body);
       const member = await storage.createTeamMember(parsed);
       res.status(201).json(member);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1224,8 +1250,8 @@ export async function registerRoutes(
         profile, input.stops, input.includeReturn, input.fuelPricePerLitre
       );
       res.json(result);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1262,8 +1288,8 @@ export async function registerRoutes(
       }
 
       res.json({ totalCost: r2(totalCost), tiers, customPercent, customQuote });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1500,7 +1526,7 @@ export async function registerRoutes(
       // the place names itself, avoiding geocoding discrepancies.
       const byName = await googleDirectionsByName(locations);
 
-      let stopsWithGeo: any[];
+      let stopsWithGeo: StopWithGeo[];
       let returnDistance: OsrmRouteResult | null = null;
 
       if (byName && byName.legs.length === locations.length - 1) {
@@ -1551,7 +1577,7 @@ export async function registerRoutes(
 
         const waypoints: { lat: number; lng: number }[] = [];
         const geoIdxToWpIdx = new Map<number, number>();
-        stopsWithGeo.forEach((s: any, i: number) => {
+        stopsWithGeo.forEach((s, i) => {
           if (typeof s.lat === "number" && typeof s.lng === "number") {
             geoIdxToWpIdx.set(i, waypoints.length);
             waypoints.push({ lat: s.lat, lng: s.lng });
@@ -1627,8 +1653,8 @@ export async function registerRoutes(
       };
       cacheSet(chatRouteCache, chatCacheKey, chatResult, CHAT_ROUTE_TTL_MS);
       res.json(chatResult);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -1662,8 +1688,8 @@ export async function registerRoutes(
     try {
       const route = await storage.createRoute(req.body);
       res.status(201).json(route);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
   app.delete("/api/routes/:id", requireAuth, async (req, res) => {
@@ -1680,8 +1706,8 @@ export async function registerRoutes(
       const parsed = insertLaneSchema.parse(req.body);
       const lane = await storage.createLane(parsed);
       res.status(201).json(lane);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
   app.delete("/api/lanes/:id", requireAuth, async (req, res) => {
@@ -1702,8 +1728,8 @@ export async function registerRoutes(
         createdAt: new Date().toISOString(),
       });
       res.status(201).json(quote);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
   app.delete("/api/quotes/:id", requireAuth, async (req, res) => {

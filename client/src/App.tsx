@@ -1,4 +1,5 @@
 import { Switch, Route, Router, Link, Redirect, useLocation } from "wouter";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -404,7 +405,7 @@ function AppLayout() {
       setLocation("/");
     }
     // Pass cached stops (if saved) so RouteBuilder can skip geocoding/routing API calls
-    const cachedStops = (lane as any).cachedStops ?? null;
+    const cachedStops = (lane as Lane & { cachedStops?: unknown }).cachedStops ?? null;
     // Dispatch a custom event that RouteBuilder listens for
     setTimeout(() => {
       window.dispatchEvent(
@@ -1011,6 +1012,7 @@ function AppLayout() {
           </div>
 
           {/* Keep RouteBuilder mounted while signed in so form/route state survives nav away from Home */}
+          <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
             <div className={isHome ? "block" : "hidden"} aria-hidden={!isHome}>
               <RouteBuilder key={routeBuilderKey} />
@@ -1032,6 +1034,7 @@ function AppLayout() {
                 <NotFound />
               ))}
           </Suspense>
+          </ErrorBoundary>
         </main>
 
         {/* Footer */}

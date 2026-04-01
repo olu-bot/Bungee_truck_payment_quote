@@ -56,7 +56,9 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
+import type { CostProfile, Yard, RouteStop, Quote, Lane } from "@shared/schema";
+
+type LaneWithCache = Lane & { cachedStops?: { location?: string; type?: string }[] };
 import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
 import { RouteMapGoogle } from "@/components/RouteMapGoogle";
 import { LocationSuggestInput } from "@/components/LocationSuggestInput";
@@ -757,7 +759,7 @@ export default function RouteBuilder() {
   useEffect(() => {
     const keys = new Set(savedLanes.map((l) => {
       // Use cached stops for full route key if available
-      const cached = (l as any).cachedStops as { location?: string; type?: string }[] | undefined;
+      const cached = (l as LaneWithCache).cachedStops;
       if (cached && cached.length >= 2) {
         const nonYard = cached.filter((s) => s.type !== "yard");
         const fullKey = nonYard.map((s) => s.location).filter(Boolean).join("→");
@@ -1077,10 +1079,10 @@ export default function RouteBuilder() {
           countQuote: true,
         });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Route build error",
-        description: err.message,
+        description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
     } finally {
@@ -1428,7 +1430,7 @@ export default function RouteBuilder() {
       if (isAlreadyFav) {
         // Find and delete the matching lane (match on full route key)
         const match = savedLanes.find((l) => {
-          const cached = (l as any).cachedStops as { location?: string; type?: string }[] | undefined;
+          const cached = (l as LaneWithCache).cachedStops;
           if (cached && cached.length >= 2) {
             const laneKey = cached.filter((s) => s.type !== "yard").map((s) => s.location).filter(Boolean).join("→");
             return laneKey === key;
@@ -1471,7 +1473,7 @@ export default function RouteBuilder() {
           fixedPrice: 0,
           estimatedMiles: Math.round(distMi),
           cachedStops,
-        } as any);
+        } as Parameters<typeof firebaseDb.createLane>[1] & { cachedStops: typeof cachedStops });
         toast({ title: "Lane saved to favorites", description: `${origin} → ${destination}` });
       }
       queryClient.invalidateQueries({ queryKey: ["firebase", "lanes", scopeId ?? ""] });
