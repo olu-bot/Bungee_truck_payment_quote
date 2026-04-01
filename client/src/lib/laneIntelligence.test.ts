@@ -16,12 +16,13 @@ import type { Quote } from "@shared/schema";
 // ── Test helpers ───────────────────────────────────────────────────
 
 function makeQuote(overrides: Partial<Quote> & { origin: string; destination: string }): Quote {
+  const { origin, destination, ...rest } = overrides;
   return {
     id: `q-${Math.random().toString(36).slice(2, 8)}`,
     quoteNumber: "Q-001",
     createdAt: new Date().toISOString(),
-    origin: overrides.origin,
-    destination: overrides.destination,
+    origin,
+    destination,
     truckType: "Dry Van",
     distance: 300,
     pricingMode: "route_builder",
@@ -35,7 +36,7 @@ function makeQuote(overrides: Partial<Quote> & { origin: string; destination: st
     grossProfit: 300,
     profitMarginPercent: 25,
     status: "pending",
-    ...overrides,
+    ...rest,
   };
 }
 
