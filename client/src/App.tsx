@@ -9,6 +9,7 @@ import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import { isOnboardingActive } from "@/lib/onboarding";
 import { FirebaseAuthProvider, useFirebaseAuth } from "@/components/firebase-auth";
 import { FeedbackSheet } from "@/components/FeedbackSheet";
+import { MobileTabBar } from "@/components/MobileTabBar";
 import Walkthrough from "@/components/Walkthrough";
 import type { TourId } from "@/components/Walkthrough";
 import { db, firebaseConfigured } from "@/lib/firebase";
@@ -941,7 +942,7 @@ function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar (replaces full header on small screens) */}
         <header className="md:hidden sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="px-4 h-14 grid grid-cols-3 items-center">
+          <div className="px-4 h-12 grid grid-cols-3 items-center">
             {/* Left: hamburger */}
             <div className="flex items-center">
               <Button
@@ -987,7 +988,7 @@ function AppLayout() {
         <FeedbackSheet open={feedbackOpen} onOpenChange={setFeedbackOpen} />
 
         {/* Main */}
-        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 max-w-6xl mx-auto">
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 sm:pb-6 max-w-6xl mx-auto">
           <div className="mb-3">
             <h1 className="text-sm font-semibold" data-testid="text-page-title">
               {page.title}
@@ -1042,12 +1043,15 @@ function AppLayout() {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-border py-3 mt-auto">
+        <footer className="hidden sm:block border-t border-border py-3 mt-auto">
           <div className="px-4 sm:px-6 flex items-center justify-center">
             <span className="text-[11px] text-slate-400">&copy; {new Date().getFullYear()} Bungee Supply Chain Ltd.</span>
           </div>
         </footer>
       </div>
+
+      {/* Bottom tab bar (mobile only) */}
+      <MobileTabBar />
 
       {/* Multi-tour walkthrough overlay (first login + Help page replay) */}
       {showWalkthrough && (
