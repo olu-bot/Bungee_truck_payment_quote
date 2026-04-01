@@ -956,9 +956,10 @@ function AppLayout() {
               </Button>
             </div>
             {/* Centre: logo */}
-            <div className="flex justify-center">
+            <div className="flex items-center justify-center h-full">
               <Link
                 href="/"
+                className="flex items-center"
                 onClick={(e) => {
                   if (location === "/") {
                     e.preventDefault();

@@ -7,8 +7,8 @@
 
 /* ─── Tokens ─── */
 :root {
-  --orange-500: #ea580c;
-  --orange-600: #c2410c;
+  --orange-500: #f97316;
+  --orange-600: #ea580c;
   --orange-400: #fb923c;
   --orange-50:  #fff7ed;
   --orange-100: #ffedd5;
@@ -109,7 +109,8 @@
   background: radial-gradient(circle, rgba(234,88,12,0.03) 0%, transparent 70%);
   pointer-events: none;
 }
-.hero-inner { display: grid; grid-template-columns: 1fr 1.3fr; gap: 40px; align-items: center; }
+.hero-inner { display: grid; grid-template-columns: 1fr 1.3fr; gap: 40px 40px; align-items: center; }
+.hero-ctas-row { grid-column: 1; }
 .hero-content { max-width: 480px; }
 .hero-badge {
   display: inline-flex; align-items: center; gap: 6px;
@@ -139,6 +140,7 @@
 .hero-trust svg { stroke: var(--green-500); flex-shrink: 0; }
 
 /* ─── Hero App Frame (realistic app replica) ─── */
+.hero-ctas-row { display: flex; flex-direction: column; gap: 12px; }
 .hero-visual { position: relative; }
 .hero-app-frame {
   display: flex; border-radius: var(--radius-xl); overflow: hidden;
@@ -579,9 +581,12 @@
 
 /* ─── Responsive ─── */
 @media (max-width: 1024px) {
-  .hero-inner { grid-template-columns: 1fr; gap: 40px; }
-  .hero-visual { display: none; }
-  .hero-app-frame { display: none; }
+  .hero-inner { grid-template-columns: 1fr; gap: 24px; }
+  .hero-visual { max-width: 100%; margin: 0 auto; }
+  .hero-ctas-row { grid-column: 1; text-align: center; }
+  .hero-ctas-row .hero-ctas { justify-content: center; }
+  .hero-ctas-row .hero-trust { justify-content: center; }
+  .hero-app-frame { transform: scale(0.85); transform-origin: top center; }
   .hero-content { max-width: 100%; }
   .problem-grid { grid-template-columns: repeat(2, 1fr); }
   .solution-grid { grid-template-columns: repeat(2, 1fr); }
@@ -599,6 +604,10 @@
   .nav-cta .btn-primary { font-size: 13px; padding: 8px 14px; }
   .hero { padding: 100px 0 48px; }
   .hero h1 { font-size: 30px; letter-spacing: -0.5px; }
+  .hero-visual { max-width: 100%; overflow: visible; }
+  .hero-app-frame { transform: scale(0.95); transform-origin: top center; margin-bottom: -20px; }
+  .hero-float { display: none; }
+  .hero-float-cost { display: none; }
   .hero-stats { grid-template-columns: repeat(2, 1fr); }
   .problem { padding: 56px 0; }
   .problem-grid { grid-template-columns: 1fr; }
@@ -624,6 +633,7 @@
   .nav-cta .btn-primary { font-size: 12px; padding: 7px 11px; }
   .hero-ctas { flex-direction: column; }
   .hero-ctas .btn { width: 100%; justify-content: center; }
+  .hero-app-frame { transform: scale(0.88); transform-origin: top center; margin-bottom: -30px; }
   .hero-stats { grid-template-columns: 1fr; }
 }
 

@@ -326,7 +326,7 @@ function RouteControlsPortal({
   return createPortal(
     <>
       <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
-        <SelectTrigger data-testid="select-profile" className="h-7 text-[11px] w-[110px] sm:w-[150px]">
+        <SelectTrigger data-testid="select-profile" className="h-7 py-0 text-[11px] w-[110px] sm:w-[150px]">
           <SelectValue placeholder="Profile" />
         </SelectTrigger>
         <SelectContent>
@@ -336,7 +336,7 @@ function RouteControlsPortal({
         </SelectContent>
       </Select>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 h-7">
         <Fuel className="w-3 h-3 text-muted-foreground shrink-0" />
         <Input
           data-testid="input-fuel-price"
@@ -397,11 +397,11 @@ function RouteControlsPortal({
       </div>
 
       {/* Quick Quote / Advanced toggle */}
-      <div className="inline-flex rounded-md border border-orange-300 overflow-hidden h-7 text-xs font-medium select-none">
+      <div className="inline-flex rounded-md border border-orange-300 overflow-hidden h-7 text-[11px] font-medium select-none">
         <button
           type="button"
           onClick={() => setQuoteMode("quick")}
-          className={`px-3 flex items-center justify-center transition-colors ${
+          className={`px-3 flex items-center justify-center h-7 transition-colors ${
             quoteMode === "quick"
               ? "bg-orange-400 text-white"
               : "bg-white text-slate-500 hover:bg-orange-50"
@@ -414,7 +414,7 @@ function RouteControlsPortal({
           type="button"
           data-testid="button-advanced"
           onClick={() => setQuoteMode("advanced")}
-          className={`px-3 flex items-center justify-center transition-colors border-l border-orange-200 ${
+          className={`px-3 flex items-center justify-center h-7 transition-colors border-l border-orange-200 ${
             quoteMode === "advanced"
               ? "bg-orange-400 text-white"
               : "bg-white text-slate-500 hover:bg-orange-50"
@@ -583,6 +583,7 @@ export default function RouteBuilder() {
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showIFTA, setShowIFTA] = useState(false);
   const [showMobileCharges, setShowMobileCharges] = useState(false);
+  const [chatMinimized, setChatMinimized] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [isSavingQuote, setIsSavingQuote] = useState(false);
@@ -2153,7 +2154,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-quote"
                     size="sm"
-                    className="h-8 px-3.5 bg-slate-200 hover:bg-slate-300 text-slate-600 sm:bg-orange-400 sm:hover:bg-orange-500 sm:text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3.5 bg-orange-400 hover:bg-orange-500 text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("pending")}
                     title="Pending"
@@ -2258,7 +2259,7 @@ export default function RouteBuilder() {
                   <button
                     type="button"
                     onClick={() => { setPayModeManualOverride(true); setPayMode("perHour"); setShowLocalAlert(false); }}
-                    className={`px-2.5 flex items-center transition-colors ${payMode === "perHour" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
+                    className={`px-2.5 flex items-center justify-center h-7 transition-colors ${payMode === "perHour" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
                   >Per Hour</button>
                   <button
                     type="button"
@@ -2266,7 +2267,7 @@ export default function RouteBuilder() {
                       setPayModeManualOverride(true); setPayMode("perMile");
                       if (routeCalc) { const km = routeCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0); setShowLocalAlert(km / 1.609344 < 50 && km > 0); }
                     }}
-                    className={`px-2.5 flex items-center transition-colors border-l border-slate-200 ${payMode === "perMile" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
+                    className={`px-2.5 flex items-center justify-center h-7 transition-colors border-l border-slate-200 ${payMode === "perMile" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
                   >Per {dLabel === "mi" ? "Mile" : "KM"}</button>
                 </div>
                 {/* Breakdown toggle */}
@@ -2274,7 +2275,7 @@ export default function RouteBuilder() {
                   <button
                     type="button"
                     data-testid="button-toggle-breakdown"
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 rounded px-2 py-0.5 transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 rounded px-2 h-7 transition-colors"
                     onClick={() => setShowBreakdown((prev) => !prev)}
                   >
                     {showBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -2285,7 +2286,7 @@ export default function RouteBuilder() {
                 {/* Dock time + Deadhead group */}
                 <div className="flex items-center gap-x-4 gap-y-2 flex-wrap" data-testid="dock-deadhead-section">
                 {/* Dock time */}
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 h-7">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
@@ -2313,7 +2314,7 @@ export default function RouteBuilder() {
                 </div>
                 <div className="hidden sm:block w-px h-5 bg-slate-200" />
                 {/* Surcharge — next to Dock Time on mobile only */}
-                <div className="flex sm:hidden items-center gap-1.5">
+                <div className="flex sm:hidden items-center gap-1.5 h-7">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
@@ -2332,7 +2333,7 @@ export default function RouteBuilder() {
                 </div>
                 <div className="hidden sm:block w-px h-5 bg-slate-200" />
                 {/* Deadhead toggle + Yard selector */}
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 h-7">
                   <Switch
                     data-testid="switch-include-return"
                     checked={includeReturn}
@@ -2352,7 +2353,7 @@ export default function RouteBuilder() {
                     </TooltipContent>
                   </Tooltip>
                   <Select value={selectedYardId} onValueChange={setSelectedYardId}>
-                    <SelectTrigger data-testid="select-yard" className="h-7 text-[11px] w-[120px] sm:w-[140px]">
+                    <SelectTrigger data-testid="select-yard" className="h-7 py-0 text-[11px] w-[120px] sm:w-[140px]">
                       <SelectValue placeholder="Select yard" />
                     </SelectTrigger>
                     <SelectContent>
@@ -2366,7 +2367,7 @@ export default function RouteBuilder() {
                 </div>{/* end dock-deadhead-section */}
                 <div className="hidden sm:block w-px h-5 bg-slate-200" />
                 {/* Surcharge — desktop position (after deadhead) */}
-                <div className="hidden sm:flex items-center gap-1.5">
+                <div className="hidden sm:flex items-center gap-1.5 h-7">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
@@ -2530,7 +2531,7 @@ export default function RouteBuilder() {
                         {/* Fixed cost */}
                         <div className="flex justify-between items-baseline gap-1">
                           <span className="text-muted-foreground shrink-0">Fixed Cost</span>
-                          <span className="text-[11px] text-muted-foreground text-right">
+                          <span className="text-[11px] text-muted-foreground text-right flex-1">
                             {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
                           </span>
                           <span className="font-medium shrink-0 tabular-nums">{formatCurrency(leg.fixedCost)}</span>
@@ -2541,7 +2542,7 @@ export default function RouteBuilder() {
                             Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : ""}
                             {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
                           </span>
-                          <span className="text-[11px] text-muted-foreground text-right">
+                          <span className="text-[11px] text-muted-foreground text-right flex-1">
                             {routeCalc.payMode === "perMile" ? (
                               <>
                                 {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
@@ -2561,7 +2562,7 @@ export default function RouteBuilder() {
                           <span className="text-muted-foreground shrink-0">
                             Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
                           </span>
-                          <span className="text-[11px] text-muted-foreground text-right">
+                          <span className="text-[11px] text-muted-foreground text-right flex-1">
                             {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
                             {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
                           </span>
@@ -2653,16 +2654,14 @@ export default function RouteBuilder() {
 
             {/* IFTA upsell for free tier */}
             {iftaResult && !canUseIFTA(user) && showBreakdown && (
-              <div className="rounded-lg border border-dashed border-slate-200 px-4 py-3 flex items-center justify-between" data-testid="ifta-upsell">
-                <div className="flex items-center gap-2">
-                  <Receipt className="w-3.5 h-3.5 text-slate-300" />
-                  <span className="text-[11px] text-slate-400">
-                    Fuel Tax (IFTA) breakdown
-                  </span>
-                </div>
+              <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 flex items-center gap-2 flex-nowrap" data-testid="ifta-upsell">
+                <Receipt className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                <span className="text-[11px] text-slate-400 flex-1">
+                  Fuel Tax (IFTA) breakdown
+                </span>
                 <a
                   href="#/settings?tab=billing"
-                  className="text-[11px] font-medium text-orange-500 hover:text-orange-600"
+                  className="text-[11px] font-medium text-orange-500 hover:text-orange-600 shrink-0 whitespace-nowrap"
                 >
                   Upgrade to Pro
                 </a>
@@ -2678,15 +2677,23 @@ export default function RouteBuilder() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:auto-rows-fr">
           {/* ── Left: Route Chat ─────────────────────────────────── */}
           <Card className="border-slate-200 flex flex-col" data-testid="chat-panel">
-            <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2 shrink-0">
-              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-4 pb-1 sm:pb-2 shrink-0">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center justify-between">
                 Route Chat
+                <button
+                  type="button"
+                  className="sm:hidden text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-0.5 font-medium normal-case tracking-normal"
+                  onClick={() => setChatMinimized((v) => !v)}
+                >
+                  {chatMinimized ? "Expand" : "Minimize"}
+                  {chatMinimized ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+                </button>
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
+            <CardContent className={`px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-2 sm:space-y-3 ${chatMinimized ? "hidden sm:flex" : ""}`}>
               {/* Chat messages — stretches to match right column height */}
               <div
-                className="space-y-2 flex-1 min-h-[80px] sm:min-h-[180px] max-h-[200px] sm:max-h-none overflow-y-auto"
+                className="space-y-2 flex-1 min-h-[60px] sm:min-h-[180px] max-h-[160px] sm:max-h-none overflow-y-auto"
                 data-testid="chat-messages"
               >
                 {chatHistory.map((msg, i) => (
@@ -2716,7 +2723,7 @@ export default function RouteBuilder() {
                     key={route}
                     variant="outline"
                     size="sm"
-                    className="text-xs h-7 px-2.5"
+                    className="text-[11px] h-6 sm:h-7 px-2"
                     data-testid={`chip-${route.replace(/\s+/g, "-").toLowerCase()}`}
                     onClick={() => {
                       setChatMessage(route);
@@ -2729,12 +2736,12 @@ export default function RouteBuilder() {
               </div>
 
               {/* Chat input */}
-              <div className="flex gap-2 shrink-0 items-center">
+              <div className="flex gap-1.5 sm:gap-2 shrink-0 items-center">
                 <input
                   type="text"
                   data-testid="chat-input"
                   placeholder='e.g. "Toronto to Montreal"'
-                  className="flex-1 text-sm rounded-md border border-slate-200 bg-white px-3 h-9 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
+                  className="flex-1 text-xs sm:text-sm rounded-md border border-slate-200 bg-white px-2.5 sm:px-3 h-7 sm:h-9 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                   onKeyDown={(e) => {
@@ -2748,7 +2755,7 @@ export default function RouteBuilder() {
                   data-testid="button-send-chat"
                   disabled={!chatMessage.trim() || chatRouteMutation.isPending}
                   onClick={() => sendChat(chatMessage)}
-                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-5 h-9"
+                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-4 sm:px-5 h-7 sm:h-9 text-xs sm:text-sm"
                 >
                   Send
                 </Button>
@@ -2760,7 +2767,7 @@ export default function RouteBuilder() {
           <div className="space-y-3 flex flex-col">
             {/* Map */}
             <Card className="border-slate-200 overflow-hidden flex-1">
-              <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-4 pb-1">
+              <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-3 pb-1">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   Route Map
                   <span className="text-[10px] font-normal text-slate-400">
@@ -2778,7 +2785,7 @@ export default function RouteBuilder() {
 
             {/* Build Route Form */}
             <Card className="border-slate-200 shrink-0">
-              <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2">
+              <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-3 pb-1 sm:pb-2">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   Build Route
                   <span className="text-[10px] font-normal text-slate-400">

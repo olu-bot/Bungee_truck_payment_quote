@@ -134,14 +134,18 @@
     <h2 class="section-title">Everything You Need to Quote Like a Pro</h2>
     <p class="section-sub">Bungee Connect was built by carriers, for carriers. These features are ready to use right now — no credit card, no trial, no catch.</p>
     <div class="features-grid">
-      <div class="feature-card fade-up"><div class="feature-num">1</div><div><h3>Multi-Stop Route Builder</h3><p>Drag-and-drop reordering, auto-distance via OSRM, and interactive Leaflet/OpenStreetMap visualization. See your route come alive.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">1</div><div><h3>Multi-Stop Route Builder</h3><p>Drag-and-drop reordering, auto-distance via Google Directions, and interactive Google Maps visualization. See your route come alive.</p></div></div>
       <div class="feature-card fade-up"><div class="feature-num">2</div><div><h3>AI-Powered Chatbot</h3><p>Type "Toronto to Hamilton to London" and the route auto-builds with costs calculated. Handles spelling mistakes and conversational input.</p></div></div>
       <div class="feature-card fade-up"><div class="feature-num">3</div><div><h3>Equipment Cost Profile Wizard</h3><p>Set up Dry Van, Reefer, or Flatbed profiles covering truck costs, insurance, fuel, wages, and dock/detention rates. Fully customizable.</p></div></div>
       <div class="feature-card fade-up"><div class="feature-num">4</div><div><h3>Yard-Based Routing</h3><p>Set your base yard and auto-calculate deadhead from yard to first pickup and back — a critical cost most tools ignore.</p></div></div>
-      <div class="feature-card fade-up"><div class="feature-num">5</div><div><h3>3-Tier Pricing Advice</h3><p>Instantly see quotes at 20%, 30%, and 40% margin with a quality label: Low, Fair, Good, Great, or Outstanding.</p></div></div>
-      <div class="feature-card fade-up"><div class="feature-num">6</div><div><h3>Team Management</h3><p>Admin vs. Sales roles with PIN-based access. Sales sees pricing advice only — no internal cost data exposed.</p></div></div>
-      <div class="feature-card fade-up"><div class="feature-num">7</div><div><h3>Quote History</h3><p>Save and review every quote with full route and pricing details. Never lose a quote again.</p></div></div>
-      <div class="feature-card fade-up"><div class="feature-num">8</div><div><h3>Local P&D Detection</h3><p>Auto-detects local routes under 100 km and factors in city traffic delays and waiting time for accurate local delivery pricing.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">5</div><div><h3>IFTA Fuel Tax Estimator</h3><p>See per-jurisdiction fuel tax breakdown for every route. Know your tax liability before you accept the load — no spreadsheet required.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">6</div><div><h3>Analytics Dashboard</h3><p>Track win rate, revenue, top lanes, and average margins across your entire quote history. See what's working and where you're losing.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">7</div><div><h3>AI Pricing Suggestions</h3><p>Get data-driven price recommendations based on your own win/loss history. Know the optimal margin for every lane you run.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">8</div><div><h3>Mobile-First Design</h3><p>Quote from anywhere — in the cab, at the dock, on the road. Bottom tab bar, compact layout, and one-tap quoting via chat.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">9</div><div><h3>3-Tier Pricing Advice</h3><p>Instantly see quotes at 20%, 30%, and 40% margin with a quality label: Low, Fair, Good, Great, or Outstanding.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">10</div><div><h3>Team Management</h3><p>Owner, Admin, and Member roles with role-based access. Control who can edit profiles, manage team, or just build quotes.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">11</div><div><h3>Quote Pipeline</h3><p>Track every quote as Won, Pending, or Lost. Add notes, see negotiated rates, and review your full history with search and filters.</p></div></div>
+      <div class="feature-card fade-up"><div class="feature-num">12</div><div><h3>Local P&D Detection</h3><p>Auto-detects local routes under 100 km and factors in city traffic delays and waiting time for accurate local delivery pricing.</p></div></div>
     </div>
   </div>
 </section>
@@ -168,7 +172,11 @@
         <tr><td>Carrier Equipment Cost Profiles</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td>Partial</td></tr>
         <tr><td>Margin-Based Pricing Advice</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td></tr>
         <tr><td>Deadhead Calculation</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td>Partial</td></tr>
+        <tr><td>IFTA Fuel Tax Estimator</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td></tr>
+        <tr><td>Analytics Dashboard</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td class="check">&#x2713;</td></tr>
+        <tr><td>AI Pricing Suggestions</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td></tr>
         <tr><td>Team Role Management</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td class="check">&#x2713;</td></tr>
+        <tr><td>Mobile-Optimized</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td>Partial</td></tr>
         <tr><td>Built for Small Carriers</td><td class="cross">&#x2717;</td><td class="check">&#x2713;</td><td class="cross">&#x2717;</td></tr>
         <tr><td>Setup Time</td><td>Hours</td><td>5 minutes</td><td>Days/Weeks</td></tr>
       </tbody>
@@ -194,17 +202,18 @@
         <div class="pricing-desc">For owner-operators and small carriers getting started.</div>
         <ul class="pricing-features">
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>300 route quotes per month</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>AI Chatbot</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Map visualization</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>AI Chatbot routing</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Google Maps visualization</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>3-tier pricing suggestion</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>2 cost profiles</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>1 yard</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>1 user</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Custom quote</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Custom quote amount</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Quote history up to 30 days</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Quote status tracking</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Won / Pending / Lost tracking</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Accessorial charges</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Live fuel price updates</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Live EIA fuel price updates</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Mobile-optimized layout</li>
         </ul>
         <button type="button" class="pricing-btn secondary" data-action="onboarding-signup">Start for free</button>
       </div>
@@ -216,17 +225,20 @@
           <span> /month</span>
         </div>
         <div class="pricing-billed-year only-year">$249 billed annually</div>
-        <div class="pricing-desc">For growing fleets that need more power and branded quotes.</div>
+        <div class="pricing-desc">For growing fleets that need analytics, branded quotes, and AI pricing.</div>
         <ul class="pricing-features">
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in free plus</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in Free, plus:</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited cost profiles</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited route quotes</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited quote history</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited yards</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>5 users</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Role based access</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>CSV export</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>5 users with role-based access</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>IFTA fuel tax estimator</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Analytics dashboard</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Lane rate intelligence</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>AI pricing suggestions</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Branded PDF quote export</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>CSV export</li>
         </ul>
         <button type="button" class="pricing-btn primary" data-action="onboarding-signup">Start free trial</button>
       </div>
@@ -238,13 +250,12 @@
           <span> /month</span>
         </div>
         <div class="pricing-billed-year only-year">$549 billed annually</div>
-        <div class="pricing-desc">For fleets needing unlimited team, analytics, and priority support.</div>
+        <div class="pricing-desc">For fleets needing unlimited team, market data, and priority support.</div>
         <ul class="pricing-features">
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in pro plus</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited users - $15 per seat after 5 users</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Lane rate intelligence</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Everything in Pro, plus:</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Unlimited users ($15/seat after 5)</li>
+          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Market rate comparison</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Customer quote portal</li>
-          <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Dispatch view</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>API access</li>
           <li><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Priority support</li>
         </ul>
