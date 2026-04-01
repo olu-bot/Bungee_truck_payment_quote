@@ -58,3 +58,25 @@
     font-family: "DM Sans", system-ui, sans-serif;
   }
 }
+
+/* ── Mobile touch targets & iOS zoom prevention ───────────────── */
+@media (max-width: 639px) {
+  /* Minimum touch target size for all interactive elements */
+  button,
+  [role="button"],
+  a {
+    min-height: 44px;
+  }
+
+  /* Prevent iOS zoom on input focus (requires 16px minimum) */
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Exception: elements explicitly marked as compact (badges, inline chips) */
+  .touch-target-exempt {
+    min-height: auto;
+  }
+}
