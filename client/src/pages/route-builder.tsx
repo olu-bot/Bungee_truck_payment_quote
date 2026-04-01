@@ -54,6 +54,7 @@ import {
   Ruler,
   Weight,
   X,
+  Receipt,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
@@ -62,7 +63,8 @@ import { RouteMapGoogle } from "@/components/RouteMapGoogle";
 import { LocationSuggestInput } from "@/components/LocationSuggestInput";
 import { QuoteShareDialog } from "@/components/QuoteShareDialog";
 import { can } from "@/lib/permissions";
-import { favLaneLimit, canExportPdf, tierLabel } from "@/lib/subscription";
+import { favLaneLimit, canExportPdf, canUseIFTA, tierLabel } from "@/lib/subscription";
+import { calculateIFTA, type IFTAResult } from "@/lib/iftaCalc";
 import { UpgradeDialog } from "@/components/UpgradeDialog";
 import {
   currencyPerLitreLabel,
@@ -620,6 +622,7 @@ export default function RouteBuilder() {
   const [routeCalc, setRouteCalc] = useState<RouteCalculation | null>(null);
   const [pricingAdvice, setPricingAdvice] = useState<PricingAdvice | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showIFTA, setShowIFTA] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [isSavingQuote, setIsSavingQuote] = useState(false);
@@ -1764,6 +1767,14 @@ export default function RouteBuilder() {
   /** All-in cost = carrier cost + accessorial pass-throughs (accessorials added after margin) */
   const allInCost = carrierCost + accessorialTotal;
 
+  // ── IFTA fuel tax calculation ─────────────────────────────────
+  const iftaResult = useMemo<IFTAResult | null>(() => {
+    if (!routeCalc || !stops || stops.length < 2) return null;
+    const profile = profiles.find((p) => p.id === selectedProfileId);
+    if (!profile) return null;
+    return calculateIFTA(stops, profile.fuelConsumptionPer100km);
+  }, [routeCalc, stops, profiles, selectedProfileId]);
+
   // ── Render ────────────────────────────────────────────────────
 
   return (
@@ -2462,6 +2473,92 @@ export default function RouteBuilder() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* ── IFTA Fuel Tax Breakdown ── */}
+            {iftaResult && canUseIFTA(user) && showBreakdown && (
+              <div className="rounded-lg border border-slate-200 px-4 py-3 space-y-2" data-testid="ifta-section">
+                <button
+                  type="button"
+                  className="flex items-center justify-between w-full group"
+                  onClick={() => setShowIFTA((prev) => !prev)}
+                  data-testid="ifta-toggle"
+                >
+                  <div className="flex items-center gap-2">
+                    <Receipt className="w-3.5 h-3.5 text-orange-500" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                      Fuel Tax (IFTA)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-semibold text-slate-900 tabular-nums">
+                      {formatCurrency(iftaResult.totalTaxUSD)}
+                    </span>
+                    {showIFTA ? (
+                      <ChevronUp className="w-3 h-3 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3 text-slate-400" />
+                    )}
+                  </div>
+                </button>
+
+                {showIFTA && (
+                  <div className="space-y-1 pt-1">
+                    {iftaResult.jurisdictions.map((j) => (
+                      <div
+                        key={j.code}
+                        className="flex items-center justify-between text-[13px]"
+                        data-testid={`ifta-row-${j.code}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500">
+                            {j.name} ({j.code})
+                          </span>
+                          <span className="text-[11px] text-slate-400 tabular-nums">
+                            {(measureUnit === "imperial" ? j.distanceMiles : j.distanceKm).toFixed(0)} {dLabel}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {j.note && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="w-3 h-3 text-slate-400 cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-[220px] text-xs">
+                                {j.note}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                          <span className="font-medium tabular-nums">
+                            {formatCurrency(j.taxUSD)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-100">
+                      Rates as of {iftaResult.quarter} ({iftaResult.effectiveDate})
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* IFTA upsell for free tier */}
+            {iftaResult && !canUseIFTA(user) && showBreakdown && (
+              <div className="rounded-lg border border-dashed border-slate-200 px-4 py-3 flex items-center justify-between" data-testid="ifta-upsell">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-3.5 h-3.5 text-slate-300" />
+                  <span className="text-[11px] text-slate-400">
+                    Fuel Tax (IFTA) breakdown
+                  </span>
+                </div>
+                <a
+                  href="#/settings?tab=billing"
+                  className="text-[11px] font-medium text-orange-500 hover:text-orange-600"
+                >
+                  Upgrade to Pro
+                </a>
               </div>
             )}
           </CardContent>
