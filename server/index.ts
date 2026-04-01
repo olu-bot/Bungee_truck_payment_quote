@@ -8,24 +8,15 @@ type RequestWithRaw = Request & { rawBody?: Buffer };
 async function main() {
   const app = express();
 
-  // Normalise incoming requests before anything else:
-  //  1. Strip "www." — redirect www.shipbungee.com/* → shipbungee.com/*
-  //  2. Lowercase the path — /CONNECT/ and /Connect/ both resolve to /connect/
-  //     (query string is left as-is since search params can be case-sensitive)
+  // Redirect www.shipbungee.com/* → shipbungee.com/* preserving full path + query.
+  // NOTE: do NOT lowercase paths — Vite asset filenames contain uppercase hash chars
+  // (e.g. index-D5pBzoq-.js) and lowercasing them breaks asset loading → blank page.
   app.use((req, res, next) => {
     const host = req.headers.host || "";
-    const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-    const isWww = host.toLowerCase().startsWith("www.");
-    const canonical = isWww ? host.slice(4) : host;
-
-    // Split path from query string so we only lowercase the path portion
-    const [rawPath, rawQuery] = req.originalUrl.split("?") as [string, string | undefined];
-    const lowPath = rawPath.toLowerCase();
-    const needsPathFix = lowPath !== rawPath;
-
-    if (isWww || needsPathFix) {
-      const qs = rawQuery !== undefined ? `?${rawQuery}` : "";
-      return res.redirect(301, `${proto}://${canonical}${lowPath}${qs}`);
+    if (host.toLowerCase().startsWith("www.")) {
+      const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+      const canonical = host.slice(4);
+      return res.redirect(301, `${proto}://${canonical}${req.originalUrl}`);
     }
     next();
   });
