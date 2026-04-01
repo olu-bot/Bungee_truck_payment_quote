@@ -582,6 +582,7 @@ export default function RouteBuilder() {
   const [pricingAdvice, setPricingAdvice] = useState<PricingAdvice | null>(null);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [showIFTA, setShowIFTA] = useState(false);
+  const [showMobileCharges, setShowMobileCharges] = useState(false);
   const [customQuoteAmount, setCustomQuoteAmount] = useState("");
   const [customerNote, setCustomerNote] = useState("");
   const [isSavingQuote, setIsSavingQuote] = useState(false);
@@ -1954,7 +1955,7 @@ export default function RouteBuilder() {
       {/* ═══════════════════════════════════════════════════════════
           SECTION 1: Route + Cost Card (sticky, always visible)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="sticky top-14 md:top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-1 bg-background">
+      <div className="sticky top-12 sm:top-14 md:top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-1 bg-background">
         <Card className="border-slate-200 shadow-sm" data-testid="route-cost-section">
           <CardContent className="p-3 sm:p-4 space-y-2.5">
             {/* Row 1: Star + Route name + stats */}
@@ -2391,9 +2392,17 @@ export default function RouteBuilder() {
                 <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Charges</h4>
                 <div className="flex-1 border-t border-slate-100" />
                 {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600">+{formatCurrency(accessorialTotal)}</span>}
+                <button
+                  type="button"
+                  className="sm:hidden text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-0.5"
+                  onClick={() => setShowMobileCharges((v) => !v)}
+                >
+                  {showMobileCharges ? "Hide" : "Show"}
+                  {showMobileCharges ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
                 <a href="#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600" data-testid="link-adjust-defaults">Adjust Defaults</a>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+              <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 ${showMobileCharges ? "" : "hidden sm:grid"}`}>
                 {/* Detention */}
                 <div className="space-y-1">
                   <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
@@ -2683,7 +2692,7 @@ export default function RouteBuilder() {
             <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
               {/* Chat messages — stretches to match right column height */}
               <div
-                className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
+                className="space-y-2 flex-1 min-h-[80px] sm:min-h-[180px] max-h-[200px] sm:max-h-none overflow-y-auto"
                 data-testid="chat-messages"
               >
                 {chatHistory.map((msg, i) => (
@@ -2757,7 +2766,7 @@ export default function RouteBuilder() {
           <div className="space-y-3 flex flex-col">
             {/* Map */}
             <Card className="border-slate-200 overflow-hidden flex-1">
-              <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-1.5">
+              <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-4 pb-1">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   Route Map
                   <span className="text-[10px] font-normal text-slate-400">
@@ -2765,7 +2774,7 @@ export default function RouteBuilder() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-1.5">
+              <CardContent className="p-1.5 max-h-[180px] sm:max-h-none overflow-hidden">
                 <RouteMapGoogle
                   stops={includeReturn ? stops : stops.filter(s => s.type !== "yard")}
                   fallbackCenter={effectiveYard?.address || effectiveYard?.name || user?.operatingCity}
