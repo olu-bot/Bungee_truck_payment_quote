@@ -7,8 +7,26 @@ type RequestWithRaw = Request & { rawBody?: Buffer };
 
 async function main() {
   const app = express();
+
+  // Redirect www.shipbungee.com/* → shipbungee.com/* (preserves full path + query).
+  // Must run before everything else so the canonical domain is always used.
+  app.use((req, res, next) => {
+    const host = req.headers.host || "";
+    if (host.startsWith("www.")) {
+      const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+      const canonical = host.slice(4); // strip "www."
+      return res.redirect(301, `${proto}://${canonical}${req.originalUrl}`);
+    }
+    next();
+  });
+
+  // Build CORS allowed-origins list — include both bare and www variants so that
+  // any request that slips through before the redirect above still works.
+  const publicUrl = process.env.PUBLIC_APP_URL || "";
+  const wwwUrl = publicUrl.replace("://", "://www.");
   const allowedOrigins = [
-    process.env.PUBLIC_APP_URL,
+    publicUrl,
+    wwwUrl,
     "http://localhost:5000",
     "http://localhost:5173",
   ].filter(Boolean) as string[];
