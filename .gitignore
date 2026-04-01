@@ -10,3 +10,4 @@ dist/
 # GCP / Firebase service account JSON downloaded locally (never commit)
 bungee-calculator-*.json
 *-firebase-adminsdk-*.json
+.superpowers/

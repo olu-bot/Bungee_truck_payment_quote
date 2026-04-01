@@ -561,7 +561,7 @@ export default function RouteBuilder() {
   >([
     {
       role: "bot",
-      text: 'Hi! Type a route \u2014 e.g. "Toronto to Montreal" \u2014 or paste a full shipment order with addresses, dimensions and weight. I\'ll extract everything automatically.',
+      text: 'Hi! Type a route \u2014 e.g. "Toronto to Montreal"',
     },
   ]);
   const [activeShipment, setActiveShipment] = useState<import("@/lib/chatRoute").ShipmentInfo | null>(null);
@@ -651,7 +651,7 @@ export default function RouteBuilder() {
       chatExampleSetRef.current = true;
       setChatHistory((prev) => {
         if (prev.length === 1 && prev[0].role === "bot") {
-          return [{ role: "bot", text: 'Hi! Type a route below \u2014 e.g. "Dallas to Atlanta" \u2014 and I\'ll update the map, dropdowns, and cost estimate automatically.' }];
+          return [{ role: "bot", text: 'Hi! Type a route \u2014 e.g. "Dallas to Atlanta"' }];
         }
         return prev;
       });
@@ -2025,6 +2025,39 @@ export default function RouteBuilder() {
                     {isSavingQuote ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
                     <span className="hidden sm:inline">Lost</span>
                   </Button>
+                  {/* PDF button — inline after Won/Pending/Lost */}
+                  {lastSavedQuote && can(user, "quote:sharePdf") && (
+                    canExportPdf(user) ? (
+                      <Button
+                        data-testid="button-share-pdf"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2.5 gap-1 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs font-semibold"
+                        onClick={() => setPdfDialogOpen(true)}
+                      >
+                        <FileDown className="w-3 h-3" />
+                        PDF
+                      </Button>
+                    ) : (
+                      <Button
+                        data-testid="button-share-pdf"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2.5 gap-1 shrink-0 text-slate-400 text-xs font-semibold"
+                        onClick={() => {
+                          setUpgradeReason({
+                            title: "Upgrade to export branded PDFs",
+                            description: "Branded quote PDFs are available on Pro and Premium plans.",
+                          });
+                          setUpgradeOpen(true);
+                        }}
+                      >
+                        <FileDown className="w-3 h-3" />
+                        PDF
+                        <Badge variant="outline" className="text-[9px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
+                      </Button>
+                    )
+                  )}
                 </div>
               </div>
               {/* Note field — mobile only (second row below quote + buttons) */}
@@ -2035,39 +2068,6 @@ export default function RouteBuilder() {
                 value={customerNote}
                 onChange={(e) => setCustomerNote(e.target.value)}
               />
-              {/* PDF button — only when a quote has been saved */}
-              {lastSavedQuote && can(user, "quote:sharePdf") && (
-                canExportPdf(user) ? (
-                  <Button
-                    data-testid="button-share-pdf"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50"
-                    onClick={() => setPdfDialogOpen(true)}
-                  >
-                    <FileDown className="w-3.5 h-3.5" />
-                    PDF
-                  </Button>
-                ) : (
-                  <Button
-                    data-testid="button-share-pdf"
-                    variant="outline"
-                    size="sm"
-                    className="h-9 gap-1.5 shrink-0 text-muted-foreground"
-                    onClick={() => {
-                      setUpgradeReason({
-                        title: "Upgrade to export branded PDFs",
-                        description: "Branded quote PDFs are available on Pro and Premium plans.",
-                      });
-                      setUpgradeOpen(true);
-                    }}
-                  >
-                    <FileDown className="w-3.5 h-3.5" />
-                    PDF
-                    <Badge variant="outline" className="text-[9px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
-                  </Button>
-                )
-                )}
             </div>
 
           </CardContent>
@@ -2478,17 +2478,17 @@ export default function RouteBuilder() {
                 ))}
               </div>
 
-              {/* Chat input — textarea for multi-line shipment paste */}
-              <div className="flex gap-2 shrink-0 items-end">
-                <textarea
+              {/* Chat input */}
+              <div className="flex gap-2 shrink-0 items-center">
+                <input
+                  type="text"
                   data-testid="chat-input"
-                  placeholder={'Type a route or paste a shipment order…\ne.g. "Toronto to Montreal"\nor paste pickup/delivery addresses, dimensions, weight'}
-                  className="flex-1 text-sm rounded-md border border-slate-200 bg-white px-3 py-2 h-[72px] resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
-                  rows={3}
+                  placeholder='e.g. "Toronto to Montreal"'
+                  className="flex-1 text-sm rounded-md border border-slate-200 bg-white px-3 h-9 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter") {
                       e.preventDefault();
                       sendChat(chatMessage);
                     }
@@ -2498,7 +2498,7 @@ export default function RouteBuilder() {
                   data-testid="button-send-chat"
                   disabled={!chatMessage.trim() || chatRouteMutation.isPending}
                   onClick={() => sendChat(chatMessage)}
-                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-5 h-[38px]"
+                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-5 h-9"
                 >
                   Send
                 </Button>
