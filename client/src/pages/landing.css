@@ -704,6 +704,47 @@
   background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px;
 }
 #onboarding-view .form-helper { font-size: 11px; color: var(--slate-400); margin-top: 3px; }
+
+/* ─── Password toggle ─── */
+#onboarding-view .password-input-wrap {
+  position: relative;
+  display: block;
+}
+#onboarding-view .password-input-wrap .form-input.form-input-password {
+  padding-right: 44px;
+  width: 100%;
+}
+#onboarding-view .password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--slate-400);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+#onboarding-view .password-toggle-btn:hover {
+  color: var(--slate-600);
+  background: rgba(0,0,0,0.04);
+}
+#onboarding-view .password-toggle-btn:focus-visible {
+  outline: 2px solid var(--orange-500);
+  outline-offset: 2px;
+}
+#onboarding-view .password-toggle-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
 #onboarding-view .form-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; }
 #onboarding-view .form-divider-line { flex: 1; height: 1px; background: var(--slate-200); }
 #onboarding-view .form-divider-text { font-size: 11px; color: var(--slate-400); font-weight: 500; text-transform: uppercase; letter-spacing: 1px; }
