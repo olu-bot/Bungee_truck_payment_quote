@@ -1,3 +1,10 @@
+import { auth } from "@/lib/firebase";
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await auth?.currentUser?.getIdToken();
+  return token ? { "Authorization": `Bearer ${token}` } : {};
+}
+
 const GEO_TTL_MS     = 1000 * 60 * 60 * 48;  // 48h — matches server
 const ROUTE_TTL_MS   = 1000 * 60 * 60 * 24;  // 24h — matches server
 const SUGGEST_TTL_MS = 1000 * 60 * 60 * 12;  // 12h — matches server
@@ -99,7 +106,7 @@ export async function getOSRMRoute(
     toLng: String(toLng),
   });
   const req = (async () => {
-    const res = await fetch(`/api/distance?${params}`);
+    const res = await fetch(`/api/distance?${params}`, { headers: await authHeaders() });
     if (!res.ok) {
       cacheSet(routeCache, key, null, MISS_TTL_MS);
       return null;
@@ -132,9 +139,10 @@ export async function getMultiWaypointDistances(
   if (inflight) return inflight;
 
   const req = (async () => {
+    const hdrs = await authHeaders();
     const res = await fetch("/api/distances", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...hdrs },
       body: JSON.stringify({ waypoints }),
     });
     if (!res.ok) {
@@ -180,9 +188,10 @@ export async function getDirectionsByName(
 
   const req = (async () => {
     try {
+      const hdrs = await authHeaders();
       const res = await fetch("/api/directions-by-name", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...hdrs },
         body: JSON.stringify({ locations }),
       });
       if (!res.ok) {
