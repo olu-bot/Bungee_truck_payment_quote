@@ -459,10 +459,11 @@ function AppLayout() {
     return <Landing />;
   }
 
-  // Mobile-first fail-safe: always show Landing immediately when no real user session yet.
-  // This bypasses any interim loading gate that can appear as a blank screen on some mobile browsers.
-  if (isMobileBrowser && (!user || sessionPending)) {
-    return <Landing />;
+  // Mobile: while session is still restoring after a reload, show a spinner — not the Landing
+  // page — so users don't see a confusing flash to the home/marketing page.
+  // The blank-screen risk that made us show Landing here is gone since the bundle is now ~211 KB.
+  if (isMobileBrowser && sessionPending) {
+    return <PageLoader />;
   }
 
   // Definitely signed out — marketing home first; deep links to app routes go to #/.
