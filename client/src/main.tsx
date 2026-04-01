@@ -18,7 +18,8 @@ function isChunkLoadError(err: unknown): boolean {
   return (
     msg.includes("chunkloaderror") ||
     msg.includes("loading chunk") ||
-    msg.includes("failed to fetch dynamically imported module")
+    msg.includes("failed to fetch dynamically imported module") ||
+    msg.includes("importing a module script failed")
   );
 }
 
@@ -133,10 +134,19 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { err: Error 
       message: error.message || "React boundary error",
       stack: `${error.stack || ""}\n${info.componentStack || ""}`.trim(),
     });
+    // Auto-reload once for chunk/module load failures — prevents any error flash
+    reloadOnceForChunkError(error);
   }
 
   render(): ReactNode {
     if (this.state.err) {
+      // If it's a chunk/module error and we haven't reloaded yet,
+      // return null so nothing flashes — componentDidCatch handles the silent reload.
+      const alreadyReloaded = safeStorageGet(CHUNK_RELOAD_ONCE_KEY, "session") === "1";
+      if (isChunkLoadError(this.state.err) && !alreadyReloaded) {
+        return null;
+      }
+      // Persistent failure after the auto-reload — show actionable error UI
       return (
         <div
           style={{
@@ -147,7 +157,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { err: Error 
             lineHeight: 1.5,
           }}
         >
-          <h1 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>Bungee Connect couldn’t start</h1>
+          <h1 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>Bungee Connect couldn't start</h1>
           <p style={{ color: "#444", marginBottom: "1rem" }}>
             This is often caused by a <strong>browser extension</strong> (look for errors mentioning{" "}
             <code>content.js</code>, <code>excalidraw</code>, or <code>ChunkLoadError</code> in the console) or by{" "}
