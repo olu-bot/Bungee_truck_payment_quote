@@ -2009,7 +2009,7 @@ export default function RouteBuilder() {
 
             {/* Row 2: Pricing grid — always visible; labels/sublabels hidden when collapsed */}
             <div
-              className="grid grid-cols-4 gap-0 divide-x divide-slate-100"
+              className="grid grid-cols-4 gap-0 divide-x divide-slate-100 items-start"
               data-testid="pricing-row"
             >
               {/* CARRIER COST */}
@@ -2142,7 +2142,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-won"
                     size="sm"
-                    className="h-8 px-2.5 bg-green-600 hover:bg-green-700 text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3.5 bg-green-600 hover:bg-green-700 text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("won")}
                     title="Won"
@@ -2153,7 +2153,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-quote"
                     size="sm"
-                    className="h-8 px-2.5 bg-slate-200 hover:bg-slate-300 text-slate-600 sm:bg-orange-400 sm:hover:bg-orange-500 sm:text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3.5 bg-slate-200 hover:bg-slate-300 text-slate-600 sm:bg-orange-400 sm:hover:bg-orange-500 sm:text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("pending")}
                     title="Pending"
@@ -2164,7 +2164,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-lost"
                     size="sm"
-                    className="h-8 px-2.5 bg-red-500 hover:bg-red-600 text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3.5 bg-red-500 hover:bg-red-600 text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("lost")}
                     title="Lost"
@@ -2249,7 +2249,7 @@ export default function RouteBuilder() {
                 <div className="flex-1 border-t border-slate-100" />
                 {costInflationAmount > 0 && <span className="text-[11px] font-semibold text-slate-500">+{formatCurrency(costInflationAmount)} surcharge</span>}
               </div>
-              <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+              <div className="flex items-center gap-x-3 sm:gap-x-4 gap-y-2 flex-wrap [&_input]:h-7 [&_button]:leading-7">
                 {/* Pay mode toggle */}
                 <div
                   data-testid="switch-pay-mode"
@@ -2389,18 +2389,18 @@ export default function RouteBuilder() {
             {/* ── ROW 2: CHARGES — accessorial pass-throughs ── */}
             <div className="space-y-2" data-testid="charges-section">
               <div className="flex items-center gap-2">
-                <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Charges</h4>
-                <div className="flex-1 border-t border-slate-100" />
-                {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600">+{formatCurrency(accessorialTotal)}</span>}
+                <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest shrink-0">Charges</h4>
                 <button
                   type="button"
-                  className="sm:hidden text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-0.5"
+                  className="sm:hidden text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-0.5 shrink-0"
                   onClick={() => setShowMobileCharges((v) => !v)}
                 >
                   {showMobileCharges ? "Hide" : "Show"}
                   {showMobileCharges ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
-                <a href="#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600" data-testid="link-adjust-defaults">Adjust Defaults</a>
+                <div className="flex-1 border-t border-slate-100" />
+                {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600 shrink-0">+{formatCurrency(accessorialTotal)}</span>}
+                <a href="#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600 shrink-0" data-testid="link-adjust-defaults">Adjust Defaults</a>
               </div>
               <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 ${showMobileCharges ? "" : "hidden sm:grid"}`}>
                 {/* Detention */}
@@ -2528,50 +2528,44 @@ export default function RouteBuilder() {
                         </div>
                         <Separator className="my-1" />
                         {/* Fixed cost */}
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
-                          <span className="text-muted-foreground">Fixed Cost</span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-muted-foreground">
-                              {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
-                            </span>
-                            <span className="font-medium">{formatCurrency(leg.fixedCost)}</span>
-                          </div>
+                        <div className="flex justify-between items-baseline gap-1">
+                          <span className="text-muted-foreground shrink-0">Fixed Cost</span>
+                          <span className="text-[11px] text-muted-foreground text-right">
+                            {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
+                          </span>
+                          <span className="font-medium shrink-0 tabular-nums">{formatCurrency(leg.fixedCost)}</span>
                         </div>
                         {/* Driver cost — per-mile/km or per-hour */}
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
-                          <span className="text-muted-foreground">
-                            Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : " (per hour)"}
+                        <div className="flex justify-between items-baseline gap-1">
+                          <span className="text-muted-foreground shrink-0">
+                            Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : ""}
                             {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
                           </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-muted-foreground">
-                              {routeCalc.payMode === "perMile" ? (
-                                <>
-                                  {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
-                                  {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
-                                </>
-                              ) : (
-                                <>
-                                  {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.allInHourlyRate - routeCalc.fixedCostPerHour)}/hr
-                                  {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
-                                </>
-                              )}
-                            </span>
-                            <span className="font-medium">{formatCurrency(leg.driverCost)}</span>
-                          </div>
+                          <span className="text-[11px] text-muted-foreground text-right">
+                            {routeCalc.payMode === "perMile" ? (
+                              <>
+                                {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
+                                {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
+                              </>
+                            ) : (
+                              <>
+                                {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.allInHourlyRate - routeCalc.fixedCostPerHour)}/hr
+                                {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` × ${routeCalc.deadheadPayPercent}%` : ""}
+                              </>
+                            )}
+                          </span>
+                          <span className="font-medium shrink-0 tabular-nums">{formatCurrency(leg.driverCost)}</span>
                         </div>
                         {/* Fuel cost */}
-                        <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5">
-                          <span className="text-muted-foreground">
+                        <div className="flex justify-between items-baseline gap-1">
+                          <span className="text-muted-foreground shrink-0">
                             Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
                           </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[11px] text-muted-foreground">
-                              {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
-                              {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
-                            </span>
-                            <span className="font-medium">{formatCurrency(leg.fuelCost)}</span>
-                          </div>
+                          <span className="text-[11px] text-muted-foreground text-right">
+                            {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
+                            {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
+                          </span>
+                          <span className="font-medium shrink-0 tabular-nums">{formatCurrency(leg.fuelCost)}</span>
                         </div>
                       </div>
                       <div

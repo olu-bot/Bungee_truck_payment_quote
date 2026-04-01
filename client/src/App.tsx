@@ -1010,7 +1010,7 @@ function AppLayout() {
                 </div>
               )}
               {/* Portal target for RouteBuilder controls — own row on mobile, inline on desktop */}
-              {isHome && <div id="route-controls-portal" className="flex items-center gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0" />}
+              {isHome && <div id="route-controls-portal" className="flex items-center gap-1.5 sm:gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0 [&>*]:h-7 [&_input]:h-7 [&_button]:h-7" />}
             </div>
           </div>
 
