@@ -56,9 +56,8 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import type { CostProfile, Yard, RouteStop, Quote, Lane } from "@shared/schema";
-
-type LaneWithCache = Lane & { cachedStops?: { location?: string; type?: string }[] };
+import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
+import type { LaneWithCache, LegBreakdown, RouteCalculation, PricingTier, PricingAdvice, FormStop } from "./route-builder/types";
 import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
 import { RouteMapGoogle } from "@/components/RouteMapGoogle";
 import { LocationSuggestInput } from "@/components/LocationSuggestInput";
@@ -127,53 +126,7 @@ function extractCityFromAddress(address: string): string | null {
   return null;
 }
 
-// ── Types ──────────────────────────────────────────────────────────
-
-type LegBreakdown = {
-  from: string;
-  to: string;
-  type?: string;
-  isLocal?: boolean;
-  distanceKm: number;
-  driveMinutes: number;
-  dockMinutes: number;
-  totalBillableHours: number;
-  fixedCost: number;
-  driverCost: number;
-  fuelCost: number;
-  legCost: number;
-  isDeadhead?: boolean;
-};
-
-type RouteCalculation = {
-  legs: LegBreakdown[];
-  totalDistanceKm: number;
-  totalDriveMinutes: number;
-  totalDockMinutes: number;
-  totalHours: number;
-  allInHourlyRate: number;
-  fixedCostPerHour: number;
-  fuelPerKm: number;
-  payMode: PayMode;
-  driverPayPerMile: number;
-  deadheadPayPercent: number;
-  tripCost: number;
-  deadheadCost: number;
-  fullTripCost: number;
-};
-
-type PricingTier = {
-  label: string;
-  percent: number;
-  price: number;
-};
-
-type PricingAdvice = {
-  totalCost: number;
-  tiers: (PricingTier & { marginAmount: number })[];
-  customPercent?: { label: string; percent: number; price: number; marginAmount: number } | null;
-  customQuote?: { label: string; quoteAmount: number; marginPercent: number; marginAmount: number } | null;
-};
+// Types imported from ./route-builder/types
 
 async function persistRouteBuilderQuote(
   scopeId: string,
@@ -558,7 +511,6 @@ export default function RouteBuilder() {
 
   // ── Build Route form ──────────────────────────────────────────
 
-  type FormStop = { id: string; location: string; dockMinutes: number };
   const [formStops, setFormStops] = useState<FormStop[]>([
     { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
     { id: nextStopId(), location: "", dockMinutes: defaultDockMinutes },
