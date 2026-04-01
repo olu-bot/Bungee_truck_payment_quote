@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  // Required in production
-  VITE_FIREBASE_API_KEY: z.string().min(1, "Firebase API key is required"),
-  VITE_FIREBASE_AUTH_DOMAIN: z.string().min(1),
-  VITE_FIREBASE_PROJECT_ID: z.string().min(1),
+  // VITE_FIREBASE_* are build-time frontend variables baked into the JS bundle.
+  // The server never reads them at runtime — do NOT require them here.
+  VITE_FIREBASE_API_KEY: z.string().optional(),
+  VITE_FIREBASE_AUTH_DOMAIN: z.string().optional(),
+  VITE_FIREBASE_PROJECT_ID: z.string().optional(),
 
   // Optional but warned
   STRIPE_SECRET_KEY: z.string().optional(),
