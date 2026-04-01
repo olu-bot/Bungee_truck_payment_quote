@@ -8,14 +8,24 @@ type RequestWithRaw = Request & { rawBody?: Buffer };
 async function main() {
   const app = express();
 
-  // Redirect www.shipbungee.com/* → shipbungee.com/* (preserves full path + query).
-  // Must run before everything else so the canonical domain is always used.
+  // Normalise incoming requests before anything else:
+  //  1. Strip "www." — redirect www.shipbungee.com/* → shipbungee.com/*
+  //  2. Lowercase the path — /CONNECT/ and /Connect/ both resolve to /connect/
+  //     (query string is left as-is since search params can be case-sensitive)
   app.use((req, res, next) => {
     const host = req.headers.host || "";
-    if (host.startsWith("www.")) {
-      const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-      const canonical = host.slice(4); // strip "www."
-      return res.redirect(301, `${proto}://${canonical}${req.originalUrl}`);
+    const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+    const isWww = host.toLowerCase().startsWith("www.");
+    const canonical = isWww ? host.slice(4) : host;
+
+    // Split path from query string so we only lowercase the path portion
+    const [rawPath, rawQuery] = req.originalUrl.split("?") as [string, string | undefined];
+    const lowPath = rawPath.toLowerCase();
+    const needsPathFix = lowPath !== rawPath;
+
+    if (isWww || needsPathFix) {
+      const qs = rawQuery !== undefined ? `?${rawQuery}` : "";
+      return res.redirect(301, `${proto}://${canonical}${lowPath}${qs}`);
     }
     next();
   });
