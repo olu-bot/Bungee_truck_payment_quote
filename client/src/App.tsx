@@ -31,6 +31,7 @@ import Landing from "@/pages/landing";
 const RouteBuilder = lazy(() => import("@/pages/route-builder"));
 const CostProfiles = lazy(() => import("@/pages/cost-profiles"));
 const QuoteHistory = lazy(() => import("@/pages/quote-history"));
+const Analytics = lazy(() => import("@/pages/analytics"));
 const TeamManagement = lazy(() => import("@/pages/team-management"));
 const AdminAllUsers = lazy(() => import("@/pages/admin-all-users"));
 const AdminFeedback = lazy(() => import("@/pages/admin-feedback"));
@@ -221,7 +222,7 @@ const NAV_ITEMS: Array<{
   superAdminOnly?: boolean;
 }> = [
   { path: "/", label: "Home", icon: RouteIcon, requiredPermission: null },
-  { path: "/history", label: "Quote History", icon: History, requiredPermission: null },
+  { path: "/analytics", label: "Analytics", icon: BarChart3, requiredPermission: null },
   { path: "/profiles", label: "Settings", icon: Settings, requiredPermission: null },
   { path: "/team", label: "Team", icon: Users, requiredPermission: "team:view" },
   // { path: "/help", label: "Help", icon: HelpCircle, requiredPermission: null }, // Hidden — no real content yet
@@ -355,7 +356,7 @@ function AppLayout() {
     setActiveTourId(tourId);
     // Navigate to the correct starting page for each tour
     if (tourId === "quote-history") {
-      window.location.hash = "#/history";
+      window.location.hash = "#/analytics";
     } else {
       window.location.hash = "#/";
     }
@@ -433,7 +434,8 @@ function AppLayout() {
   const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
     "/": { title: "Home", subtitle: "Build routes, calculate costs, and get pricing advice." },
     "/profiles": { title: "Settings", subtitle: "Manage your account, company info, and equipment cost profiles." },
-    "/history": { title: "Quote History", subtitle: "View and manage your saved quotes." },
+    "/analytics": { title: "Analytics", subtitle: "Dashboard insights and quote history." },
+    "/history": { title: "Analytics", subtitle: "Dashboard insights and quote history." },
     "/team": { title: "Team Management", subtitle: "Manage team members and access roles." },
     "/admin/users": {
       title: "All users",
@@ -1020,8 +1022,10 @@ function AppLayout() {
             {!isHome &&
               (routePath === "/profiles" ? (
                 <CostProfiles />
+              ) : routePath === "/analytics" ? (
+                <Analytics />
               ) : routePath === "/history" ? (
-                <QuoteHistory />
+                <Analytics />
               ) : routePath === "/team" ? (
                 <TeamRoute />
               ) : routePath === "/help" ? (

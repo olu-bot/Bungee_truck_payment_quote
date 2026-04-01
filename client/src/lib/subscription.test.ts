@@ -14,6 +14,8 @@ import {
   canExportPdf,
   canExportCsv,
   canUseIFTA,
+  canUseAnalytics,
+  canUseLaneIntelligence,
   tierLabel,
   limitLabel,
 } from "./subscription";
@@ -119,6 +121,33 @@ describe("feature gates", () => {
     expect(canUseIFTA(null)).toBe(false);
     expect(canUseIFTA(makeUser("pro"))).toBe(true);
     expect(canUseIFTA(makeUser("fleet"))).toBe(true);
+  });
+});
+
+// ── Analytics & Lane Intelligence gates ─────────────────────────
+
+describe("canUseAnalytics", () => {
+  it("returns false for free tier", () => {
+    expect(canUseAnalytics(makeUser("free"))).toBe(false);
+    expect(canUseAnalytics(null)).toBe(false);
+  });
+  it("returns true for pro", () => {
+    expect(canUseAnalytics(makeUser("pro"))).toBe(true);
+  });
+  it("returns true for fleet", () => {
+    expect(canUseAnalytics(makeUser("fleet"))).toBe(true);
+  });
+});
+
+describe("canUseLaneIntelligence", () => {
+  it("returns false for free tier", () => {
+    expect(canUseLaneIntelligence(makeUser("free"))).toBe(false);
+  });
+  it("returns true for pro", () => {
+    expect(canUseLaneIntelligence(makeUser("pro"))).toBe(true);
+  });
+  it("returns true for fleet", () => {
+    expect(canUseLaneIntelligence(makeUser("fleet"))).toBe(true);
   });
 });
 

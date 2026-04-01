@@ -14,7 +14,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["client/src/**/*.test.ts", "shared/**/*.test.ts"],
+    include: ["client/src/**/*.test.{ts,tsx}", "shared/**/*.test.ts"],
     coverage: {
       provider: "v8",
       include: ["client/src/lib/**", "shared/**"],
