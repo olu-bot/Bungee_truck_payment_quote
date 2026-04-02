@@ -8,7 +8,7 @@
 # Plus existing Stripe, Firebase, Maps keys, etc.
 substitutions:
   _VITE_BASE_PATH: "/connect/"
-  _VITE_CONNECT_GUEST_MODE: "true"
+  _VITE_CONNECT_GUEST_MODE: "false"
 steps:
   - name: "gcr.io/cloud-builders/docker"
     id: "build"
