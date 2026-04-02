@@ -359,8 +359,8 @@ export function FeedbackSheet({ open, onOpenChange }: FeedbackSheetProps) {
           )}
 
           <div className="text-center text-xs text-slate-500 border-t border-slate-200 pt-6 pb-2">
-            <a href="mailto:support@shipbungee.com" className="text-primary hover:underline">
-              support@shipbungee.com
+            <a href="mailto:adam@shipbungee.com" className="text-primary hover:underline">
+              adam@shipbungee.com
             </a>
             <span className="mx-2">·</span>
             © {new Date().getFullYear()} Bungee Supply Chain Ltd.

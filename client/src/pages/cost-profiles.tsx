@@ -616,7 +616,7 @@ function AccountIdentityCard() {
               onClick={() => {
                 toast({
                   title: "Contact support",
-                  description: "To delete your account, please email support@shipbungee.com.",
+                  description: "To delete your account, please email adam@shipbungee.com.",
                 });
               }}
             >

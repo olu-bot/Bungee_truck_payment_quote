@@ -46,7 +46,7 @@ export async function sendFeedbackEmail(payload: FeedbackPayload): Promise<{ ok:
   const secure = process.env.FEEDBACK_SMTP_SECURE === "true";
   const user = process.env.FEEDBACK_SMTP_USER?.trim() ?? "";
   const pass = process.env.FEEDBACK_SMTP_PASS ?? "";
-  const to = (process.env.FEEDBACK_TO_EMAIL || "support@shipbungee.com").trim();
+  const to = (process.env.FEEDBACK_TO_EMAIL || "adam@shipbungee.com").trim();
   /** Must be a domain-verified / allowed sender for your SMTP provider */
   const fromAddress = (process.env.FEEDBACK_FROM_EMAIL || user).trim();
   if (!fromAddress) {

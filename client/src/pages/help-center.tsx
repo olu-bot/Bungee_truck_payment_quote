@@ -884,7 +884,7 @@ export default function HelpCenter() {
               <p className="text-[13px] text-slate-500 leading-relaxed">
                 Reach{" "}
                 <span className="text-orange-600 font-medium">
-                  support@shipbungee.com
+                  adam@shipbungee.com
                 </span>{" "}
                 for billing, partnerships, or anything else. We respond within
                 one business day.
