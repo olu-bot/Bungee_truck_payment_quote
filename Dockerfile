@@ -51,8 +51,20 @@ ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 ARG VITE_CONNECT_GUEST_MODE=
 ENV VITE_CONNECT_GUEST_MODE=${VITE_CONNECT_GUEST_MODE}
 
+# Build version — auto-generated as YYYY.MM.DD.HHmm if not passed explicitly.
+# Baked into the frontend bundle AND written to dist/public/version.json so the
+# running app can detect when a newer version has been deployed.
+ARG VITE_APP_VERSION
+RUN BUILD_VER="${VITE_APP_VERSION:-$(date +%Y.%m.%d.%H%M)}" && \
+    printf "\nVITE_APP_VERSION=%s\n" "$BUILD_VER" >> .env && \
+    echo "Build version: $BUILD_VER"
+
 ENV NODE_ENV=production
 RUN npm run build
+
+# Write version.json into the static output so the client can poll it
+RUN BUILD_VER=$(grep '^VITE_APP_VERSION=' .env | tail -1 | cut -d= -f2) && \
+    printf '{"version":"%s"}\n' "$BUILD_VER" > dist/public/version.json
 
 
 FROM node:20-slim AS runtime

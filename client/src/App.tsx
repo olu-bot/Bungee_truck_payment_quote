@@ -25,6 +25,8 @@ import { workspaceFirestoreId } from "@/lib/workspace";
 import type { Lane } from "@shared/schema";
 import { can, isManager, isSuperAdmin, getCompanyRole, ROLE_LABELS, ROLE_COLORS as PERM_ROLE_COLORS } from "@/lib/permissions";
 import { useQuoteUsage } from "@/hooks/use-quote-usage";
+import { useVersionCheck } from "@/hooks/use-version-check";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import type { Permission } from "@/lib/permissions";
 
 // ── Lazy-loaded page components (code-split per route) ──────────
@@ -240,6 +242,7 @@ function AppLayout() {
   /** Bump to remount RouteBuilder (clear home) — logo click while already on Home, or full page reload */
   const [routeBuilderKey, setRouteBuilderKey] = useState(0);
   const { user, logout, authLoading } = useFirebaseAuth();
+  const newVersion = useVersionCheck();
   const isMobileBrowser = useMemo(() => {
     if (typeof navigator === "undefined") return false;
     return /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent);
@@ -494,7 +497,9 @@ function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <>
+    {newVersion && <UpdateBanner version={newVersion} />}
+    <div className={`min-h-screen bg-background flex${newVersion ? " pt-9" : ""}`}>
       {/* ─── Sidebar (desktop) ────────────────────────────────── */}
       <aside
         className={`hidden md:flex flex-col border-r border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 sticky top-0 h-screen z-40 transition-all duration-200 ${
@@ -1083,6 +1088,7 @@ function AppLayout() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </>
   );
 }
 
