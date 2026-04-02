@@ -2567,20 +2567,75 @@ export default function RouteBuilder() {
                         )}
                       </div>
                       <div className="space-y-0.5 text-[13px]">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground flex items-center gap-1">
-                            Drive time
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="w-3 h-3 text-slate-400 cursor-help" />
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-[220px] text-xs">
-                                Google Maps may show longer times due to real-time traffic. Cost calculations use traffic-free estimates.
-                              </TooltipContent>
-                            </Tooltip>
-                          </span>
-                          <span>{`${Math.floor(leg.driveMinutes / 60)}h ${String(Math.round(leg.driveMinutes % 60)).padStart(2, "0")}m`}</span>
-                        </div>
+                        {/* Drive time row — interactive adjuster for non-deadhead legs */}
+                        {(() => {
+                          if (isDeadhead) {
+                            return (
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Drive time</span>
+                                <span>{`${Math.floor(leg.driveMinutes / 60)}h ${String(Math.round(leg.driveMinutes % 60)).padStart(2, "0")}m`}</span>
+                              </div>
+                            );
+                          }
+                          // Map this leg to the corresponding formStop index (leg N → formStops[N])
+                          const nonDeadheadLegNum = routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1;
+                          const fIdx = nonDeadheadLegNum;
+                          const driveAdj = formStops[fIdx]?.driveMinutesAdjustment ?? 0;
+                          const adjH = Math.floor(leg.driveMinutes / 60);
+                          const adjM = Math.round(leg.driveMinutes % 60);
+                          return (
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-muted-foreground flex items-center gap-1 shrink-0">
+                                Drive time
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Info className="w-3 h-3 text-slate-400 cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[220px] text-xs">
+                                    Google Maps may show longer times due to real-time traffic. Cost calculations use traffic-free estimates. Use − / + to adjust.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </span>
+                              <span className="flex items-center gap-1 select-none">
+                                <button
+                                  type="button"
+                                  aria-label="Decrease drive time by 5 minutes"
+                                  disabled={leg.driveMinutes <= 5}
+                                  className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none"
+                                  onClick={() => handleAdjustDriveTime(fIdx, -5)}
+                                >
+                                  −
+                                </button>
+                                <span className="tabular-nums font-medium min-w-[52px] text-center">
+                                  {adjH}h {String(adjM).padStart(2, "0")}m
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label="Increase drive time by 5 minutes"
+                                  className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground text-base leading-none"
+                                  onClick={() => handleAdjustDriveTime(fIdx, +5)}
+                                >
+                                  +
+                                </button>
+                                {driveAdj !== 0 && (
+                                  <span className="flex items-center gap-0.5 text-[10px]">
+                                    <span className={driveAdj > 0 ? "text-amber-600" : "text-blue-500"}>
+                                      {driveAdj > 0 ? "+" : ""}{driveAdj}m
+                                    </span>
+                                    <button
+                                      type="button"
+                                      aria-label="Reset to Google estimate"
+                                      className="text-muted-foreground hover:text-foreground underline text-[10px]"
+                                      onClick={() => handleResetDriveTime(fIdx)}
+                                    >
+                                      reset
+                                    </button>
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })()}
                         {!isDeadhead && leg.dockMinutes > 0 && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">Load + Unload</span>
