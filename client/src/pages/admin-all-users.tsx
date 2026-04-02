@@ -24,7 +24,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowRight, Package, Snowflake, Layers, Loader2, Crown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ArrowRight, Package, Snowflake, Layers, Loader2, Crown, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Quote, CostProfile } from "@shared/schema";
 import { formatCurrencyAmount, resolveWorkspaceCurrency } from "@/lib/currency";
@@ -99,6 +100,7 @@ export default function AdminAllUsers() {
   const [selected, setSelected] = useState<DirectoryUser | null>(null);
   const [page, setPage] = useState(1);
   const [tierLoading, setTierLoading] = useState(false);
+  const [search, setSearch] = useState("");
 
   const sheetCurrency = useMemo(() => resolveWorkspaceCurrency(selected ?? undefined), [selected]);
   const formatCurrency = useCallback(
@@ -114,15 +116,27 @@ export default function AdminAllUsers() {
     enabled: Boolean(isAdmin && firebaseConfigured),
   });
 
-  const totalPages = Math.max(1, Math.ceil(directory.length / PAGE_SIZE));
+  const filteredDirectory = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return directory;
+    return directory.filter(
+      (u) =>
+        u.name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.companyName?.toLowerCase().includes(q) ||
+        u.sector?.toLowerCase().includes(q),
+    );
+  }, [directory, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredDirectory.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pagedDirectory = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return directory.slice(start, start + PAGE_SIZE);
-  }, [directory, currentPage]);
+    return filteredDirectory.slice(start, start + PAGE_SIZE);
+  }, [filteredDirectory, currentPage]);
 
-  const pageStart = directory.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
-  const pageEnd = Math.min(directory.length, currentPage * PAGE_SIZE);
+  const pageStart = filteredDirectory.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(filteredDirectory.length, currentPage * PAGE_SIZE);
 
   const { data: quotes = [], isLoading: quotesLoading } = useQuery<Quote[]>({
     queryKey: ["firebase", "admin", "user-quotes", scope],
@@ -204,10 +218,46 @@ export default function AdminAllUsers() {
 
   return (
     <div className="space-y-4" data-testid="admin-users-page">
+      {/* ── Search bar ── */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <Input
+          type="search"
+          placeholder="Search by name, email, company or sector…"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          className="pl-9 pr-9"
+        />
+        {search && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => { setSearch(""); setPage(1); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       <p className="text-sm text-muted-foreground">
-        {directory.length} user{directory.length !== 1 ? "s" : ""} registered. Showing {pageStart}–{pageEnd}. Select a row to
-        open their workspace, quote history, and subscription controls.
+        {search
+          ? `${filteredDirectory.length} of ${directory.length} user${directory.length !== 1 ? "s" : ""} match "${search}". Showing ${pageStart}–${pageEnd}.`
+          : `${directory.length} user${directory.length !== 1 ? "s" : ""} registered. Showing ${pageStart}–${pageEnd}. Select a row to open their workspace, quote history, and subscription controls.`
+        }
       </p>
+
+      {/* ── Empty search state ── */}
+      {filteredDirectory.length === 0 && search && (
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
+          <Search className="w-8 h-8 text-muted-foreground/40" />
+          <p className="text-sm font-medium">No users found</p>
+          <p className="text-xs text-muted-foreground">No match for "{search}". Try a different name, email, or company.</p>
+          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => { setSearch(""); setPage(1); }}>
+            Clear search
+          </Button>
+        </div>
+      )}
 
       {/* ── Mobile cards ── */}
       <div className="block lg:hidden space-y-2">
