@@ -136,3 +136,34 @@ Set **`PUBLIC_APP_URL`** to the public URL of **that** service (no trailing slas
 - **`cloudbuild.shipbungee.yaml`** — Image for Shipbungee unified site  
 
 See **`.env.example`** for all configuration keys and comments.
+
+---
+
+## Recent Changes (V1.4.01)
+
+Full details in [`CHANGELOG-v1.4.01.md`](./CHANGELOG-v1.4.01.md).
+
+### Route Builder
+- **AI Route Chat** — type routes in plain English (e.g. "Toronto to Kingston to Ottawa"), multi-stop supported
+- **Drive & Dock Time Adjusters** — ±30min buttons in the per-leg breakdown, reset to default
+- **Toll Surcharge** — $/km (or $/mi) input next to the % surcharge, applied to total trip distance
+- **Favorite Lanes** — saves full cost/charge state (accessorials, quote, note, pay mode, dock time, deadhead, profile) and restores on reload
+- **Mobile UI Normalization** — collapsed 11 font sizes → 4, standardized touch targets (h-8 min), padding, gaps, spacing, and border radius across mobile baseline
+
+### Landing Page
+- **Interactive Demo** — 10-step HTML/CSS mockup carousel between "The Fix" and "Features" sections
+- 4 workflow phases: Set Up & Quote → Multi-Stop & Breakdown → Price & Save → Track & Win
+- Phase titles highlight based on current slide, clickable to jump
+- Left/right navigation arrows, numbered progress dots (1–10)
+- Real Google Maps embeds for Toronto→Montreal and Toronto→Kingston→Ottawa routes
+- Accessorial charges mockup (detention, stops, surcharge, TONU, etc.)
+
+### Walkthrough Tours
+- **Overview tour** — added "Save a Favorite Lane" step (now 9 steps)
+- **Advanced-quote tour** — added "Multi-Stop Routes" step (now 7 steps)
+
+### Other
+- Pricing table updated to match landing page feature lists
+- Duplicate divider fix between Dock Time and Deadhead
+- Surcharge now applies in both Quick and Advanced mode
+- Quote, note, and surcharge reset on new route build
