@@ -42,3 +42,20 @@ export async function verifyBearerIsAdmin(req: {
     return null;
   }
 }
+
+/** Verify any signed-in Firebase user (not admin-only). */
+export async function verifyBearerUser(req: {
+  headers: { authorization?: string };
+}): Promise<{ uid: string } | null> {
+  const raw = req.headers.authorization;
+  if (!raw?.startsWith("Bearer ")) return null;
+  const idToken = raw.slice(7);
+  const app = getFirebaseAdmin();
+  if (!app) return null;
+  try {
+    const decoded = await admin.auth(app).verifyIdToken(idToken);
+    return { uid: decoded.uid };
+  } catch {
+    return null;
+  }
+}

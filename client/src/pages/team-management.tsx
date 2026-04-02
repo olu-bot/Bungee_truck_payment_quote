@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth, type CompanyRole } from "@/components/firebase-auth";
+import { auth, firebaseConfigured } from "@/lib/firebase";
 import * as firebaseDb from "@/lib/firebaseDb";
 import { workspaceFirestoreId } from "@/lib/workspace";
-import { firebaseConfigured } from "@/lib/firebase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -173,7 +173,7 @@ export default function TeamManagement() {
       if (existingInvite)
         throw new Error("An invite is already pending for this email.");
 
-      return firebaseDb.createInvite(scopeId, {
+      const invite = await firebaseDb.createInvite(scopeId, {
         email,
         role: inviteRole,
         invitedBy: user.uid,
@@ -183,6 +183,28 @@ export default function TeamManagement() {
         status: "pending",
         createdAt: new Date().toISOString(),
       });
+
+      // Fire invite email — non-blocking, best-effort
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        await fetch("/api/team/send-invite-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            to: invite.email,
+            inviterName: user.name,
+            companyName: user.companyName,
+            role: invite.role,
+          }),
+        });
+      } catch {
+        // Email sending failed — invite is still saved, so don't block onSuccess
+      }
+
+      return invite;
     },
     onSuccess: () => {
       qc.invalidateQueries({
@@ -193,7 +215,7 @@ export default function TeamManagement() {
       setInviteOpen(false);
       toast({
         title: "Invite sent",
-        description: `An invitation has been sent to ${inviteEmail.trim()}.`,
+        description: `An invitation email has been sent to ${inviteEmail.trim()}.`,
       });
     },
     onError: (e: Error) =>

@@ -3,9 +3,10 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import { registerStripeRoutes } from "./stripe";
 import { sendSubscriptionUpgradeEmail } from "./subscriptionEmail";
+import { sendTeamInviteEmail } from "./inviteEmail";
 import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
-import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
+import { verifyBearerIsAdmin, verifyBearerUser, getAdminFirestore } from "./firebaseAdmin";
 import { registerEmployeeCalculatorAuthRoutes } from "./employeeCalculatorAuth";
 import { insertLaneSchema, insertCostProfileSchema, insertYardSchema, insertTeamMemberSchema, calculateRouteSchema, pricingTiersSchema, chatRouteSchema } from "@shared/schema";
 import type { CostProfile, RouteStop } from "@shared/schema";
@@ -1061,6 +1062,40 @@ export async function registerRoutes(
     const member = await storage.authenticateByPin(pin);
     if (!member) return res.status(401).json({ error: "Invalid PIN" });
     res.json({ id: member.id, name: member.name, role: member.role });
+  });
+
+  // ── Team invite email ────────────────────────────────────────────
+  app.post("/api/team/send-invite-email", async (req, res) => {
+    const actor = await verifyBearerUser(req);
+    if (!actor) return res.status(401).json({ error: "Unauthorised" });
+
+    const { to, inviterName, companyName, role } = req.body as {
+      to?: string;
+      inviterName?: string;
+      companyName?: string;
+      role?: string;
+    };
+
+    if (!to || !to.includes("@")) {
+      return res.status(400).json({ error: "Valid 'to' email is required." });
+    }
+    if (!inviterName || !companyName) {
+      return res.status(400).json({ error: "'inviterName' and 'companyName' are required." });
+    }
+
+    const result = await sendTeamInviteEmail({
+      to: to.trim().toLowerCase(),
+      inviterName: String(inviterName),
+      companyName: String(companyName),
+      role: String(role ?? "member"),
+    });
+
+    if (!result.ok) {
+      // SMTP might not be configured — treat as non-fatal (invite was already saved in Firestore)
+      console.warn("[invite email route]", result.error);
+      return res.status(202).json({ ok: false, warning: result.error });
+    }
+    return res.json({ ok: true });
   });
 
   // === GEOCODE ===
