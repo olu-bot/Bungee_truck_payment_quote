@@ -1802,6 +1802,48 @@ export async function registerRoutes(
     }
   });
 
+  // ── Admin: manually set a user's subscription tier ──────────────
+  app.post("/api/admin/set-user-tier", async (req, res) => {
+    const actor = await verifyBearerIsAdmin(req);
+    if (!actor) return res.status(403).json({ error: "Forbidden" });
+
+    const fs = getAdminFirestore();
+    if (!fs) {
+      return res.status(503).json({
+        error: "Firebase Admin is not configured. Set FIREBASE_SERVICE_ACCOUNT_JSON or deploy with Application Default Credentials.",
+      });
+    }
+
+    const { uid, tier } = req.body as { uid?: string; tier?: string };
+    if (!uid || typeof uid !== "string") {
+      return res.status(400).json({ error: "uid is required" });
+    }
+    const validTiers = ["free", "pro", "fleet"];
+    const normalised = tier === "premium" ? "fleet" : tier;
+    if (!normalised || !validTiers.includes(normalised)) {
+      return res.status(400).json({ error: `tier must be one of: ${validTiers.join(", ")} (or "premium" as alias for fleet)` });
+    }
+
+    try {
+      await fs.doc(`users/${uid}`).set(
+        {
+          subscriptionTier: normalised,
+          subscriptionStatus: normalised === "free" ? "canceled" : "active",
+          subscriptionUpdatedAt: require("firebase-admin").firestore.FieldValue.serverTimestamp(),
+          manualTierOverride: true,
+          manualTierSetBy: actor.uid,
+        },
+        { merge: true },
+      );
+      console.log(`[admin] ${actor.uid} set subscriptionTier=${normalised} for user ${uid}`);
+      return res.json({ ok: true, uid, tier: normalised });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[admin] set-user-tier failed", e);
+      return res.status(500).json({ error: msg });
+    }
+  });
+
   registerStripeRoutes(app);
 
   return httpServer;

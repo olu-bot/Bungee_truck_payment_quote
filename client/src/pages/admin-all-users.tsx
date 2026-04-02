@@ -1,9 +1,10 @@
 import { useState, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
 import * as firebaseDb from "@/lib/firebaseDb";
 import type { DirectoryUser } from "@/lib/firebaseDb";
 import { firebaseConfigured } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,7 +24,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ArrowRight, Package, Snowflake, Layers } from "lucide-react";
+import { ArrowRight, Package, Snowflake, Layers, Loader2, Crown } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import type { Quote, CostProfile } from "@shared/schema";
 import { formatCurrencyAmount, resolveWorkspaceCurrency } from "@/lib/currency";
 
@@ -38,6 +40,27 @@ const TRUCK_LABELS: Record<string, string> = {
   reefer: "Reefer",
   flatbed: "Flatbed",
 };
+
+type Tier = "free" | "pro" | "fleet";
+
+const TIER_CONFIG: Record<Tier, { label: string; color: string; badge: string }> = {
+  free:  { label: "Free",    color: "text-slate-500",  badge: "secondary" },
+  pro:   { label: "Pro",     color: "text-blue-600",   badge: "default"   },
+  fleet: { label: "Premium", color: "text-amber-600",  badge: "outline"   },
+};
+
+function TierBadge({ tier }: { tier: Tier }) {
+  const cfg = TIER_CONFIG[tier] ?? TIER_CONFIG.free;
+  return (
+    <Badge
+      variant={cfg.badge as "default" | "secondary" | "outline"}
+      className={`text-[10px] font-semibold ${tier === "fleet" ? "border-amber-400 text-amber-600" : ""}`}
+    >
+      {tier === "fleet" && <Crown className="w-2.5 h-2.5 mr-0.5" />}
+      {cfg.label}
+    </Badge>
+  );
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-CA", {
@@ -68,15 +91,19 @@ function profileAllInHourly(p: CostProfile): number {
 export default function AdminAllUsers() {
   const PAGE_SIZE = 20;
   const { user } = useFirebaseAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const isAdmin = user?.role === "admin";
+
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selected, setSelected] = useState<DirectoryUser | null>(null);
   const [page, setPage] = useState(1);
+  const [tierLoading, setTierLoading] = useState(false);
 
   const sheetCurrency = useMemo(() => resolveWorkspaceCurrency(selected ?? undefined), [selected]);
   const formatCurrency = useCallback(
     (value: number) => formatCurrencyAmount(value, sheetCurrency),
-    [sheetCurrency]
+    [sheetCurrency],
   );
 
   const scope = selected ? workspaceId(selected) : undefined;
@@ -114,12 +141,39 @@ export default function AdminAllUsers() {
     setSheetOpen(true);
   }
 
-  function goPrevPage() {
-    setPage((p) => Math.max(1, p - 1));
-  }
-
-  function goNextPage() {
-    setPage((p) => Math.min(totalPages, p + 1));
+  async function handleSetTier(targetUid: string, tier: Tier) {
+    setTierLoading(true);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/set-user-tier", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ uid: targetUid, tier }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error ?? "Failed to update tier");
+      }
+      // Optimistically update the selected user in state
+      setSelected((prev) => (prev ? { ...prev, subscriptionTier: tier } : prev));
+      // Refresh the directory list
+      await queryClient.invalidateQueries({ queryKey: ["firebase", "admin", "directory-users"] });
+      toast({
+        title: "Subscription updated",
+        description: `User set to ${TIER_CONFIG[tier].label}.`,
+      });
+    } catch (e: unknown) {
+      toast({
+        title: "Failed to update tier",
+        description: e instanceof Error ? e.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setTierLoading(false);
+    }
   }
 
   if (!isAdmin) {
@@ -151,10 +205,11 @@ export default function AdminAllUsers() {
   return (
     <div className="space-y-4" data-testid="admin-users-page">
       <p className="text-sm text-muted-foreground">
-        {directory.length} user{directory.length !== 1 ? "s" : ""} registered. Showing {pageStart}-{pageEnd}. Select a row to
-        open their workspace quote history and equipment cost profiles.
+        {directory.length} user{directory.length !== 1 ? "s" : ""} registered. Showing {pageStart}–{pageEnd}. Select a row to
+        open their workspace, quote history, and subscription controls.
       </p>
 
+      {/* ── Mobile cards ── */}
       <div className="block lg:hidden space-y-2">
         {pagedDirectory.map((u) => (
           <Card
@@ -169,23 +224,23 @@ export default function AdminAllUsers() {
                   <p className="font-medium text-sm">{u.name || "—"}</p>
                   <p className="text-xs text-muted-foreground">{u.email}</p>
                 </div>
-                <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px] shrink-0">
-                  {u.role}
-                </Badge>
+                <div className="flex items-center gap-1 shrink-0">
+                  <TierBadge tier={u.subscriptionTier ?? "free"} />
+                  <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px]">
+                    {u.role}
+                  </Badge>
+                </div>
               </div>
               <p className="text-xs">
                 <span className="text-muted-foreground">Company: </span>
                 {u.companyName || "—"}
-              </p>
-              <p className="text-xs capitalize">
-                <span className="text-muted-foreground">Sector: </span>
-                {u.sector || "—"}
               </p>
             </CardContent>
           </Card>
         ))}
       </div>
 
+      {/* ── Desktop table ── */}
       <Card className="hidden lg:block border-border">
         <CardContent className="p-0">
           <Table>
@@ -193,8 +248,9 @@ export default function AdminAllUsers() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Company</TableHead>
-                <TableHead className="w-[100px]">Sector</TableHead>
+                <TableHead className="w-[90px]">Sector</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead className="w-[90px]">Plan</TableHead>
                 <TableHead className="w-[80px]">Role</TableHead>
               </TableRow>
             </TableHeader>
@@ -211,6 +267,9 @@ export default function AdminAllUsers() {
                   <TableCell className="capitalize text-sm">{u.sector || "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.email || "—"}</TableCell>
                   <TableCell>
+                    <TierBadge tier={u.subscriptionTier ?? "free"} />
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={u.role === "admin" ? "default" : "secondary"} className="text-[10px]">
                       {u.role}
                     </Badge>
@@ -222,32 +281,22 @@ export default function AdminAllUsers() {
         </CardContent>
       </Card>
 
+      {/* ── Pagination ── */}
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
           Page {currentPage} of {totalPages}
         </p>
         <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={goPrevPage}
-            disabled={currentPage <= 1}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}>
             Previous
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={goNextPage}
-            disabled={currentPage >= totalPages}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>
             Next
           </Button>
         </div>
       </div>
 
+      {/* ── User detail sheet ── */}
       <Sheet
         open={sheetOpen}
         onOpenChange={(open) => {
@@ -276,7 +325,45 @@ export default function AdminAllUsers() {
                 </SheetDescription>
               </SheetHeader>
 
-              <Tabs defaultValue="history" className="mt-6">
+              {/* ── Subscription tier control ── */}
+              <div className="mt-5 rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold flex items-center gap-1.5">
+                    <Crown className="w-3.5 h-3.5 text-amber-500" />
+                    Subscription plan
+                  </p>
+                  <TierBadge tier={selected.subscriptionTier ?? "free"} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Override this user's plan. Changes take effect immediately — no payment required.
+                </p>
+                <div className="flex gap-2">
+                  {(["free", "pro", "fleet"] as Tier[]).map((tier) => {
+                    const cfg = TIER_CONFIG[tier];
+                    const isCurrent = (selected.subscriptionTier ?? "free") === tier;
+                    return (
+                      <Button
+                        key={tier}
+                        type="button"
+                        size="sm"
+                        variant={isCurrent ? "default" : "outline"}
+                        disabled={tierLoading || isCurrent}
+                        className={`flex-1 text-xs ${isCurrent ? "" : "hover:border-primary"}`}
+                        onClick={() => handleSetTier(selected.uid, tier)}
+                      >
+                        {tierLoading && !isCurrent ? (
+                          <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                        ) : tier === "fleet" ? (
+                          <Crown className="w-3 h-3 mr-1 text-amber-500" />
+                        ) : null}
+                        {cfg.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Tabs defaultValue="history" className="mt-5">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="history" data-testid="tab-user-history">
                     Quote history
@@ -285,13 +372,14 @@ export default function AdminAllUsers() {
                     Cost profiles
                   </TabsTrigger>
                 </TabsList>
+
                 <TabsContent value="history" className="mt-4 space-y-3">
                   {quotesLoading ? (
                     <p className="text-sm text-muted-foreground">Loading quotes…</p>
                   ) : quotes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No saved quotes in this workspace.</p>
                   ) : (
-                    <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                       {quotes.map((q) => {
                         const Icon = TRUCK_ICONS[q.truckType] || Package;
                         return (
@@ -323,24 +411,23 @@ export default function AdminAllUsers() {
                               </span>
                             </div>
                             <p className="text-[10px] text-muted-foreground">{formatDate(q.createdAt)}</p>
-                            {q.quoteSource === "route_builder" ? (
-                              <Badge variant="outline" className="text-[10px]">
-                                Route build
-                              </Badge>
-                            ) : null}
+                            {q.quoteSource === "route_builder" && (
+                              <Badge variant="outline" className="text-[10px]">Route build</Badge>
+                            )}
                           </div>
                         );
                       })}
                     </div>
                   )}
                 </TabsContent>
+
                 <TabsContent value="profiles" className="mt-4 space-y-3">
                   {profilesLoading ? (
                     <p className="text-sm text-muted-foreground">Loading profiles…</p>
                   ) : profiles.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No equipment cost profiles in this workspace.</p>
                   ) : (
-                    <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                       {profiles.map((p) => {
                         const Icon = TRUCK_ICONS[p.truckType] || Package;
                         const allInHourly = profileAllInHourly(p);

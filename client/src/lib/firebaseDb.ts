@@ -58,6 +58,7 @@ export type DirectoryUser = {
   companyId?: string;
   sector: string;
   role: string;
+  subscriptionTier?: "free" | "pro" | "fleet";
   operatingCountryCode?: string;
   operatingCountries?: string[];
 };
@@ -68,6 +69,9 @@ export async function listDirectoryUsers(): Promise<DirectoryUser[]> {
   return snap.docs
     .map((d) => {
       const data = d.data() as Record<string, unknown>;
+      const rawTier = data.subscriptionTier;
+      const subscriptionTier: DirectoryUser["subscriptionTier"] =
+        rawTier === "pro" || rawTier === "fleet" ? rawTier : "free";
       return {
         uid: d.id,
         name: String(data.name ?? ""),
@@ -76,6 +80,7 @@ export async function listDirectoryUsers(): Promise<DirectoryUser[]> {
         companyId: typeof data.companyId === "string" ? data.companyId : undefined,
         sector: String(data.sector ?? ""),
         role: String(data.role ?? "user"),
+        subscriptionTier,
         operatingCountryCode:
           typeof data.operatingCountryCode === "string" ? data.operatingCountryCode : undefined,
         operatingCountries: Array.isArray(data.operatingCountries)
