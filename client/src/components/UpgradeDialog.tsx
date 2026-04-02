@@ -55,17 +55,18 @@ export type UpgradeDialogProps = {
 
 const FREE_FEATURES = [
   "300 route quotes per month",
-  "AI Chatbot",
-  "Map visualization",
+  "AI Chatbot routing",
+  "Google Maps visualization",
   "3-tier pricing suggestion",
   "2 cost profiles",
   "1 yard",
   "1 user",
-  "Custom quote",
+  "Custom quote amount",
   "Quote history up to 30 days",
-  "Quote status tracking",
+  "Won / Pending / Lost tracking",
   "Accessorial charges",
-  "Live fuel price updates",
+  "Live EIA fuel price updates",
+  "Mobile-optimized layout",
 ];
 
 const PRO_FEATURES = [
@@ -74,18 +75,20 @@ const PRO_FEATURES = [
   "Unlimited route quotes",
   "Unlimited quote history",
   "Unlimited yards",
-  "5 users",
-  "Role based access",
-  "CSV export",
+  "5 users with role-based access",
+  "IFTA fuel tax estimator",
+  "Analytics dashboard",
+  "Lane rate intelligence",
+  "AI pricing suggestions",
   "Branded PDF quote export",
+  "CSV export",
 ];
 
 const PREMIUM_FEATURES: { text: string; comingSoon?: boolean }[] = [
   { text: "Everything in pro plus" },
-  { text: "Unlimited users - $15 per seat after 5 users" },
-  { text: "Lane rate intelligence" },
+  { text: "Unlimited users ($15/seat after 5)" },
+  { text: "Market rate comparison" },
   { text: "Customer quote portal" },
-  { text: "Dispatch view" },
   { text: "API access" },
   { text: "Priority support" },
 ];

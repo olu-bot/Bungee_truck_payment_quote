@@ -59,7 +59,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { CostProfile, Yard, RouteStop, Quote } from "@shared/schema";
-import type { LaneWithCache, LegBreakdown, RouteCalculation, PricingTier, PricingAdvice, FormStop } from "./route-builder/types";
+import type { LaneWithCache, LegBreakdown, RouteCalculation, PricingTier, PricingAdvice, FormStop, CachedCosts } from "./route-builder/types";
 import type { RouteBuilderSnapshot } from "@/lib/routeBuilderSnapshot";
 import { RouteMapGoogle } from "@/components/RouteMapGoogle";
 import { LocationSuggestInput } from "@/components/LocationSuggestInput";
@@ -139,12 +139,13 @@ function applyDriveAdjustments(routeStops: RouteStop[], fStops: FormStop[]): Rou
   let fIdx = 0;
   return routeStops.map((stop) => {
     if (stop.type === "yard") return stop;
-    const adj = fStops[fIdx]?.driveMinutesAdjustment ?? 0;
+    const driveAdj = fStops[fIdx]?.driveMinutesAdjustment ?? 0;
+    const dockOverride = fStops[fIdx]?.dockMinutes;
     fIdx++;
-    if (adj === 0) return stop;
     return {
       ...stop,
-      driveMinutesFromPrev: Math.max(0, (stop.driveMinutesFromPrev ?? 0) + adj),
+      ...(driveAdj !== 0 ? { driveMinutesFromPrev: Math.max(0, (stop.driveMinutesFromPrev ?? 0) + driveAdj) } : {}),
+      ...(dockOverride !== undefined ? { dockTimeMinutes: dockOverride } : {}),
     };
   });
 }
@@ -359,7 +360,7 @@ function RouteControlsPortal({
   return createPortal(
     <>
       <Select value={selectedProfileId} onValueChange={setSelectedProfileId}>
-        <SelectTrigger data-testid="select-profile" className="h-7 py-0 text-[11px] w-[110px] sm:w-[150px]">
+        <SelectTrigger data-testid="select-profile" className="h-8 py-0 text-xs w-[110px] sm:w-[150px]">
           <SelectValue placeholder="Profile" />
         </SelectTrigger>
         <SelectContent>
@@ -369,14 +370,14 @@ function RouteControlsPortal({
         </SelectContent>
       </Select>
 
-      <div className="flex items-center gap-1 h-7">
+      <div className="flex items-center gap-1 h-8">
         <Fuel className="w-3 h-3 text-muted-foreground shrink-0" />
         <Input
           data-testid="input-fuel-price"
           type="number"
           step="0.05"
           min="0"
-          className="h-7 text-[11px] w-[60px] sm:w-[76px] shrink-0"
+          className="h-8 text-xs w-[60px] sm:w-[76px] shrink-0"
           value={displayVal}
           onChange={(e) => {
             const raw = e.target.value;
@@ -403,12 +404,12 @@ function RouteControlsPortal({
             } catch { /* ignore */ }
           }}
         />
-        <span className="text-[11px] text-slate-500 whitespace-nowrap">
+        <span className="text-xs text-slate-500 whitespace-nowrap">
           {currencySymbol(currency)}/{isImp ? "gal" : "L"}
         </span>
         {fuelPriceRegion && !fuelPriceManual && (
           <span
-            className="text-[11px] text-slate-500 whitespace-nowrap hidden md:inline cursor-help"
+            className="text-xs text-slate-500 whitespace-nowrap hidden md:inline cursor-help"
             title={`${fuelPriceRegion} diesel price from U.S. Energy Information Administration (EIA) weekly report, updated ${fuelPriceDate}. Canadian prices estimated from US data + exchange rate. Refreshed daily.`}
           >
             {fuelPriceRegion} · EIA
@@ -417,7 +418,7 @@ function RouteControlsPortal({
         {fuelPriceManual && fuelPriceData && (
           <button
             type="button"
-            className="text-[11px] text-orange-500 hover:text-orange-600 whitespace-nowrap hidden md:inline"
+            className="text-xs text-orange-500 hover:text-orange-600 whitespace-nowrap hidden md:inline"
             title="Reset to the latest regional fuel price from EIA weekly data"
             onClick={() => {
               setFuelPriceManual(false);
@@ -430,11 +431,11 @@ function RouteControlsPortal({
       </div>
 
       {/* Quick Quote / Advanced toggle */}
-      <div className="inline-flex rounded-md border border-orange-300 overflow-hidden h-7 text-[11px] font-medium select-none">
+      <div className="inline-flex rounded-md border border-orange-300 overflow-hidden h-8 text-xs font-medium select-none">
         <button
           type="button"
           onClick={() => setQuoteMode("quick")}
-          className={`px-3 flex items-center justify-center h-7 transition-colors ${
+          className={`px-3 flex items-center justify-center h-8 transition-colors ${
             quoteMode === "quick"
               ? "bg-orange-400 text-white"
               : "bg-white text-slate-500 hover:bg-orange-50"
@@ -447,7 +448,7 @@ function RouteControlsPortal({
           type="button"
           data-testid="button-advanced"
           onClick={() => setQuoteMode("advanced")}
-          className={`px-3 flex items-center justify-center h-7 transition-colors border-l border-orange-200 ${
+          className={`px-3 flex items-center justify-center h-8 transition-colors border-l border-orange-200 ${
             quoteMode === "advanced"
               ? "bg-orange-400 text-white"
               : "bg-white text-slate-500 hover:bg-orange-50"
@@ -655,6 +656,7 @@ export default function RouteBuilder() {
     customAccessorialLabel: "",
     customAccessorialAmount: 0,
     costInflationPct: 0,         // Hazmat, regulatory overhead, etc. — applied to base trip cost
+    tollRatePerKm: 0,            // Toll estimation — $/km or $/mi applied to trip distance
   });
 
   const accessorialTotal = useMemo(() => {
@@ -672,10 +674,10 @@ export default function RouteBuilder() {
 
   /** Inflation surcharge applied to base trip cost (hazmat, regulatory, etc.) */
   const costInflationAmount = useMemo(() => {
-    if (quoteMode !== "advanced" || !accessorials.costInflationPct) return 0;
+    if (!accessorials.costInflationPct) return 0;
     const base = routeCalc?.fullTripCost ?? 0;
     return Math.round(base * (accessorials.costInflationPct / 100) * 100) / 100;
-  }, [quoteMode, accessorials.costInflationPct, routeCalc?.fullTripCost]);
+  }, [accessorials.costInflationPct, routeCalc?.fullTripCost]);
 
   // ── Queries ───────────────────────────────────────────────────
 
@@ -710,6 +712,16 @@ export default function RouteBuilder() {
   );
   const measureUnit = useMemo(() => resolveMeasurementUnit(user), [user]);
   const dLabel = distanceLabel(measureUnit);
+
+  /** Toll estimate — $/km (or $/mi converted to $/km) × trip distance */
+  const tollAmount = useMemo(() => {
+    if (!accessorials.tollRatePerKm) return 0;
+    const distKm = routeCalc?.totalDistanceKm ?? 0;
+    const ratePerKm = measureUnit === "imperial"
+      ? accessorials.tollRatePerKm / 1.609344
+      : accessorials.tollRatePerKm;
+    return Math.round(ratePerKm * distKm * 100) / 100;
+  }, [accessorials.tollRatePerKm, routeCalc?.totalDistanceKm, measureUnit]);
 
   const { data: profiles = [] } = useQuery<CostProfile[]>({
     queryKey: ["firebase", "profiles", scopeId ?? ""],
@@ -1094,6 +1106,10 @@ export default function RouteBuilder() {
       setStops(built);
       // Reset any user-applied drive time adjustments — fresh API data just arrived
       setFormStops((prev) => prev.map((s) => ({ ...s, driveMinutesAdjustment: 0 })));
+      // Reset user quote, note, and surcharge for the new route
+      setCustomQuoteAmount("");
+      setCustomerNote("");
+      setAccessorials((prev) => ({ ...prev, costInflationPct: 0, tollRatePerKm: 0 }));
       if (built.length >= 2 && selectedProfileId) {
         await calculateRoute(built, undefined, {
           saveToHistory,
@@ -1128,16 +1144,28 @@ export default function RouteBuilder() {
         origin: string;
         destination: string;
         cachedStops?: RouteStop[] | null;
+        cachedCosts?: CachedCosts | null;
       };
-      const { origin, destination, cachedStops } = detail;
+      const { origin, destination, cachedStops, cachedCosts } = detail;
       if (!origin || !destination) return;
 
-      // Always populate the form fields so they show the origin/destination
-      populateFormRef.current([origin, destination]);
+      // Restore all cost/charge state saved when the lane was favorited
+      if (cachedCosts) {
+        setAccessorials(cachedCosts.accessorials);
+        setCustomQuoteAmount(cachedCosts.customQuoteAmount);
+        setCustomerNote(cachedCosts.customerNote);
+        setQuoteMode(cachedCosts.quoteMode);
+        setPayMode(cachedCosts.payMode as PayMode);
+        setPayModeManualOverride(true);
+        setDefaultDockMinutes(cachedCosts.defaultDockMinutes);
+        setIncludeReturn(cachedCosts.includeReturn);
+        if (cachedCosts.selectedProfileId) setSelectedProfileId(cachedCosts.selectedProfileId);
+      }
 
       if (cachedStops && cachedStops.length >= 2) {
         // ── Fast path: use cached stops (skip geocoding + OSRM) ──
-        // Just set the pre-built stops and run cost calculation directly.
+        // Populate form with non-yard stop locations only (yard is kept in cachedStops for deadhead calc).
+        populateFormRef.current(cachedStops.filter((s) => s.type !== "yard").map((s) => s.location));
         setStops(cachedStops);
         stopsRef.current = cachedStops;
         void calculateRouteRef.current(cachedStops);
@@ -1348,16 +1376,16 @@ export default function RouteBuilder() {
     setPricingAdvice(data as PricingAdvice);
   }
 
-  // Refetch pricing when custom quote amount or inflation change
+  // Refetch pricing when custom quote amount, inflation, or toll change
   // NOTE: accessorials are NOT included — they are added to the final quote, not the cost base
   useEffect(() => {
-    const cost = (routeCalc?.fullTripCost ?? 0) + costInflationAmount;
+    const cost = (routeCalc?.fullTripCost ?? 0) + costInflationAmount + tollAmount;
     if (!routeCalc || cost <= 0) return;
     const timer = setTimeout(() => {
       fetchPricingAdvice(cost);
     }, 400);
     return () => clearTimeout(timer);
-  }, [customQuoteAmount, costInflationAmount]);
+  }, [customQuoteAmount, costInflationAmount, tollAmount]);
 
   // ── Manual Save Quote ────────────────────────────────────────
 
@@ -1488,6 +1516,16 @@ export default function RouteBuilder() {
           distanceFromPrevKm: s.distanceFromPrevKm ?? 0,
           driveMinutesFromPrev: s.driveMinutesFromPrev ?? 0,
         }));
+        const cachedCosts: CachedCosts = {
+          accessorials: { ...accessorials },
+          customQuoteAmount,
+          customerNote,
+          quoteMode,
+          payMode,
+          defaultDockMinutes,
+          includeReturn,
+          selectedProfileId,
+        };
         await firebaseDb.createLane(scopeId, {
           origin,
           destination,
@@ -1495,7 +1533,8 @@ export default function RouteBuilder() {
           fixedPrice: 0,
           estimatedMiles: Math.round(distMi),
           cachedStops,
-        } as Parameters<typeof firebaseDb.createLane>[1] & { cachedStops: typeof cachedStops });
+          cachedCosts,
+        } as Parameters<typeof firebaseDb.createLane>[1] & { cachedStops: typeof cachedStops; cachedCosts: CachedCosts });
         toast({ title: "Lane saved to favorites", description: `${origin} → ${destination}` });
       }
       queryClient.invalidateQueries({ queryKey: ["firebase", "lanes", scopeId ?? ""] });
@@ -1531,6 +1570,32 @@ export default function RouteBuilder() {
   function handleResetDriveTime(formStopIdx: number) {
     const newFormStops = formStops.map((s, i) =>
       i === formStopIdx ? { ...s, driveMinutesAdjustment: 0 } : s,
+    );
+    setFormStops(newFormStops);
+    const currentStops = stopsRef.current;
+    if (currentStops.length >= 2 && selectedProfileId) {
+      void calculateRoute(applyDriveAdjustments(currentStops, newFormStops));
+    }
+  }
+
+  // ── Dock time adjustment ──────────────────────────────────────
+
+  function handleAdjustDockTime(formStopIdx: number, deltaMinutes: number) {
+    const newFormStops = formStops.map((s, i) => {
+      if (i !== formStopIdx) return s;
+      const newDock = Math.max(0, (s.dockMinutes ?? defaultDockMinutes) + deltaMinutes);
+      return { ...s, dockMinutes: newDock };
+    });
+    setFormStops(newFormStops);
+    const currentStops = stopsRef.current;
+    if (currentStops.length >= 2 && selectedProfileId) {
+      void calculateRoute(applyDriveAdjustments(currentStops, newFormStops));
+    }
+  }
+
+  function handleResetDockTime(formStopIdx: number) {
+    const newFormStops = formStops.map((s, i) =>
+      i === formStopIdx ? { ...s, dockMinutes: defaultDockMinutes } : s,
     );
     setFormStops(newFormStops);
     const currentStops = stopsRef.current;
@@ -1789,7 +1854,7 @@ export default function RouteBuilder() {
             aria-label="Lane history"
           >
             <History className="w-3.5 h-3.5" />
-            <span className="text-[11px] font-medium">{stats.totalQuotes} prev</span>
+            <span className="text-xs font-medium">{stats.totalQuotes} prev</span>
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -1798,11 +1863,11 @@ export default function RouteBuilder() {
           className="w-[260px] p-3 text-xs"
         >
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
               {stats.displayOrigin}
               <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
               {stats.displayDestination}
-              <span className="text-[11px] font-normal text-slate-400 ml-auto">
+              <span className="text-xs font-normal text-slate-400 ml-auto">
                 {stats.totalQuotes} quotes
               </span>
             </div>
@@ -1844,7 +1909,7 @@ export default function RouteBuilder() {
             </div>
             {stats.lastWinningPrice > 0 && (
               <div className="border-t border-slate-100 pt-2">
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   Last won at <span className="text-orange-600 font-medium">{sym}{formatCurrencyAmount(stats.lastWinningPrice, wsCurrency)}</span>
                 </p>
               </div>
@@ -1907,8 +1972,8 @@ export default function RouteBuilder() {
   const tripCost = routeCalc?.tripCost ?? 0;
   const deadheadCost = routeCalc?.deadheadCost ?? 0;
   const fullTripCost = routeCalc?.fullTripCost ?? 0;
-  /** Carrier cost = base trip + inflation surcharge (margin tiers apply to this) */
-  const carrierCost = fullTripCost + costInflationAmount;
+  /** Carrier cost = base trip + inflation surcharge + toll estimate (margin tiers apply to this) */
+  const carrierCost = fullTripCost + costInflationAmount + tollAmount;
   /** All-in cost = carrier cost + accessorial pass-throughs (accessorials added after margin) */
   const allInCost = carrierCost + accessorialTotal;
 
@@ -1932,19 +1997,19 @@ export default function RouteBuilder() {
 
   return (
     <>
-    <div className="space-y-3" data-testid="route-builder-page">
+    <div className="space-y-2" data-testid="route-builder-page">
       {/* No cost profile alert */}
       {profiles.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-orange-500 mt-0.5 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-slate-900">No Equipment Cost Profile Found</p>
-            <p className="text-[13px] text-slate-600 mt-1 leading-relaxed">
+            <p className="text-sm text-slate-600 mt-1 leading-relaxed">
               Create an equipment cost profile so Bungee can calculate accurate trip costs from your real operating expenses.
             </p>
             <a
               href="#/profiles?action=create"
-              className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 rounded-md px-3.5 py-1.5 transition-colors"
+              className="inline-flex items-center gap-2 mt-3 text-xs font-semibold text-white bg-orange-400 hover:bg-orange-500 rounded-md px-3 py-2 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
               Create Equipment Cost Profile
@@ -1975,9 +2040,9 @@ export default function RouteBuilder() {
 
       {/* Quick Start Profile reminder */}
       {profiles.find((p) => p.id === selectedProfileId)?.name === "Quick Start Profile" && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-orange-200 bg-orange-50/60 px-3.5 py-2.5">
+        <div className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
-          <p className="text-[13px] text-slate-600 leading-snug">
+          <p className="text-sm text-slate-600 leading-snug">
             You're using the <strong className="text-slate-800">Quick Start Profile</strong> with industry-average values. For accurate quotes,{" "}
             <a href="#/profiles?action=create" className="underline font-semibold text-orange-600 hover:text-orange-500">
               create your own profile
@@ -1989,9 +2054,9 @@ export default function RouteBuilder() {
 
       {/* Local load alert: shown when per-mile is active on a < 50mi trip */}
       {showLocalAlert && payMode === "perMile" && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
-          <p className="text-[13px] text-slate-600 leading-snug">
+          <p className="text-sm text-slate-600 leading-snug">
             <strong className="text-slate-800">Local load detected.</strong> This route is under 50 miles — hourly billing is usually more accurate for short trips.{" "}
             <button
               className="underline font-semibold text-orange-600 hover:text-orange-500"
@@ -2009,9 +2074,9 @@ export default function RouteBuilder() {
 
       {/* Cross-border fuel price notice */}
       {isCrossBorder && (
-        <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
           <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0" />
-          <p className="text-[13px] text-slate-600 leading-snug">
+          <p className="text-sm text-slate-600 leading-snug">
             <strong className="text-slate-800">Cross-border route.</strong> Fuel price is based on your departure region — adjust manually for cross-border accuracy.
           </p>
         </div>
@@ -2022,10 +2087,10 @@ export default function RouteBuilder() {
           ═══════════════════════════════════════════════════════════ */}
       <div className="sticky top-12 sm:top-14 md:top-0 z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-1 pb-1 bg-background">
         <Card className="border-slate-200 shadow-sm" data-testid="route-cost-section">
-          <CardContent className="p-3 sm:p-4 space-y-2.5">
+          <CardContent className="p-3 sm:p-4 space-y-2">
             {/* Row 1: Star + Route name + stats */}
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 {/* Favorite lane star button */}
                 <button
                   type="button"
@@ -2033,7 +2098,7 @@ export default function RouteBuilder() {
                   disabled={isSavingFav || stops.length < 2 || !routeCalc}
                   onClick={handleToggleFavLane}
                   title={isFavLane ? "Remove from favorite lanes" : "Save as favorite lane"}
-                  className={`shrink-0 p-0.5 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+                  className={`shrink-0 p-0.5 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
                     isFavLane
                       ? "text-amber-500 hover:text-amber-600"
                       : "text-slate-300 hover:text-amber-400"
@@ -2042,12 +2107,12 @@ export default function RouteBuilder() {
                   <Star className={`w-4.5 h-4.5 ${isFavLane ? "fill-amber-400" : ""}`} />
                 </button>
                 <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-center sm:flex-wrap sm:gap-2">
-                  <span className="text-[15px] font-semibold text-slate-900 truncate tracking-tight">
+                  <span className="text-sm font-semibold text-slate-900 truncate tracking-tight">
                     {routeSummaryText || effectiveYard?.name || user?.operatingCity || "New Route"}
                   </span>
                   {/* Route stats — below on mobile, inline on desktop */}
                   {routeSummaryStats && (
-                    <span className="text-[12px] sm:text-[13px] text-slate-400 whitespace-nowrap truncate">
+                    <span className="text-xs sm:text-sm text-slate-400 whitespace-nowrap truncate">
                       {displayDistance(routeSummaryStats.totalKm, measureUnit).toFixed(0)} {dLabel}
                       {" · "}
                       {Math.floor(routeSummaryStats.driveMin / 60)}h {String(Math.round(routeSummaryStats.driveMin % 60)).padStart(2, "0")}m drive
@@ -2078,8 +2143,8 @@ export default function RouteBuilder() {
               data-testid="pricing-row"
             >
               {/* CARRIER COST */}
-              <div className="space-y-0.5 pr-2 sm:pr-6">
-                <div className="text-[9px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-0.5">
+              <div className="space-y-1 pr-2 sm:pr-6">
+                <div className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1">
                   Cost
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -2094,10 +2159,11 @@ export default function RouteBuilder() {
                   className="text-lg sm:text-2xl font-extrabold sm:font-bold text-orange-600 tabular-nums tracking-tight"
                   data-testid="pricing-trip-cost"
                 >
-                  {formatCurrency(includeReturn ? carrierCost : (tripCost + costInflationAmount))}
+                  {formatCurrency(includeReturn ? carrierCost : (tripCost + costInflationAmount + tollAmount))}
                 </div>
-                <div className="text-[9px] sm:text-[11px] text-slate-400 hidden sm:block">
+                <div className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">
                   {costInflationAmount > 0 && <span>+{formatCurrency(costInflationAmount)} surcharge · </span>}
+                  {tollAmount > 0 && <span>+{formatCurrency(tollAmount)} toll · </span>}
                   {includeReturn && deadheadCost > 0 ? `incl. ${formatCurrency(deadheadCost)} deadhead · ` : ""}
                   with fuel
                 </div>
@@ -2109,10 +2175,10 @@ export default function RouteBuilder() {
                 return (
                   <div
                     key={tier.label}
-                    className="space-y-0.5 px-2 sm:px-6"
+                    className="space-y-1 px-2 sm:px-6"
                     data-testid={`pricing-tier-${tier.label.toLowerCase().replace(/\s+/g, "-")}`}
                   >
-                    <div className="text-[9px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+                    <div className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
                       {tier.label.replace(" Margin", "")}
                       <span className="hidden sm:inline"> Margin</span>
                     </div>
@@ -2121,14 +2187,14 @@ export default function RouteBuilder() {
                         <div className={`text-lg sm:text-2xl font-extrabold sm:font-bold tabular-nums tracking-tight ${tierColor}`}>
                           {formatCurrency(tier.price + accessorialTotal)}
                         </div>
-                        <div className="text-[9px] sm:text-[11px] text-slate-400 hidden sm:block">
+                        <div className="text-[10px] sm:text-xs text-slate-400 hidden sm:block">
                           +{formatCurrency(tier.marginAmount)}{accessorialTotal > 0 ? ` +${formatCurrency(accessorialTotal)} acc.` : ""}
                         </div>
                       </>
                     ) : (
                       <>
                         <div className="text-sm text-slate-300">&mdash;</div>
-                        <div className="text-[9px] sm:text-[11px] text-slate-400">set route</div>
+                        <div className="text-[10px] sm:text-xs text-slate-400">set route</div>
                       </>
                     )}
                   </div>
@@ -2138,13 +2204,13 @@ export default function RouteBuilder() {
               {(!pricingAdvice?.tiers || pricingAdvice.tiers.length === 0) && (
                 <>
                   {["20% Margin", "30% Margin", "40% Margin"].map((label) => (
-                    <div key={label} className="space-y-0.5 px-2 sm:px-6">
-                      <div className="text-[9px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+                    <div key={label} className="space-y-1 px-2 sm:px-6">
+                      <div className="text-[10px] sm:text-xs font-medium text-slate-400 uppercase tracking-wider">
                         {label.replace(" Margin", "")}
                         <span className="hidden sm:inline"> Margin</span>
                       </div>
                       <div className="text-sm text-slate-300">&mdash;</div>
-                      <div className="text-[9px] sm:text-[11px] text-slate-400">set route</div>
+                      <div className="text-[10px] sm:text-xs text-slate-400">set route</div>
                     </div>
                   ))}
                 </>
@@ -2156,7 +2222,7 @@ export default function RouteBuilder() {
               {/* Line A: quote input + margin indicator + save buttons — all on one row */}
               <div className="flex items-center gap-1 flex-nowrap">
                 {/* Your Quote label + input */}
-                <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium whitespace-nowrap shrink-0">Your Quote</span>
+                <span className="text-xs text-slate-400 uppercase tracking-wider font-medium whitespace-nowrap shrink-0">Your Quote</span>
                 <div className="flex items-center border border-slate-200 rounded-md overflow-hidden h-8 shrink-0">
                   <span className="text-sm text-slate-400 pl-2 pr-0.5">{currencySymbol(currency)}</span>
                   <Input
@@ -2172,7 +2238,7 @@ export default function RouteBuilder() {
                   {/* Margin % indicator */}
                 {/* Margin % indicator */}
                 {pricingAdvice?.customQuote ? (
-                  <span className="text-[11px] font-bold shrink-0 ml-0.5">
+                  <span className="text-xs font-bold shrink-0 ml-0.5">
                     <span>{pricingAdvice.customQuote.marginPercent.toFixed(1)}%</span>
                     <span className={`ml-0.5 ${marginQualityLabel(pricingAdvice.customQuote.marginPercent).color}`}>
                       {marginQualityLabel(pricingAdvice.customQuote.marginPercent).label}
@@ -2185,7 +2251,7 @@ export default function RouteBuilder() {
                       const pct = ((amt - accessorialTotal - carrierCost) / carrierCost) * 100;
                       const q = marginQualityLabel(pct);
                       return (
-                        <span className="text-[11px] font-bold shrink-0 ml-0.5">
+                        <span className="text-xs font-bold shrink-0 ml-0.5">
                           <span>{pct.toFixed(1)}%</span>
                           <span className={`ml-0.5 ${q.color}`}>{q.label}</span>
                         </span>
@@ -2207,7 +2273,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-won"
                     size="sm"
-                    className="h-8 px-3.5 bg-green-600 hover:bg-green-700 text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3 bg-green-600 hover:bg-green-700 text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("won")}
                     title="Won"
@@ -2218,7 +2284,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-quote"
                     size="sm"
-                    className="h-8 px-3.5 bg-orange-400 hover:bg-orange-500 text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3 bg-orange-400 hover:bg-orange-500 text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("pending")}
                     title="Pending"
@@ -2229,7 +2295,7 @@ export default function RouteBuilder() {
                   <Button
                     data-testid="button-save-lost"
                     size="sm"
-                    className="h-8 px-3.5 bg-red-500 hover:bg-red-600 text-white gap-1 justify-center text-xs font-semibold"
+                    className="h-8 px-3 bg-red-500 hover:bg-red-600 text-white gap-1 justify-center text-xs font-semibold"
                     disabled={isSavingQuote || !routeCalc || carrierCost <= 0}
                     onClick={() => handleSaveQuote("lost")}
                     title="Lost"
@@ -2237,14 +2303,14 @@ export default function RouteBuilder() {
                     {isSavingQuote ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
                     <span className="hidden sm:inline">Lost</span>
                   </Button>
-                  {/* PDF button — inline after Won/Pending/Lost */}
+                  {/* PDF button — desktop only (mobile version is next to note field below) */}
                   {lastSavedQuote && can(user, "quote:sharePdf") && (
                     canExportPdf(user) ? (
                       <Button
                         data-testid="button-share-pdf"
                         variant="outline"
                         size="sm"
-                        className="h-8 px-2.5 gap-1 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs font-semibold"
+                        className="hidden sm:flex h-8 px-3 gap-1 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs font-semibold"
                         onClick={() => setPdfDialogOpen(true)}
                       >
                         <FileDown className="w-3 h-3" />
@@ -2255,7 +2321,7 @@ export default function RouteBuilder() {
                         data-testid="button-share-pdf"
                         variant="outline"
                         size="sm"
-                        className="h-8 px-2.5 gap-1 shrink-0 text-slate-400 text-xs font-semibold"
+                        className="hidden sm:flex h-8 px-3 gap-1 shrink-0 text-slate-400 text-xs font-semibold"
                         onClick={() => {
                           setUpgradeReason({
                             title: "Upgrade to export branded PDFs",
@@ -2266,26 +2332,58 @@ export default function RouteBuilder() {
                       >
                         <FileDown className="w-3 h-3" />
                         PDF
-                        <Badge variant="outline" className="text-[9px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
+                        <Badge variant="outline" className="text-[10px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
                       </Button>
                     )
                   )}
                 </div>
               </div>
               {currentLaneStats && currentLaneStats.lastWinningPrice > 0 && (
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-400 mt-0.5">
                   Last won at {currencySymbol(resolveWorkspaceCurrency(user) as SupportedCurrency)}
                   {formatCurrencyAmount(currentLaneStats.lastWinningPrice, resolveWorkspaceCurrency(user) as SupportedCurrency)}
                 </p>
               )}
-              {/* Note field — mobile only (second row below quote + buttons) */}
-              <Input
-                data-testid="input-customer-note-mobile"
-                placeholder="Add a note…"
-                className="sm:hidden h-7 text-xs w-full border-slate-100 bg-slate-50 placeholder:text-slate-300 focus-visible:ring-1 focus-visible:ring-slate-200"
-                value={customerNote}
-                onChange={(e) => setCustomerNote(e.target.value)}
-              />
+              {/* Note field + PDF button — mobile only (second row below quote + buttons) */}
+              <div className="sm:hidden flex items-center gap-2">
+                <Input
+                  data-testid="input-customer-note-mobile"
+                  placeholder="Add a note…"
+                  className="h-8 text-xs flex-1 min-w-0 border-slate-100 bg-slate-50 placeholder:text-slate-300 focus-visible:ring-1 focus-visible:ring-slate-200"
+                  value={customerNote}
+                  onChange={(e) => setCustomerNote(e.target.value)}
+                />
+                {lastSavedQuote && can(user, "quote:sharePdf") && (
+                  canExportPdf(user) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-3 gap-1 shrink-0 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs font-semibold"
+                      onClick={() => setPdfDialogOpen(true)}
+                    >
+                      <FileDown className="w-3 h-3" />
+                      PDF
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-3 gap-1 shrink-0 text-slate-400 text-xs font-semibold"
+                      onClick={() => {
+                        setUpgradeReason({
+                          title: "Upgrade to export branded PDFs",
+                          description: "Branded quote PDFs are available on Pro and Premium plans.",
+                        });
+                        setUpgradeOpen(true);
+                      }}
+                    >
+                      <FileDown className="w-3 h-3" />
+                      PDF
+                      <Badge variant="outline" className="text-[10px] ml-0.5 border-orange-300 text-orange-600">Pro</Badge>
+                    </Button>
+                  )
+                )}
+              </div>
             </div>
 
           </CardContent>
@@ -2306,24 +2404,25 @@ export default function RouteBuilder() {
           ═══════════════════════════════════════════════════════════ */}
       {quoteMode === "advanced" && routeCalc && routeCalc.fullTripCost > 0 && (
         <Card className="border-slate-200 shadow-sm" data-testid="advanced-section">
-          <CardContent className="pt-3 pb-3 space-y-2.5">
+          <CardContent className="pt-3 pb-3 space-y-2">
             {/* ── ROW 1: COST — pay mode, dock time, deadhead, surcharge, breakdown ── */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Cost</h4>
                 <div className="flex-1 border-t border-slate-100" />
-                {costInflationAmount > 0 && <span className="text-[11px] font-semibold text-slate-500">+{formatCurrency(costInflationAmount)} surcharge</span>}
+                {costInflationAmount > 0 && <span className="text-xs font-semibold text-slate-500">+{formatCurrency(costInflationAmount)} surcharge</span>}
+                {tollAmount > 0 && <span className="text-xs font-semibold text-slate-500">+{formatCurrency(tollAmount)} toll</span>}
               </div>
-              <div className="flex items-center gap-x-3 sm:gap-x-4 gap-y-2 flex-wrap [&_input]:h-7 [&_button]:leading-7">
+              <div className="flex items-center gap-x-3 sm:gap-x-4 gap-y-2 flex-wrap [&_input]:h-8 [&_button]:leading-8">
                 {/* Pay mode toggle */}
                 <div
                   data-testid="switch-pay-mode"
-                  className="inline-flex rounded-md border border-orange-300 overflow-hidden h-7 text-[11px] font-medium select-none"
+                  className="inline-flex rounded-md border border-orange-300 overflow-hidden h-8 text-xs font-medium select-none"
                 >
                   <button
                     type="button"
                     onClick={() => { setPayModeManualOverride(true); setPayMode("perHour"); setShowLocalAlert(false); }}
-                    className={`px-2.5 flex items-center justify-center h-7 transition-colors ${payMode === "perHour" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
+                    className={`px-3 flex items-center justify-center h-8 transition-colors ${payMode === "perHour" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
                   >Per Hour</button>
                   <button
                     type="button"
@@ -2331,7 +2430,7 @@ export default function RouteBuilder() {
                       setPayModeManualOverride(true); setPayMode("perMile");
                       if (routeCalc) { const km = routeCalc.legs.filter(l => !l.isDeadhead).reduce((s, l) => s + l.distanceKm, 0); setShowLocalAlert(km / 1.609344 < 50 && km > 0); }
                     }}
-                    className={`px-2.5 flex items-center justify-center h-7 transition-colors border-l border-slate-200 ${payMode === "perMile" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
+                    className={`px-3 flex items-center justify-center h-8 transition-colors border-l border-slate-200 ${payMode === "perMile" ? "bg-orange-400 text-white" : "bg-white text-slate-500 hover:bg-orange-50"}`}
                   >Per {dLabel === "mi" ? "Mile" : "KM"}</button>
                 </div>
                 {/* Breakdown toggle */}
@@ -2339,7 +2438,7 @@ export default function RouteBuilder() {
                   <button
                     type="button"
                     data-testid="button-toggle-breakdown"
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 rounded px-2 h-7 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-orange-500 hover:text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-md px-2 h-8 transition-colors"
                     onClick={() => setShowBreakdown((prev) => !prev)}
                   >
                     {showBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -2350,10 +2449,10 @@ export default function RouteBuilder() {
                 {/* Dock time + Deadhead group */}
                 <div className="flex items-center gap-x-4 gap-y-2 flex-wrap" data-testid="dock-deadhead-section">
                 {/* Dock time */}
-                <div className="flex items-center gap-1.5 h-7">
+                <div className="flex items-center gap-2 h-8">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
+                      <span className="text-xs text-slate-500 whitespace-nowrap flex items-center gap-1 cursor-help">
                         Dock Time
                         <Info className="w-3 h-3 text-slate-300" />
                       </span>
@@ -2367,37 +2466,42 @@ export default function RouteBuilder() {
                     type="number"
                     step="0.5"
                     min="0"
-                    className="h-7 text-xs w-[60px] text-center"
+                    className="h-8 text-xs w-[60px] text-center"
                     value={defaultDockMinutes / 60}
                     onChange={(e) => {
                       const hrs = parseFloat(e.target.value);
                       if (!isNaN(hrs) && hrs >= 0) setDefaultDockMinutes(Math.round(hrs * 60));
                     }}
                   />
-                  <span className="text-[11px] text-slate-400">hrs</span>
+                  <span className="text-xs text-slate-400">hrs</span>
                 </div>
                 <div className="hidden sm:block w-px h-5 bg-slate-200" />
-                {/* Surcharge — next to Dock Time on mobile only */}
-                <div className="flex sm:hidden items-center gap-1.5 h-7">
+                {/* Surcharge + Toll — next to Dock Time on mobile only */}
+                <div className="flex sm:hidden items-center gap-2 h-8">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
+                      <span className="text-xs text-slate-500 whitespace-nowrap flex items-center gap-1 cursor-help">
                         Surcharge
                         <Info className="w-3 h-3 text-slate-300" />
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[240px] text-xs">
-                      Percentage added to carrier base cost for hazmat handling, regulatory compliance, or special equipment. Industry standard is 5-15%.
+                    <TooltipContent side="top" className="max-w-[260px] text-xs">
+                      <p>% adds a percentage surcharge to the base cost (e.g. hazmat, regulatory). Industry standard is 5–15%.</p>
+                      <p className="mt-1">The $/km (or $/mi) field estimates toll costs. Average toll for tractor-trailers: ~$0.25–$0.40/km on major toll highways (e.g. 407 ETR, ON-400 series), ~$0.15–$0.25/mi on US toll roads.</p>
                     </TooltipContent>
                   </Tooltip>
-                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-7">
-                    <Input type="number" min="0" max="100" step="0.5" className="h-7 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} data-testid="input-surcharge-pct" />
+                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-8">
+                    <Input type="number" min="0" max="100" step="0.5" className="h-8 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} data-testid="input-surcharge-pct" />
                     <span className="text-[10px] text-slate-400 px-1 border-l border-slate-200 bg-slate-50 h-full flex items-center">%</span>
                   </div>
+                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-8">
+                    <span className="text-[10px] text-slate-400 px-1 border-r border-slate-200 bg-slate-50 h-full flex items-center">$</span>
+                    <Input type="number" min="0" step="0.01" className="h-8 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.tollRatePerKm || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tollRatePerKm: parseFloat(e.target.value) || 0 }))} data-testid="input-toll-rate" />
+                    <span className="text-[10px] text-slate-400 px-1 border-l border-slate-200 bg-slate-50 h-full flex items-center">/{measureUnit === "imperial" ? "mi" : "km"}</span>
+                  </div>
                 </div>
-                <div className="hidden sm:block w-px h-5 bg-slate-200" />
                 {/* Deadhead toggle + Yard selector */}
-                <div className="flex items-center gap-1.5 h-7">
+                <div className="flex items-center gap-2 h-8">
                   <Switch
                     data-testid="switch-include-return"
                     checked={includeReturn}
@@ -2407,7 +2511,7 @@ export default function RouteBuilder() {
                   />
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className={`text-[11px] flex items-center gap-0.5 cursor-help ${effectiveYard ? "text-slate-500" : "text-slate-300"}`}>
+                      <span className={`text-xs flex items-center gap-1 cursor-help ${effectiveYard ? "text-slate-500" : "text-slate-300"}`}>
                         Deadhead
                         <Info className="w-3 h-3 text-slate-300" />
                       </span>
@@ -2417,7 +2521,7 @@ export default function RouteBuilder() {
                     </TooltipContent>
                   </Tooltip>
                   <Select value={selectedYardId} onValueChange={setSelectedYardId}>
-                    <SelectTrigger data-testid="select-yard" className="h-7 py-0 text-[11px] w-[120px] sm:w-[140px]">
+                    <SelectTrigger data-testid="select-yard" className="h-8 py-0 text-xs w-[120px] sm:w-[140px]">
                       <SelectValue placeholder="Select yard" />
                     </SelectTrigger>
                     <SelectContent>
@@ -2430,22 +2534,28 @@ export default function RouteBuilder() {
                 </div>
                 </div>{/* end dock-deadhead-section */}
                 <div className="hidden sm:block w-px h-5 bg-slate-200" />
-                {/* Surcharge — desktop position (after deadhead) */}
-                <div className="hidden sm:flex items-center gap-1.5 h-7">
+                {/* Surcharge + Toll — desktop position (after deadhead) */}
+                <div className="hidden sm:flex items-center gap-2 h-8">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="text-[11px] text-slate-500 whitespace-nowrap flex items-center gap-0.5 cursor-help">
+                      <span className="text-xs text-slate-500 whitespace-nowrap flex items-center gap-1 cursor-help">
                         Surcharge
                         <Info className="w-3 h-3 text-slate-300" />
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[240px] text-xs">
-                      Percentage added to carrier base cost for hazmat handling, regulatory compliance, or special equipment. Industry standard is 5-15%.
+                    <TooltipContent side="top" className="max-w-[260px] text-xs">
+                      <p>% adds a percentage surcharge to the base cost (e.g. hazmat, regulatory). Industry standard is 5–15%.</p>
+                      <p className="mt-1">The $/km (or $/mi) field estimates toll costs. Average toll for tractor-trailers: ~$0.25–$0.40/km on major toll highways (e.g. 407 ETR, ON-400 series), ~$0.15–$0.25/mi on US toll roads.</p>
                     </TooltipContent>
                   </Tooltip>
-                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-7">
-                    <Input type="number" min="0" max="100" step="0.5" className="h-7 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} data-testid="input-surcharge-pct-desktop" />
+                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-8">
+                    <Input type="number" min="0" max="100" step="0.5" className="h-8 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.costInflationPct || ""} onChange={(e) => setAccessorials((p) => ({ ...p, costInflationPct: parseFloat(e.target.value) || 0 }))} data-testid="input-surcharge-pct-desktop" />
                     <span className="text-[10px] text-slate-400 px-1 border-l border-slate-200 bg-slate-50 h-full flex items-center">%</span>
+                  </div>
+                  <div className="flex items-center rounded-md border border-slate-200 overflow-hidden h-8">
+                    <span className="text-[10px] text-slate-400 px-1 border-r border-slate-200 bg-slate-50 h-full flex items-center">$</span>
+                    <Input type="number" min="0" step="0.01" className="h-8 text-xs border-0 shadow-none rounded-none w-[50px] text-center focus-visible:ring-0 px-0" placeholder="0" value={accessorials.tollRatePerKm || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tollRatePerKm: parseFloat(e.target.value) || 0 }))} data-testid="input-toll-rate-desktop" />
+                    <span className="text-[10px] text-slate-400 px-1 border-l border-slate-200 bg-slate-50 h-full flex items-center">/{measureUnit === "imperial" ? "mi" : "km"}</span>
                   </div>
                 </div>
               </div>
@@ -2457,89 +2567,91 @@ export default function RouteBuilder() {
                 <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest shrink-0">Charges</h4>
                 <button
                   type="button"
-                  className="sm:hidden text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-0.5 shrink-0"
+                  className="sm:hidden text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1 shrink-0"
                   onClick={() => setShowMobileCharges((v) => !v)}
                 >
                   {showMobileCharges ? "Hide" : "Show"}
                   {showMobileCharges ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
                 <div className="flex-1 border-t border-slate-100" />
-                {accessorialTotal > 0 && <span className="text-[11px] font-semibold text-orange-600 shrink-0">+{formatCurrency(accessorialTotal)}</span>}
-                <a href="#/profiles?tab=company" className="text-[11px] text-orange-500 underline underline-offset-2 hover:text-orange-600 shrink-0" data-testid="link-adjust-defaults">Adjust Defaults</a>
+                {accessorialTotal > 0 && <span className="text-xs font-semibold text-orange-600 shrink-0">+{formatCurrency(accessorialTotal)}</span>}
+                <a href="#/profiles?tab=company" className="text-xs text-orange-500 underline underline-offset-2 hover:text-orange-600 shrink-0" data-testid="link-adjust-defaults">Adjust Defaults</a>
               </div>
               <div className={`grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 ${showMobileCharges ? "" : "hidden sm:grid"}`}>
                 {/* Detention */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                     Detention
                     <Tooltip>
                       <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Wait time charged when loading or unloading exceeds the allotted free time window.</TooltipContent>
                     </Tooltip>
+                    <span className="text-[10px] font-normal text-slate-400 ml-0.5">{formatCurrency(accessorials.detentionRate)}/hr</span>
                   </div>
-                  <div className="text-[10px] text-slate-400">× {formatCurrency(accessorials.detentionRate)}/hour</div>
                   <Input type="number" min="0" step="0.5" className="h-8 text-xs text-center" placeholder="hours" value={accessorials.detentionHours || ""} onChange={(e) => setAccessorials((p) => ({ ...p, detentionHours: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Extra Stops */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                     Stops
                     <Tooltip>
                       <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Additional stop-off fee for multi-drop or multi-pickup loads beyond the standard origin/destination.</TooltipContent>
                     </Tooltip>
+                    <span className="text-[10px] font-normal text-slate-400 ml-0.5">{formatCurrency(accessorials.stopOffRate)}/stop</span>
                   </div>
-                  <div className="text-[10px] text-slate-400">× {formatCurrency(accessorials.stopOffRate)}/stop</div>
                   <Input type="number" min="0" step="1" className="h-8 text-xs text-center" placeholder="# stops" value={accessorials.stopOffCount || ""} onChange={(e) => setAccessorials((p) => ({ ...p, stopOffCount: parseInt(e.target.value) || 0 }))} />
                 </div>
                 {/* Lumper */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                     Lumper
                     <Tooltip>
                       <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Third-party labor fee for loading or unloading freight at warehouse facilities.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="10" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.lumperFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, lumperFee: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="10" className="h-8 text-xs text-center"  placeholder="$0" value={accessorials.lumperFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, lumperFee: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Border */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                     Border
                     <Tooltip>
                       <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Customs brokerage and border crossing fees for cross-border shipments (US/Canada).</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.borderCrossing || ""} onChange={(e) => setAccessorials((p) => ({ ...p, borderCrossing: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center"  placeholder="$0" value={accessorials.borderCrossing || ""} onChange={(e) => setAccessorials((p) => ({ ...p, borderCrossing: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* TONU */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                     TONU
                     <Tooltip>
                       <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Truck Ordered Not Used. Compensation when a load is cancelled after the carrier has dispatched.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="50" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tonu || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tonu: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="50" className="h-8 text-xs text-center"  placeholder="$0" value={accessorials.tonu || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tonu: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Tailgate */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700 flex items-center gap-0.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                     Tailgate
                     <Tooltip>
                       <TooltipTrigger asChild><Info className="w-3 h-3 text-slate-300 cursor-help" /></TooltipTrigger>
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Liftgate/tailgate fee for deliveries requiring hydraulic lift for loading or unloading.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tailgateFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tailgateFee: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center"  placeholder="$0" value={accessorials.tailgateFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tailgateFee: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Other (custom) */}
                 <div className="space-y-1">
-                  <div className="text-[11px] font-semibold text-slate-700">Other</div>
-                  <div className="text-[10px] text-slate-400 leading-[16px]"><input type="text" className="w-full bg-transparent text-[10px] text-slate-400 leading-[16px] outline-none placeholder:text-slate-300" placeholder="Label" value={accessorials.customAccessorialLabel} onChange={(e) => setAccessorials((p) => ({ ...p, customAccessorialLabel: e.target.value }))} /></div>
+                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                    <span className="shrink-0">Other:</span>
+                    <input type="text" className="flex-1 min-w-0 bg-transparent text-[10px] font-normal text-slate-400 outline-none placeholder:text-slate-300 border-b border-slate-200" placeholder="" value={accessorials.customAccessorialLabel} onChange={(e) => setAccessorials((p) => ({ ...p, customAccessorialLabel: e.target.value }))} />
+                  </div>
                   <Input type="number" min="0" step="10" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.customAccessorialAmount || ""} onChange={(e) => setAccessorials((p) => ({ ...p, customAccessorialAmount: parseFloat(e.target.value) || 0 }))} />
                 </div>
               </div>
@@ -2547,7 +2659,7 @@ export default function RouteBuilder() {
 
             {/* ── BREAKDOWN: collapsed by default, toggled from header ── */}
             {routeCalc && routeCalc.legs && routeCalc.legs.length > 0 && showBreakdown && (
-              <div className="space-y-2.5 pt-1" data-testid="leg-breakdown">
+              <div className="space-y-2 pt-1" data-testid="leg-breakdown">
                 {routeCalc.legs.map((leg, i) => {
                   const isLocal = leg.isLocal ?? leg.distanceKm < 100;
                   const isDeadhead = leg.isDeadhead ?? leg.type === "deadhead";
@@ -2555,7 +2667,7 @@ export default function RouteBuilder() {
                   return (
                     <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/50 px-4 py-3 space-y-2" data-testid={`leg-card-${i}`}>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                           {isDeadhead
                             ? `Deadhead Return \u00B7 ${leg.from} \u2192 ${leg.to}`
                             : `Leg ${routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1} \u00B7 ${leg.from} \u2192 ${leg.to} (est.)`}
@@ -2566,7 +2678,7 @@ export default function RouteBuilder() {
                           </span>
                         )}
                       </div>
-                      <div className="space-y-0.5 text-[13px]">
+                      <div className="space-y-1 text-sm">
                         {/* Drive time row — interactive adjuster for non-deadhead legs */}
                         {(() => {
                           if (isDeadhead) {
@@ -2597,12 +2709,27 @@ export default function RouteBuilder() {
                                 </Tooltip>
                               </span>
                               <span className="flex items-center gap-1 select-none">
+                                {driveAdj !== 0 && (
+                                  <button
+                                    type="button"
+                                    aria-label="Reset to Google estimate"
+                                    className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                                    onClick={() => handleResetDriveTime(fIdx)}
+                                  >
+                                    reset
+                                  </button>
+                                )}
+                                {driveAdj !== 0 && (
+                                  <span className={`text-[10px] ${driveAdj > 0 ? "text-amber-600" : "text-blue-500"}`}>
+                                    {driveAdj > 0 ? "+" : ""}{driveAdj}m
+                                  </span>
+                                )}
                                 <button
                                   type="button"
-                                  aria-label="Decrease drive time by 5 minutes"
-                                  disabled={leg.driveMinutes <= 5}
-                                  className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none"
-                                  onClick={() => handleAdjustDriveTime(fIdx, -5)}
+                                  aria-label="Decrease drive time by 30 minutes"
+                                  disabled={leg.driveMinutes <= 30}
+                                  className="w-5 h-5 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none"
+                                  onClick={() => handleAdjustDriveTime(fIdx, -30)}
                                 >
                                   −
                                 </button>
@@ -2611,37 +2738,66 @@ export default function RouteBuilder() {
                                 </span>
                                 <button
                                   type="button"
-                                  aria-label="Increase drive time by 5 minutes"
-                                  className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground text-base leading-none"
-                                  onClick={() => handleAdjustDriveTime(fIdx, +5)}
+                                  aria-label="Increase drive time by 30 minutes"
+                                  className="w-5 h-5 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground text-base leading-none"
+                                  onClick={() => handleAdjustDriveTime(fIdx, +30)}
                                 >
                                   +
                                 </button>
-                                {driveAdj !== 0 && (
-                                  <span className="flex items-center gap-0.5 text-[10px]">
-                                    <span className={driveAdj > 0 ? "text-amber-600" : "text-blue-500"}>
-                                      {driveAdj > 0 ? "+" : ""}{driveAdj}m
-                                    </span>
-                                    <button
-                                      type="button"
-                                      aria-label="Reset to Google estimate"
-                                      className="text-muted-foreground hover:text-foreground underline text-[10px]"
-                                      onClick={() => handleResetDriveTime(fIdx)}
-                                    >
-                                      reset
-                                    </button>
-                                  </span>
-                                )}
                               </span>
                             </div>
                           );
                         })()}
-                        {!isDeadhead && leg.dockMinutes > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Load + Unload</span>
-                            <span>{(leg.dockMinutes / 60) % 1 === 0 ? (leg.dockMinutes / 60).toFixed(0) : (leg.dockMinutes / 60).toFixed(1)} hrs</span>
-                          </div>
-                        )}
+                        {!isDeadhead && (() => {
+                          const nonDeadheadLegNumDock = routeCalc.legs.filter((l, j) => j < i && !(l.isDeadhead ?? l.type === "deadhead")).length + 1;
+                          const dIdx = nonDeadheadLegNumDock;
+                          const currentDock = formStops[dIdx]?.dockMinutes ?? defaultDockMinutes;
+                          const dockDelta = currentDock - defaultDockMinutes;
+                          const dockH = Math.floor(currentDock / 60);
+                          const dockM = Math.round(currentDock % 60);
+                          return (
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-muted-foreground shrink-0">Dock Time</span>
+                              <span className="flex items-center gap-1 select-none">
+                                {dockDelta !== 0 && (
+                                  <button
+                                    type="button"
+                                    aria-label="Reset dock time to default"
+                                    className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                                    onClick={() => handleResetDockTime(dIdx)}
+                                  >
+                                    reset
+                                  </button>
+                                )}
+                                {dockDelta !== 0 && (
+                                  <span className={`text-[10px] ${dockDelta > 0 ? "text-amber-600" : "text-blue-500"}`}>
+                                    {dockDelta > 0 ? "+" : ""}{dockDelta}m
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  aria-label="Decrease dock time by 30 minutes"
+                                  disabled={currentDock <= 0}
+                                  className="w-5 h-5 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none"
+                                  onClick={() => handleAdjustDockTime(dIdx, -30)}
+                                >
+                                  −
+                                </button>
+                                <span className="tabular-nums font-medium min-w-[52px] text-center">
+                                  {dockH}h {String(dockM).padStart(2, "0")}m
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label="Increase dock time by 30 minutes"
+                                  className="w-5 h-5 rounded-md border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground text-base leading-none"
+                                  onClick={() => handleAdjustDockTime(dIdx, +30)}
+                                >
+                                  +
+                                </button>
+                              </span>
+                            </div>
+                          );
+                        })()}
                         <div className="flex justify-between font-medium">
                           <span>Total billable hrs</span>
                           <span>{billableHrs.toFixed(2)} hrs</span>
@@ -2650,7 +2806,7 @@ export default function RouteBuilder() {
                         {/* Fixed cost */}
                         <div className="flex justify-between items-baseline gap-1">
                           <span className="text-muted-foreground shrink-0">Fixed Cost</span>
-                          <span className="text-[11px] text-muted-foreground text-right flex-1">
+                          <span className="text-xs text-muted-foreground text-right flex-1">
                             {billableHrs.toFixed(2)} hrs &times; {formatCurrency(routeCalc.fixedCostPerHour)}/hr
                           </span>
                           <span className="font-medium shrink-0 tabular-nums">{formatCurrency(leg.fixedCost)}</span>
@@ -2661,7 +2817,7 @@ export default function RouteBuilder() {
                             Driver Cost{routeCalc.payMode === "perMile" ? ` (per ${dLabel})` : ""}
                             {isDeadhead && routeCalc.deadheadPayPercent < 100 ? ` @ ${routeCalc.deadheadPayPercent}%` : ""}
                           </span>
-                          <span className="text-[11px] text-muted-foreground text-right flex-1">
+                          <span className="text-xs text-muted-foreground text-right flex-1">
                             {routeCalc.payMode === "perMile" ? (
                               <>
                                 {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times; {formatCurrency(measureUnit === "imperial" ? routeCalc.driverPayPerMile : routeCalc.driverPayPerMile / 1.609344)}/{dLabel}
@@ -2681,7 +2837,7 @@ export default function RouteBuilder() {
                           <span className="text-muted-foreground shrink-0">
                             Fuel Cost ({displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel})
                           </span>
-                          <span className="text-[11px] text-muted-foreground text-right flex-1">
+                          <span className="text-xs text-muted-foreground text-right flex-1">
                             {displayDistance(leg.distanceKm, measureUnit).toFixed(0)} {dLabel} &times;{" "}
                             {formatCurrency(measureUnit === "imperial" ? routeCalc.fuelPerKm * 1.609344 : routeCalc.fuelPerKm)}/{dLabel}
                           </span>
@@ -2689,11 +2845,11 @@ export default function RouteBuilder() {
                         </div>
                       </div>
                       <div
-                        className="flex justify-between items-center rounded-md px-3 py-1.5 -mx-1"
+                        className="flex justify-between items-center rounded-md px-3 py-2 -mx-1"
                         style={{ backgroundColor: "rgba(234, 88, 12, 0.08)" }}
                       >
-                        <span className="text-[13px] font-bold text-slate-800">{isDeadhead ? "Deadhead Total w/ Fuel" : "Total w/ Fuel"}</span>
-                        <span className="text-[13px] font-bold text-orange-600 tabular-nums">
+                        <span className="text-sm font-bold text-slate-800">{isDeadhead ? "Deadhead Total w/ Fuel" : "Total w/ Fuel"}</span>
+                        <span className="text-sm font-bold text-orange-600 tabular-nums">
                           {formatCurrency(leg.legCost)}
                         </span>
                       </div>
@@ -2714,12 +2870,12 @@ export default function RouteBuilder() {
                 >
                   <div className="flex items-center gap-2">
                     <Receipt className="w-3.5 h-3.5 text-orange-500" />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                       Fuel Tax (IFTA)
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-semibold text-slate-900 tabular-nums">
+                    <span className="text-sm font-semibold text-slate-900 tabular-nums">
                       {formatCurrency(iftaResult.totalTaxUSD)}
                     </span>
                     {showIFTA ? (
@@ -2735,14 +2891,14 @@ export default function RouteBuilder() {
                     {iftaResult.jurisdictions.map((j) => (
                       <div
                         key={j.code}
-                        className="flex items-center justify-between text-[13px]"
+                        className="flex items-center justify-between text-sm"
                         data-testid={`ifta-row-${j.code}`}
                       >
                         <div className="flex items-center gap-2">
                           <span className="text-slate-500">
                             {j.name} ({j.code})
                           </span>
-                          <span className="text-[11px] text-slate-400 tabular-nums">
+                          <span className="text-xs text-slate-400 tabular-nums">
                             {(measureUnit === "imperial" ? j.distanceMiles : j.distanceKm).toFixed(0)} {dLabel}
                           </span>
                         </div>
@@ -2763,7 +2919,7 @@ export default function RouteBuilder() {
                         </div>
                       </div>
                     ))}
-                    <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-100">
+                    <div className="text-xs text-slate-400 pt-1 border-t border-slate-100">
                       Rates as of {iftaResult.quarter} ({iftaResult.effectiveDate})
                     </div>
                   </div>
@@ -2775,12 +2931,12 @@ export default function RouteBuilder() {
             {iftaResult && !canUseIFTA(user) && showBreakdown && (
               <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2 flex items-center gap-2 flex-nowrap" data-testid="ifta-upsell">
                 <Receipt className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-                <span className="text-[11px] text-slate-400 flex-1">
+                <span className="text-xs text-slate-400 flex-1">
                   Fuel Tax (IFTA) breakdown
                 </span>
                 <a
                   href="#/settings?tab=billing"
-                  className="text-[11px] font-medium text-orange-500 hover:text-orange-600 shrink-0 whitespace-nowrap"
+                  className="text-xs font-medium text-orange-500 hover:text-orange-600 shrink-0 whitespace-nowrap"
                 >
                   Upgrade to Pro
                 </a>
@@ -2793,7 +2949,7 @@ export default function RouteBuilder() {
       {/* ═══════════════════════════════════════════════════════════
           SECTION 2 + 3: Chatbot (left) + Map & Build Route (right)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:auto-rows-fr">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:auto-rows-fr">
           {/* ── Left: Route Chat ─────────────────────────────────── */}
           <Card className="border-slate-200 flex flex-col" data-testid="chat-panel">
             <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-4 pb-1 sm:pb-2 shrink-0">
@@ -2801,7 +2957,7 @@ export default function RouteBuilder() {
                 Route Chat
                 <button
                   type="button"
-                  className="sm:hidden text-[11px] text-orange-500 hover:text-orange-600 flex items-center gap-0.5 font-medium normal-case tracking-normal"
+                  className="sm:hidden text-xs text-orange-500 hover:text-orange-600 flex items-center gap-1 font-medium normal-case tracking-normal"
                   onClick={() => setChatMinimized((v) => !v)}
                 >
                   {chatMinimized ? "Expand" : "Minimize"}
@@ -2812,13 +2968,13 @@ export default function RouteBuilder() {
             <CardContent className={`px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-2 sm:space-y-3 ${chatMinimized ? "hidden sm:flex" : ""}`}>
               {/* Chat messages — stretches to match right column height */}
               <div
-                className="space-y-2 flex-1 min-h-[60px] sm:min-h-[180px] max-h-[160px] sm:max-h-none overflow-y-auto"
+                className="space-y-2 flex-1 min-h-[60px] sm:min-h-[80px] max-h-[160px] sm:max-h-none overflow-y-auto"
                 data-testid="chat-messages"
               >
                 {chatHistory.map((msg, i) => (
                   <div
                     key={i}
-                    className={`text-sm rounded-xl px-3.5 py-2.5 max-w-[85%] leading-relaxed whitespace-pre-wrap ${
+                    className={`text-sm rounded-lg px-3 py-2 max-w-[85%] leading-relaxed whitespace-pre-wrap ${
                       msg.role === "bot"
                         ? "bg-slate-100 text-slate-700"
                         : "bg-orange-400 text-white ml-auto"
@@ -2836,13 +2992,13 @@ export default function RouteBuilder() {
               </div>
 
               {/* Quick route chips */}
-              <div className="flex flex-wrap gap-1.5 shrink-0">
+              <div className="flex flex-wrap gap-2 shrink-0">
                 {quickRoutes.map((route) => (
                   <Button
                     key={route}
                     variant="outline"
                     size="sm"
-                    className="text-[11px] h-6 sm:h-7 px-2"
+                    className="text-xs h-8 sm:h-8 px-2"
                     data-testid={`chip-${route.replace(/\s+/g, "-").toLowerCase()}`}
                     onClick={() => {
                       setChatMessage(route);
@@ -2855,12 +3011,12 @@ export default function RouteBuilder() {
               </div>
 
               {/* Chat input */}
-              <div className="flex gap-1.5 sm:gap-2 shrink-0 items-center">
+              <div className="flex gap-2 sm:gap-2 shrink-0 items-center">
                 <input
                   type="text"
                   data-testid="chat-input"
                   placeholder='e.g. "Toronto to Montreal"'
-                  className="flex-1 text-xs sm:text-sm rounded-md border border-slate-200 bg-white px-2.5 sm:px-3 h-7 sm:h-9 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
+                  className="flex-1 text-xs sm:text-sm rounded-md border border-slate-200 bg-white px-3 sm:px-3 h-8 sm:h-9 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                   onKeyDown={(e) => {
@@ -2874,7 +3030,7 @@ export default function RouteBuilder() {
                   data-testid="button-send-chat"
                   disabled={!chatMessage.trim() || chatRouteMutation.isPending}
                   onClick={() => sendChat(chatMessage)}
-                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-4 sm:px-5 h-7 sm:h-9 text-xs sm:text-sm"
+                  className="shrink-0 bg-orange-400 hover:bg-orange-500 text-white px-4 sm:px-5 h-8 sm:h-9 text-xs sm:text-sm"
                 >
                   Send
                 </Button>
@@ -2883,7 +3039,7 @@ export default function RouteBuilder() {
           </Card>
 
           {/* ── Right: Map + Build Route Form ────────────────────── */}
-          <div className="space-y-3 flex flex-col">
+          <div className="space-y-2 flex flex-col">
             {/* Map */}
             <Card className="border-slate-200 overflow-hidden flex-1">
               <CardHeader className="px-3 sm:px-4 pt-2 sm:pt-3 pb-1">
@@ -2912,7 +3068,7 @@ export default function RouteBuilder() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 space-y-3.5">
+              <CardContent className="px-3 sm:px-4 pb-2 sm:pb-3 pt-0 space-y-2">
                 {/* Unified stops list with drag-and-drop */}
                 {formStops.map((stop, idx) => {
                   const isFirst = idx === 0;
@@ -2925,67 +3081,13 @@ export default function RouteBuilder() {
                   const isDragging = dragIdx === idx;
                   const isDragOver = dragOverIdx === idx;
 
-                  // Drive time adjuster data for this stop (only for non-first stops)
-                  const baseDriveMin = idx > 0 ? getBaseStopDriveMinutes(stops, idx) : 0;
-                  const driveAdj = stop.driveMinutesAdjustment ?? 0;
-                  const effectiveDriveMin = Math.max(0, baseDriveMin + driveAdj);
-                  const driveH = Math.floor(effectiveDriveMin / 60);
-                  const driveM = Math.round(effectiveDriveMin % 60);
-
                   return (
                     <Fragment key={stop.id}>
-                    {/* ── Drive time adjuster between stops ── */}
-                    {idx > 0 && baseDriveMin > 0 && (
-                      <div className="flex items-center gap-1.5 py-0.5 pl-5 select-none">
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <Clock className="w-3 h-3 shrink-0" />
-                        </div>
-                        <button
-                          type="button"
-                          aria-label="Decrease drive time by 5 minutes"
-                          disabled={effectiveDriveMin <= 5}
-                          className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none"
-                          onClick={() => handleAdjustDriveTime(idx, -5)}
-                        >
-                          −
-                        </button>
-                        <span className="text-xs font-medium tabular-nums min-w-[52px] text-center text-foreground">
-                          {driveH}h {String(driveM).padStart(2, "0")}m
-                        </span>
-                        <button
-                          type="button"
-                          aria-label="Increase drive time by 5 minutes"
-                          className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground text-base leading-none"
-                          onClick={() => handleAdjustDriveTime(idx, +5)}
-                        >
-                          +
-                        </button>
-                        {driveAdj !== 0 && (
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <span className={driveAdj > 0 ? "text-amber-600" : "text-blue-500"}>
-                              {driveAdj > 0 ? "+" : ""}{driveAdj}m
-                            </span>
-                            <button
-                              type="button"
-                              aria-label="Reset drive time to Google estimate"
-                              className="text-muted-foreground hover:text-foreground underline text-[10px]"
-                              onClick={() => handleResetDriveTime(idx)}
-                            >
-                              reset
-                            </button>
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    {null /* Drive time adjustors are shown in Breakdown only */}
                     <div
-                      className={`space-y-1 rounded-md transition-all ${
-                        isDragging ? "opacity-40" : ""
-                      } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
-                      draggable
-                      onDragStart={(e) => {
-                        setDragIdx(idx);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
+                      className={`rounded-md transition-all ${
+                        isDragging ? "opacity-30 scale-[0.98]" : ""
+                      } ${isDragOver ? "ring-2 ring-orange-400/50 bg-orange-50/50" : ""}`}
                       onDragOver={(e) => {
                         e.preventDefault();
                         e.dataTransfer.dropEffect = "move";
@@ -3017,14 +3119,20 @@ export default function RouteBuilder() {
                         setDragOverIdx(null);
                       }}
                     >
-                      <Label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                      <Label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                         {stopLabel}
                       </Label>
-                      <div className="flex items-center gap-1.5">
-                        {/* Drag handle */}
+                      <div className="flex items-center gap-2">
+                        {/* Drag handle — only this element is draggable */}
                         <div
-                          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5"
+                          draggable
+                          onDragStart={(e) => {
+                            setDragIdx(idx);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          className="shrink-0 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 rounded-md p-1 hover:bg-slate-100 transition-colors"
                           data-testid={`drag-handle-${idx}`}
+                          title="Drag to reorder"
                         >
                           <GripVertical className="w-4 h-4" />
                         </div>
@@ -3059,30 +3167,32 @@ export default function RouteBuilder() {
                           />
                         </div>
 
-                        {/* Remove button (only for middle stops, and only if more than 2 stops) */}
-                        {!isFirst && !isLast && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                            data-testid={`button-remove-stop-${idx}`}
-                            onClick={() => {
-                              setFormStops((prev) => {
-                                const updated = prev.filter((_, i) => i !== idx);
-                                // Auto-build after removing a stop
-                                setTimeout(() => {
-                                  const current = formStopsRef.current;
-                                  if (current.filter((s) => s.location.trim()).length >= 2) {
-                                    void triggerRouteBuild(current, false);
-                                  }
-                                }, 50);
-                                return updated;
-                              });
-                            }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
+                        {/* Remove button — always visible on every stop */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 w-9 p-0 text-slate-300 hover:text-red-500 shrink-0"
+                          data-testid={`button-remove-stop-${idx}`}
+                          onClick={() => {
+                            setFormStops((prev) => {
+                              let updated = prev.filter((_, i) => i !== idx);
+                              // Always keep at least 2 stops (origin + destination)
+                              while (updated.length < 2) {
+                                updated.push({ id: nextStopId(), location: "", dockMinutes: defaultDockMinutes });
+                              }
+                              // Auto-build after removing a stop
+                              setTimeout(() => {
+                                const current = formStopsRef.current;
+                                if (current.filter((s) => s.location.trim()).length >= 2) {
+                                  void triggerRouteBuild(current, false);
+                                }
+                              }, 50);
+                              return updated;
+                            });
+                          }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </div>
                     </Fragment>

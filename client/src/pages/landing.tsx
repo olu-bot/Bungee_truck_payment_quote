@@ -149,6 +149,8 @@ export default function Landing() {
       ADD_TAGS: ["section", "nav", "footer", "iframe"],
       ADD_ATTR: [
         "data-action", "data-scroll", "data-testid", "data-billing-toggle",
+        "data-demo-carousel", "data-demo-caption", "data-demo-prev", "data-demo-next",
+        "data-demo-dots", "data-demo-phases", "data-dot", "data-slide", "data-phase-slides",
         "src", "loading", "allowfullscreen", "referrerpolicy",
       ],
     });
@@ -251,6 +253,71 @@ export default function Landing() {
     );
     root.querySelectorAll(".fade-up").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
+  }, [view]);
+
+  // ── Interactive Demo: flat 9-step carousel ────────
+  useEffect(() => {
+    if (view !== "landing") return;
+    const root = marketingRef.current;
+    if (!root) return;
+
+    const CAPTIONS = [
+      "<strong>Step 1 of 10:</strong> Pick your truck type, enter your real costs — or use industry averages to start instantly.",
+      '<strong>Step 2 of 10:</strong> Type "Toronto to Montreal" in the AI Route Chat. The route builds, map updates, and costs calculate in seconds.',
+      "<strong>Step 3 of 10:</strong> See your carrier cost, 20/30/40% margin tiers, and pricing quality at a glance. Dock time, deadhead, and surcharges are all adjustable.",
+      '<strong>Step 4 of 10:</strong> Type "Toronto to Kingston to Ottawa" — Bungee builds a 3-stop route and prices each leg separately.',
+      "<strong>Step 5 of 10:</strong> Per-leg breakdown: drive time (adjustable), dock time, fixed cost, driver cost, and Total w/ Fuel for each leg.",
+      "<strong>Step 6 of 10:</strong> Add accessorial charges — detention, extra stops, lumper, border crossing, TONU, tailgate, and surcharge. All factored into your total.",
+      '<strong>Step 7 of 10:</strong> Enter your customer price ($1,050 → 29.6% margin), add a note like "ABC Logistics — RFQ #2847", then save.',
+      "<strong>Step 8 of 10:</strong> Quote saved as Won! Download a branded PDF or share a link. Status, margin, and note are all tracked.",
+      "<strong>Step 9 of 10:</strong> Quote History shows every saved quote — win rate, average margin, and total revenue update automatically.",
+      '<strong>Step 10 of 10:</strong> Type "Walmart" to filter — only matching quotes appear. Search by lane, customer, note, or status.',
+    ];
+
+    const carousel = root.querySelector<HTMLElement>("[data-demo-carousel]");
+    if (!carousel) return;
+
+    const slides = carousel.querySelectorAll<HTMLElement>(".demo-slide");
+    const dots = carousel.querySelectorAll<HTMLElement>(".demo-dot");
+    const phases = carousel.querySelectorAll<HTMLElement>(".demo-phase");
+    const caption = carousel.querySelector<HTMLElement>("[data-demo-caption]");
+    const prevBtn = carousel.querySelector<HTMLButtonElement>("[data-demo-prev]");
+    const nextBtn = carousel.querySelector<HTMLButtonElement>("[data-demo-next]");
+    const total = slides.length;
+
+    function goTo(idx: number) {
+      if (idx < 0 || idx >= total) return;
+      slides.forEach((s, i) => s.classList.toggle("active", i === idx));
+      dots.forEach((d, i) => d.classList.toggle("active", i === idx));
+      if (caption) caption.innerHTML = CAPTIONS[idx] ?? "";
+      if (prevBtn) prevBtn.disabled = idx === 0;
+      if (nextBtn) nextBtn.disabled = idx === total - 1;
+      // Highlight active phase title
+      phases.forEach((p) => {
+        const slideIds = (p.getAttribute("data-phase-slides") ?? "").split(",").map(Number);
+        p.classList.toggle("active", slideIds.includes(idx));
+      });
+    }
+
+    function getCurrent() {
+      let c = 0;
+      slides.forEach((s, i) => { if (s.classList.contains("active")) c = i; });
+      return c;
+    }
+
+    const handler = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.closest("[data-demo-prev]")) { e.preventDefault(); goTo(getCurrent() - 1); return; }
+      if (el.closest("[data-demo-next]")) { e.preventDefault(); goTo(getCurrent() + 1); return; }
+      const dot = el.closest<HTMLElement>("[data-dot]");
+      if (dot) { e.preventDefault(); goTo(parseInt(dot.getAttribute("data-dot") ?? "0")); return; }
+      const phase = el.closest<HTMLElement>("[data-phase-slides]");
+      if (phase) { e.preventDefault(); const first = parseInt((phase.getAttribute("data-phase-slides") ?? "0").split(",")[0]); goTo(first); }
+    };
+
+    carousel.addEventListener("click", handler);
+    goTo(0); // initialize
+    return () => carousel.removeEventListener("click", handler);
   }, [view]);
 
   function goDashboard() {

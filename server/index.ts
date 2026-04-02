@@ -46,6 +46,7 @@ async function main() {
     wwwUrl,
     "http://localhost:5000",
     "http://localhost:5173",
+    "http://localhost:5555",
   ].filter(Boolean) as string[];
 
   app.use(cors({

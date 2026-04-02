@@ -406,13 +406,15 @@ function AppLayout() {
     if (routePath !== "/") {
       setLocation("/");
     }
-    // Pass cached stops (if saved) so RouteBuilder can skip geocoding/routing API calls
-    const cachedStops = (lane as Lane & { cachedStops?: unknown }).cachedStops ?? null;
+    // Pass cached stops and costs (if saved) so RouteBuilder can restore the full lane state
+    const laneWithCache = lane as Lane & { cachedStops?: unknown; cachedCosts?: unknown };
+    const cachedStops = laneWithCache.cachedStops ?? null;
+    const cachedCosts = laneWithCache.cachedCosts ?? null;
     // Dispatch a custom event that RouteBuilder listens for
     setTimeout(() => {
       window.dispatchEvent(
         new CustomEvent("bungee:load-lane", {
-          detail: { origin: lane.origin, destination: lane.destination, cachedStops },
+          detail: { origin: lane.origin, destination: lane.destination, cachedStops, cachedCosts },
         })
       );
     }, 50); // Small delay to ensure RouteBuilder is mounted/visible
@@ -535,7 +537,7 @@ function AppLayout() {
 
         {/* Sidebar nav items */}
         <nav className="flex-1 overflow-y-auto py-3 px-2" data-testid="nav-sidebar">
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-1">
             {visibleNav.map(({ path, label, icon: Icon }) => {
               const isActive = routePath === path;
               const inboxBadge = path === "/admin/feedback" && feedbackUnread > 0;
@@ -544,7 +546,7 @@ function AppLayout() {
                   <button
                     data-testid={`nav-${label.toLowerCase().replace(/\s/g, "-")}`}
                     title={sidebarCollapsed ? label : undefined}
-                    className={`relative flex items-center gap-2.5 w-full rounded-md text-sm transition-colors ${
+                    className={`relative flex items-center gap-2 w-full rounded-md text-sm transition-colors ${
                       sidebarCollapsed ? "justify-center px-2 py-2" : "px-3 py-2"
                     } ${
                       isActive
@@ -570,7 +572,7 @@ function AppLayout() {
               data-testid="nav-feedback"
               title={sidebarCollapsed ? "Feedback" : undefined}
               onClick={() => setFeedbackOpen(true)}
-              className={`flex items-center gap-2.5 w-full rounded-md text-sm transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/50 ${
+              className={`flex items-center gap-2 w-full rounded-md text-sm transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/50 ${
                 sidebarCollapsed ? "justify-center px-2 py-2" : "px-3 py-2"
               }`}
             >
@@ -586,7 +588,7 @@ function AppLayout() {
             {!sidebarCollapsed ? (
               <>
                 <div className="flex items-center justify-between px-1 mb-2">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <PartyPopper className="w-3.5 h-3.5 text-orange-500" />
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Get Started</span>
                   </div>
@@ -599,14 +601,14 @@ function AppLayout() {
                     style={{ width: `${(completedTours.size / TOUR_IDS.length) * 100}%` }}
                   />
                 </div>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1">
                   {SIDEBAR_TOURS.map(({ id, label, icon: TourIcon }) => {
                     const done = completedTours.has(id);
                     return (
                       <button
                         key={id}
                         onClick={() => !done && startSidebarTour(id)}
-                        className={`flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-all group ${
+                        className={`flex items-center gap-2 w-full text-left px-2 py-2 rounded-md text-xs transition-all group ${
                           done
                             ? "text-green-600/70 cursor-default"
                             : "text-muted-foreground hover:text-foreground hover:bg-orange-50 cursor-pointer"
@@ -636,7 +638,7 @@ function AppLayout() {
         <div className={`border-t border-border shrink-0 ${sidebarCollapsed ? "px-1 py-2" : "px-3 py-3"}`}>
           {!sidebarCollapsed ? (
             <>
-              <div className="flex items-center gap-1.5 px-1 mb-2">
+              <div className="flex items-center gap-2 px-1 mb-2">
                 <Star className="w-3.5 h-3.5 text-amber-500" />
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Favorite Lanes</span>
               </div>
@@ -645,25 +647,34 @@ function AppLayout() {
                   No saved lanes yet. Add lanes from the Route Builder to see them here.
                 </p>
               ) : (
-                <div className="flex flex-col gap-0.5 max-h-[180px] overflow-y-auto">
-                  {favLanes.slice(0, 10).map((lane) => (
-                    <button
-                      key={lane.id}
-                      onClick={() => handleFavLaneClick(lane)}
-                      className="flex items-start gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-accent/50 group cursor-pointer"
-                      title={`Load route: ${lane.origin} → ${lane.destination}`}
-                    >
-                      <MapPin className="w-3 h-3 mt-0.5 shrink-0 text-primary/60 group-hover:text-primary" />
-                      <div className="min-w-0">
-                        <div className="truncate text-foreground/80 group-hover:text-foreground">
-                          {lane.origin}
+                <div className="flex flex-col gap-1 max-h-[180px] overflow-y-auto">
+                  {favLanes.slice(0, 10).map((lane) => {
+                    const cachedStops = (lane as Lane & { cachedStops?: Array<{ location: string; type?: string }> }).cachedStops;
+                    const nonYard = cachedStops ? cachedStops.filter((s) => s.type !== "yard") : null;
+                    const intermediateStops = nonYard && nonYard.length > 2 ? nonYard.slice(1, -1).map((s) => s.location).filter(Boolean) : [];
+                    const allStops = [lane.origin, ...intermediateStops, lane.destination];
+                    return (
+                      <button
+                        key={lane.id}
+                        onClick={() => handleFavLaneClick(lane)}
+                        className="flex items-start gap-2 w-full text-left px-2 py-2 rounded-md text-xs transition-colors hover:bg-accent/50 group cursor-pointer"
+                        title={`Load route: ${allStops.join(" → ")}`}
+                      >
+                        <MapPin className="w-3 h-3 mt-0.5 shrink-0 text-primary/60 group-hover:text-primary" />
+                        <div className="min-w-0">
+                          <div className="truncate text-foreground/80 group-hover:text-foreground">
+                            {lane.origin}
+                          </div>
+                          {intermediateStops.map((stop, i) => (
+                            <div key={i} className="truncate text-muted-foreground">→ {stop}</div>
+                          ))}
+                          <div className="truncate text-muted-foreground">
+                            → {lane.destination}
+                          </div>
                         </div>
-                        <div className="truncate text-muted-foreground">
-                          → {lane.destination}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -680,8 +691,8 @@ function AppLayout() {
             {!sidebarCollapsed ? (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-muted-foreground">Monthly Quotes</span>
-                  <span className={`text-[11px] font-semibold tabular-nums ${quoteUsage.remaining <= 100 ? (quoteUsage.remaining <= 0 ? "text-red-500" : "text-amber-500") : "text-foreground"}`}>
+                  <span className="text-xs font-medium text-muted-foreground">Monthly Quotes</span>
+                  <span className={`text-xs font-semibold tabular-nums ${quoteUsage.remaining <= 100 ? (quoteUsage.remaining <= 0 ? "text-red-500" : "text-amber-500") : "text-foreground"}`}>
                     {quoteUsage.remaining.toLocaleString()} left
                   </span>
                 </div>
@@ -725,7 +736,7 @@ function AppLayout() {
                   <div className="h-6 w-20 rounded-md bg-muted/30" aria-hidden />
                 )}
               </div>
-              <div className="flex items-center gap-0.5 shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 {/* <ThemeToggle /> */}
                 {user && (
                   <Button
@@ -794,7 +805,7 @@ function AppLayout() {
 
             {/* Mobile nav items */}
             <nav className="flex-1 overflow-y-auto py-3 px-2">
-              <div className="flex flex-col gap-0.5">
+              <div className="flex flex-col gap-1">
                 {visibleNav.map(({ path, label, icon: Icon }) => {
                   const isActive = routePath === path;
                   const inboxBadge = path === "/admin/feedback" && feedbackUnread > 0;
@@ -802,7 +813,7 @@ function AppLayout() {
                     <Link key={path} href={path}>
                       <button
                         onClick={() => setMobileNavOpen(false)}
-                        className={`relative flex items-center gap-2.5 w-full px-3 py-2.5 rounded-md text-sm transition-colors ${
+                        className={`relative flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm transition-colors ${
                           isActive
                             ? "bg-primary/10 text-primary font-medium"
                             : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -825,7 +836,7 @@ function AppLayout() {
                     setFeedbackOpen(true);
                     setMobileNavOpen(false);
                   }}
-                  className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 >
                   <MessageSquare className="w-4 h-4 shrink-0" />
                   <span>Feedback</span>
@@ -837,7 +848,7 @@ function AppLayout() {
             {!allToursComplete && (
               <div className="border-t border-border px-3 py-3 shrink-0">
                 <div className="flex items-center justify-between px-1 mb-2">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <PartyPopper className="w-3.5 h-3.5 text-orange-500" />
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Get Started</span>
                   </div>
@@ -846,14 +857,14 @@ function AppLayout() {
                 <div className="h-1 rounded-full bg-slate-100 mx-1 mb-2.5 overflow-hidden">
                   <div className="h-full bg-orange-400 rounded-full transition-all duration-500 ease-out" style={{ width: `${(completedTours.size / TOUR_IDS.length) * 100}%` }} />
                 </div>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1">
                   {SIDEBAR_TOURS.map(({ id, label, icon: TourIcon }) => {
                     const done = completedTours.has(id);
                     return (
                       <button
                         key={id}
                         onClick={() => { if (!done) { setMobileNavOpen(false); startSidebarTour(id); } }}
-                        className={`flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-all group ${
+                        className={`flex items-center gap-2 w-full text-left px-2 py-2 rounded-md text-xs transition-all group ${
                           done ? "text-green-600/70 cursor-default" : "text-muted-foreground hover:text-foreground hover:bg-orange-50 cursor-pointer"
                         }`}
                       >
@@ -869,28 +880,37 @@ function AppLayout() {
 
             {/* Mobile fav lanes */}
             <div className="border-t border-border px-3 py-3 shrink-0">
-              <div className="flex items-center gap-1.5 px-1 mb-2">
+              <div className="flex items-center gap-2 px-1 mb-2">
                 <Star className="w-3.5 h-3.5 text-amber-500" />
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Favorite Lanes</span>
               </div>
               {favLanes.length === 0 ? (
                 <p className="text-xs text-muted-foreground/60 px-1 py-1">No saved lanes yet.</p>
               ) : (
-                <div className="flex flex-col gap-0.5 max-h-[140px] overflow-y-auto">
-                  {favLanes.slice(0, 10).map((lane) => (
-                    <button
-                      key={lane.id}
-                      onClick={() => handleFavLaneClick(lane)}
-                      className="flex items-start gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-accent/50 group cursor-pointer"
-                      title={`Load route: ${lane.origin} → ${lane.destination}`}
-                    >
-                      <MapPin className="w-3 h-3 mt-0.5 shrink-0 text-primary/60 group-hover:text-primary" />
-                      <div className="min-w-0">
-                        <div className="truncate text-foreground/80 group-hover:text-foreground">{lane.origin}</div>
-                        <div className="truncate text-muted-foreground">→ {lane.destination}</div>
-                      </div>
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-1 max-h-[140px] overflow-y-auto">
+                  {favLanes.slice(0, 10).map((lane) => {
+                    const cachedStops = (lane as Lane & { cachedStops?: Array<{ location: string; type?: string }> }).cachedStops;
+                    const nonYard = cachedStops ? cachedStops.filter((s) => s.type !== "yard") : null;
+                    const intermediateStops = nonYard && nonYard.length > 2 ? nonYard.slice(1, -1).map((s) => s.location).filter(Boolean) : [];
+                    const allStops = [lane.origin, ...intermediateStops, lane.destination];
+                    return (
+                      <button
+                        key={lane.id}
+                        onClick={() => handleFavLaneClick(lane)}
+                        className="flex items-start gap-2 w-full text-left px-2 py-2 rounded-md text-xs transition-colors hover:bg-accent/50 group cursor-pointer"
+                        title={`Load route: ${allStops.join(" → ")}`}
+                      >
+                        <MapPin className="w-3 h-3 mt-0.5 shrink-0 text-primary/60 group-hover:text-primary" />
+                        <div className="min-w-0">
+                          <div className="truncate text-foreground/80 group-hover:text-foreground">{lane.origin}</div>
+                          {intermediateStops.map((stop, i) => (
+                            <div key={i} className="truncate text-muted-foreground">→ {stop}</div>
+                          ))}
+                          <div className="truncate text-muted-foreground">→ {lane.destination}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -899,8 +919,8 @@ function AppLayout() {
             {user && quoteUsage.limit !== -1 && (
               <div className="border-t border-border px-3 py-3 shrink-0">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-medium text-muted-foreground">Monthly Quotes</span>
-                  <span className={`text-[11px] font-semibold tabular-nums ${quoteUsage.remaining <= 100 ? (quoteUsage.remaining <= 0 ? "text-red-500" : "text-amber-500") : "text-foreground"}`}>
+                  <span className="text-xs font-medium text-muted-foreground">Monthly Quotes</span>
+                  <span className={`text-xs font-semibold tabular-nums ${quoteUsage.remaining <= 100 ? (quoteUsage.remaining <= 0 ? "text-red-500" : "text-amber-500") : "text-foreground"}`}>
                     {quoteUsage.remaining.toLocaleString()} left
                   </span>
                 </div>
@@ -925,7 +945,7 @@ function AppLayout() {
                     <span className="truncate">{user.name}</span>
                   </Badge>
                 ) : null}
-                <div className="flex items-center gap-0.5 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   {/* <ThemeToggle /> */}
                   {user && (
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleLogoutClick}>
@@ -990,7 +1010,7 @@ function AppLayout() {
         <FeedbackSheet open={feedbackOpen} onOpenChange={setFeedbackOpen} />
 
         {/* Main */}
-        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 sm:pb-6 max-w-6xl mx-auto">
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-3 pb-20 sm:pb-3 max-w-6xl mx-auto">
           <div className="mb-3">
             <h1 className="text-sm font-semibold" data-testid="text-page-title">
               {page.title}
@@ -1000,19 +1020,19 @@ function AppLayout() {
                 {page.subtitle}
               </p>
               {isHome && user && (
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground" title="Preferred currency">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" title="Preferred currency">
                     <DollarSign className="w-3 h-3" />
                     {currency}
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground" title="Unit of measurement">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" title="Unit of measurement">
                     <Ruler className="w-3 h-3" />
                     {measureUnit === "imperial" ? "Imperial (mi, gal)" : "Metric (km, L)"}
                   </span>
                 </div>
               )}
               {/* Portal target for RouteBuilder controls — own row on mobile, inline on desktop */}
-              {isHome && <div id="route-controls-portal" className="flex items-center gap-1.5 sm:gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0 [&>*]:h-7 [&_input]:h-7 [&_button]:h-7" />}
+              {isHome && <div id="route-controls-portal" className="flex items-center gap-2 sm:gap-2 flex-nowrap w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0 [&>*]:h-7 [&_input]:h-7 [&_button]:h-7" />}
             </div>
           </div>
 
@@ -1047,7 +1067,7 @@ function AppLayout() {
         {/* Footer */}
         <footer className="hidden sm:block border-t border-border py-3 mt-auto">
           <div className="px-4 sm:px-6 flex items-center justify-center">
-            <span className="text-[11px] text-slate-400">&copy; {new Date().getFullYear()} Bungee Supply Chain Ltd.</span>
+            <span className="text-xs text-slate-400">&copy; {new Date().getFullYear()} Bungee Supply Chain Ltd.</span>
           </div>
         </footer>
       </div>

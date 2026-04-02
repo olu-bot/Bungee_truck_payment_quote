@@ -86,7 +86,18 @@ const OVERVIEW_STEPS: WalkthroughStep[] = [
     navigateTo: "#/",
     measureDelay: 600,
   },
-  // 2 — Fuel price explanation
+  // 2 — Favorite this lane
+  {
+    target: '[data-testid="button-fav-lane"]',
+    title: "Save a Favorite Lane",
+    body: "Click the star to save this lane as a favorite. Favorite lanes appear in your sidebar for one-click access \u2014 and Bungee saves all your cost settings so the quote reloads exactly as you left it.",
+    placement: "bottom",
+    action: "Click the star to favorite this lane.",
+    advanceWhen: "click",
+    navigateTo: "#/",
+    measureDelay: 5000,
+  },
+  // 3 — Fuel price explanation
   {
     target: '[data-testid="input-fuel-price"]',
     title: "Your Fuel Cost",
@@ -244,7 +255,17 @@ const setupAdvancedTour = () => {
 };
 
 const ADVANCED_QUOTE_STEPS: WalkthroughStep[] = [
-  // 0 — Toggle Advanced mode (first builds a route via setupFn)
+  // 0 — Add a stop (show the multi-stop capability)
+  {
+    target: '[data-testid="button-add-stop"]',
+    title: "Multi-Stop Routes",
+    body: "Click \u201C+ Add Stop\u201D to add intermediate stops to your route. Bungee calculates each leg separately \u2014 distance, drive time, dock time, and cost \u2014 so your multi-drop and LTL quotes are fully broken down.",
+    placement: "top",
+    navigateTo: "#/",
+    setupFn: setupAdvancedTour,
+    measureDelay: 5000,
+  },
+  // 1 — Toggle Advanced mode
   {
     target: '[data-testid="button-advanced"]',
     title: "Enter Advanced Mode",
@@ -253,8 +274,7 @@ const ADVANCED_QUOTE_STEPS: WalkthroughStep[] = [
     action: "Click Advanced to expand all fields.",
     advanceWhen: "click",
     navigateTo: "#/",
-    setupFn: setupAdvancedTour,
-    measureDelay: 5000,
+    measureDelay: 400,
     tooltipOffset: { x: -80 },
   },
   // 1 — COST section: Pay Mode + Breakdown toggle

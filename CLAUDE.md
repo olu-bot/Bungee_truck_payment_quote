@@ -39,19 +39,19 @@ explicit slate/orange values above. Semantic tokens are only used inside
 | Page title (App.tsx header) | `text-sm font-semibold` |
 | Page subtitle | `text-xs text-slate-500` |
 | Section headings inside cards | `text-sm font-semibold text-slate-900` |
-| Uppercase section labels | `text-[11px] font-semibold text-slate-400 uppercase tracking-wider` |
-| Body / field values | `text-sm` or `text-[13px]` |
+| Uppercase section labels | `text-[10px] font-semibold text-slate-400 uppercase tracking-wider` |
+| Body / field values | `text-sm` |
 | Descriptions / captions | `text-xs text-slate-500` |
-| Tiny labels / timestamps | `text-[11px] text-slate-400` |
+| Tiny labels / timestamps | `text-xs text-slate-400` |
 | Badge text | `text-[10px]` |
-| Footer | `text-[11px] text-slate-400` |
+| Footer | `text-xs text-slate-400` |
 
 ### Spacing
 
 | Context | Value |
 |---|---|
 | Page-level gap between sections | `space-y-3` |
-| Card internal content | `space-y-2.5` |
+| Card internal content | `space-y-2` |
 | Grid gaps | `gap-3` |
 | Inline element gaps | `gap-2` |
 

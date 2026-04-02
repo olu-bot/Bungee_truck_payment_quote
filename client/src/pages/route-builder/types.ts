@@ -55,4 +55,31 @@ export type PricingAdvice = {
   customQuote?: { label: string; quoteAmount: number; marginPercent: number; marginAmount: number } | null;
 };
 
-export type LaneWithCache = Lane & { cachedStops?: { location?: string; type?: string }[] };
+export type CachedCosts = {
+  accessorials: {
+    detentionHours: number;
+    detentionRate: number;
+    lumperFee: number;
+    stopOffCount: number;
+    stopOffRate: number;
+    borderCrossing: number;
+    tonu: number;
+    tailgateFee: number;
+    customAccessorialLabel: string;
+    customAccessorialAmount: number;
+    costInflationPct: number;
+    tollRatePerKm: number;
+  };
+  customQuoteAmount: string;
+  customerNote: string;
+  quoteMode: "quick" | "advanced";
+  payMode: string;
+  defaultDockMinutes: number;
+  includeReturn: boolean;
+  selectedProfileId: string;
+};
+
+export type LaneWithCache = Lane & {
+  cachedStops?: { location?: string; type?: string }[];
+  cachedCosts?: CachedCosts;
+};

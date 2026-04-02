@@ -1668,7 +1668,7 @@ export default function RouteBuilder() {
 
   return (
     <>
-    <div className="space-y-3" data-testid="route-builder-page">
+    <div className="space-y-2" data-testid="route-builder-page">
       {/* No cost profile alert */}
       {profiles.length === 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
@@ -2188,7 +2188,7 @@ export default function RouteBuilder() {
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Wait time charged when loading or unloading exceeds the allotted free time window.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="text-[10px] text-slate-400">× {formatCurrency(accessorials.detentionRate)}/hour</div>
+                  <div className="text-[10px] text-slate-400 leading-[16px]">{formatCurrency(accessorials.detentionRate)}/hour</div>
                   <Input type="number" min="0" step="0.5" className="h-8 text-xs text-center" placeholder="hours" value={accessorials.detentionHours || ""} onChange={(e) => setAccessorials((p) => ({ ...p, detentionHours: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Extra Stops */}
@@ -2200,7 +2200,7 @@ export default function RouteBuilder() {
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Additional stop-off fee for multi-drop or multi-pickup loads beyond the standard origin/destination.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="text-[10px] text-slate-400">× {formatCurrency(accessorials.stopOffRate)}/stop</div>
+                  <div className="text-[10px] text-slate-400 leading-[16px]">{formatCurrency(accessorials.stopOffRate)}/stop</div>
                   <Input type="number" min="0" step="1" className="h-8 text-xs text-center" placeholder="# stops" value={accessorials.stopOffCount || ""} onChange={(e) => setAccessorials((p) => ({ ...p, stopOffCount: parseInt(e.target.value) || 0 }))} />
                 </div>
                 {/* Lumper */}
@@ -2212,7 +2212,7 @@ export default function RouteBuilder() {
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Third-party labor fee for loading or unloading freight at warehouse facilities.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="10" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.lumperFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, lumperFee: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="10" className="h-8 text-xs text-center" style={{ maxWidth: "calc(100% - 5px)" }} placeholder="$0" value={accessorials.lumperFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, lumperFee: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Border */}
                 <div className="space-y-1">
@@ -2223,7 +2223,7 @@ export default function RouteBuilder() {
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Customs brokerage and border crossing fees for cross-border shipments (US/Canada).</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.borderCrossing || ""} onChange={(e) => setAccessorials((p) => ({ ...p, borderCrossing: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" style={{ maxWidth: "calc(100% - 5px)" }} placeholder="$0" value={accessorials.borderCrossing || ""} onChange={(e) => setAccessorials((p) => ({ ...p, borderCrossing: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* TONU */}
                 <div className="space-y-1">
@@ -2234,7 +2234,7 @@ export default function RouteBuilder() {
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Truck Ordered Not Used. Compensation when a load is cancelled after the carrier has dispatched.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="50" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tonu || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tonu: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="50" className="h-8 text-xs text-center" style={{ maxWidth: "calc(100% - 5px)" }} placeholder="$0" value={accessorials.tonu || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tonu: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Tailgate */}
                 <div className="space-y-1">
@@ -2245,7 +2245,7 @@ export default function RouteBuilder() {
                       <TooltipContent side="top" className="max-w-[200px] text-xs">Liftgate/tailgate fee for deliveries requiring hydraulic lift for loading or unloading.</TooltipContent>
                     </Tooltip>
                   </div>
-                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" placeholder="$0" value={accessorials.tailgateFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tailgateFee: parseFloat(e.target.value) || 0 }))} />
+                  <Input type="number" min="0" step="25" className="h-8 text-xs text-center" style={{ maxWidth: "calc(100% - 5px)" }} placeholder="$0" value={accessorials.tailgateFee || ""} onChange={(e) => setAccessorials((p) => ({ ...p, tailgateFee: parseFloat(e.target.value) || 0 }))} />
                 </div>
                 {/* Other (custom) */}
                 <div className="space-y-1">
@@ -2371,7 +2371,7 @@ export default function RouteBuilder() {
       {/* ═══════════════════════════════════════════════════════════
           SECTION 2 + 3: Chatbot (left) + Map & Build Route (right)
           ═══════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:auto-rows-fr">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 lg:auto-rows-fr">
           {/* ── Left: Route Chat ─────────────────────────────────── */}
           <Card className="border-slate-200 flex flex-col" data-testid="chat-panel">
             <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-2 shrink-0">
@@ -2382,7 +2382,7 @@ export default function RouteBuilder() {
             <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 flex flex-col flex-1 min-h-0 space-y-3">
               {/* Chat messages — stretches to match right column height */}
               <div
-                className="space-y-2 flex-1 min-h-[180px] overflow-y-auto"
+                className="space-y-2 flex-1 min-h-[80px] overflow-y-auto"
                 data-testid="chat-messages"
               >
                 {chatHistory.map((msg, i) => (
@@ -2429,8 +2429,8 @@ export default function RouteBuilder() {
                 <textarea
                   data-testid="chat-input"
                   placeholder={'Type a route or paste a shipment order…\ne.g. "Toronto to Montreal"\nor paste pickup/delivery addresses, dimensions, weight'}
-                  className="flex-1 text-sm rounded-md border border-slate-200 bg-white px-3 py-2 h-[72px] resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
-                  rows={3}
+                  className="flex-1 text-sm rounded-md border border-slate-200 bg-white px-3 py-1.5 h-[48px] resize-none focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent placeholder:text-slate-400"
+                  rows={2}
                   value={chatMessage}
                   onChange={(e) => setChatMessage(e.target.value)}
                   onKeyDown={(e) => {
@@ -2453,7 +2453,7 @@ export default function RouteBuilder() {
           </Card>
 
           {/* ── Right: Map + Build Route Form ────────────────────── */}
-          <div className="space-y-3 flex flex-col">
+          <div className="space-y-2 flex flex-col">
             {/* Map */}
             <Card className="border-slate-200 overflow-hidden flex-1">
               <CardHeader className="px-3 sm:px-4 pt-3 sm:pt-4 pb-1.5">
@@ -2482,7 +2482,7 @@ export default function RouteBuilder() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-3 sm:px-4 pb-3 sm:pb-4 pt-0 space-y-3.5">
+              <CardContent className="px-3 sm:px-4 pb-2 sm:pb-3 pt-0 space-y-2">
                 {/* Unified stops list with drag-and-drop */}
                 {formStops.map((stop, idx) => {
                   const isFirst = idx === 0;
@@ -2498,14 +2498,9 @@ export default function RouteBuilder() {
                   return (
                     <div
                       key={stop.id}
-                      className={`space-y-1 rounded-md transition-all ${
-                        isDragging ? "opacity-40" : ""
-                      } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
-                      draggable
-                      onDragStart={(e) => {
-                        setDragIdx(idx);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
+                      className={`rounded-md transition-all ${
+                        isDragging ? "opacity-30 scale-[0.98]" : ""
+                      } ${isDragOver ? "ring-2 ring-orange-400/50 bg-orange-50/50" : ""}`}
                       onDragOver={(e) => {
                         e.preventDefault();
                         e.dataTransfer.dropEffect = "move";
@@ -2541,10 +2536,16 @@ export default function RouteBuilder() {
                         {stopLabel}
                       </Label>
                       <div className="flex items-center gap-1.5">
-                        {/* Drag handle */}
+                        {/* Drag handle — only this element is draggable */}
                         <div
-                          className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground p-0.5"
+                          draggable
+                          onDragStart={(e) => {
+                            setDragIdx(idx);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          className="shrink-0 cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 rounded p-1 hover:bg-slate-100 transition-colors"
                           data-testid={`drag-handle-${idx}`}
+                          title="Drag to reorder"
                         >
                           <GripVertical className="w-4 h-4" />
                         </div>
@@ -2579,30 +2580,32 @@ export default function RouteBuilder() {
                           />
                         </div>
 
-                        {/* Remove button (only for middle stops, and only if more than 2 stops) */}
-                        {!isFirst && !isLast && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-9 w-9 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                            data-testid={`button-remove-stop-${idx}`}
-                            onClick={() => {
-                              setFormStops((prev) => {
-                                const updated = prev.filter((_, i) => i !== idx);
-                                // Auto-build after removing a stop
-                                setTimeout(() => {
-                                  const current = formStopsRef.current;
-                                  if (current.filter((s) => s.location.trim()).length >= 2) {
-                                    void triggerRouteBuild(current, false);
-                                  }
-                                }, 50);
-                                return updated;
-                              });
-                            }}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
+                        {/* Remove button — always visible on every stop */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 w-9 p-0 text-slate-300 hover:text-red-500 shrink-0"
+                          data-testid={`button-remove-stop-${idx}`}
+                          onClick={() => {
+                            setFormStops((prev) => {
+                              let updated = prev.filter((_, i) => i !== idx);
+                              // Always keep at least 2 stops (origin + destination)
+                              while (updated.length < 2) {
+                                updated.push({ id: nextStopId(), location: "", dockMinutes: defaultDockMinutes });
+                              }
+                              // Auto-build after removing a stop
+                              setTimeout(() => {
+                                const current = formStopsRef.current;
+                                if (current.filter((s) => s.location.trim()).length >= 2) {
+                                  void triggerRouteBuild(current, false);
+                                }
+                              }, 50);
+                              return updated;
+                            });
+                          }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </div>
                   );
