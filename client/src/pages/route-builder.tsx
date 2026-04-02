@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useFirebaseAuth } from "@/components/firebase-auth";
@@ -114,6 +114,39 @@ async function getDistance(
   toLng: number,
 ): Promise<{ distanceKm: number; durationMinutes: number } | null> {
   return getOSRMRoute(fromLat, fromLng, toLat, toLng);
+}
+
+/**
+ * Return the API-provided driveMinutesFromPrev for the Nth non-yard stop
+ * (0-indexed, matching formStops order).
+ */
+function getBaseStopDriveMinutes(routeStops: RouteStop[], formStopIdx: number): number {
+  let count = 0;
+  for (const s of routeStops) {
+    if (s.type === "yard") continue;
+    if (count === formStopIdx) return s.driveMinutesFromPrev ?? 0;
+    count++;
+  }
+  return 0;
+}
+
+/**
+ * Apply per-stop drive time adjustments (from formStops) to the built
+ * RouteStop array.  Only the /connect segment prefix of the path changes —
+ * yard stops are left untouched.
+ */
+function applyDriveAdjustments(routeStops: RouteStop[], fStops: FormStop[]): RouteStop[] {
+  let fIdx = 0;
+  return routeStops.map((stop) => {
+    if (stop.type === "yard") return stop;
+    const adj = fStops[fIdx]?.driveMinutesAdjustment ?? 0;
+    fIdx++;
+    if (adj === 0) return stop;
+    return {
+      ...stop,
+      driveMinutesFromPrev: Math.max(0, (stop.driveMinutesFromPrev ?? 0) + adj),
+    };
+  });
 }
 
 /**
@@ -1059,6 +1092,8 @@ export default function RouteBuilder() {
       );
       const built = await repairMissingDistances(rawBuilt);
       setStops(built);
+      // Reset any user-applied drive time adjustments — fresh API data just arrived
+      setFormStops((prev) => prev.map((s) => ({ ...s, driveMinutesAdjustment: 0 })));
       if (built.length >= 2 && selectedProfileId) {
         await calculateRoute(built, undefined, {
           saveToHistory,
@@ -1123,7 +1158,7 @@ export default function RouteBuilder() {
     if (currentStops.length < 2 || !selectedProfileId) return;
     if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
     calcTimerRef.current = setTimeout(() => {
-      calculateRoute(stopsRef.current);
+      calculateRoute(applyDriveAdjustments(stopsRef.current, formStopsRef.current));
     }, 600);
     return () => {
       if (calcTimerRef.current) clearTimeout(calcTimerRef.current);
@@ -1472,6 +1507,35 @@ export default function RouteBuilder() {
       });
     } finally {
       setIsSavingFav(false);
+    }
+  }
+
+  // ── Drive time adjustment ─────────────────────────────────────
+
+  function handleAdjustDriveTime(formStopIdx: number, deltaMinutes: number) {
+    const newFormStops = formStops.map((s, i) => {
+      if (i !== formStopIdx) return s;
+      const base = getBaseStopDriveMinutes(stopsRef.current, formStopIdx);
+      const currentAdj = s.driveMinutesAdjustment ?? 0;
+      // Clamp so effective drive time never goes below 0
+      const newAdj = Math.max(-base, currentAdj + deltaMinutes);
+      return { ...s, driveMinutesAdjustment: newAdj };
+    });
+    setFormStops(newFormStops);
+    const currentStops = stopsRef.current;
+    if (currentStops.length >= 2 && selectedProfileId) {
+      void calculateRoute(applyDriveAdjustments(currentStops, newFormStops));
+    }
+  }
+
+  function handleResetDriveTime(formStopIdx: number) {
+    const newFormStops = formStops.map((s, i) =>
+      i === formStopIdx ? { ...s, driveMinutesAdjustment: 0 } : s,
+    );
+    setFormStops(newFormStops);
+    const currentStops = stopsRef.current;
+    if (currentStops.length >= 2 && selectedProfileId) {
+      void calculateRoute(applyDriveAdjustments(currentStops, newFormStops));
     }
   }
 
@@ -2806,9 +2870,59 @@ export default function RouteBuilder() {
                   const isDragging = dragIdx === idx;
                   const isDragOver = dragOverIdx === idx;
 
+                  // Drive time adjuster data for this stop (only for non-first stops)
+                  const baseDriveMin = idx > 0 ? getBaseStopDriveMinutes(stops, idx) : 0;
+                  const driveAdj = stop.driveMinutesAdjustment ?? 0;
+                  const effectiveDriveMin = Math.max(0, baseDriveMin + driveAdj);
+                  const driveH = Math.floor(effectiveDriveMin / 60);
+                  const driveM = Math.round(effectiveDriveMin % 60);
+
                   return (
+                    <Fragment key={stop.id}>
+                    {/* ── Drive time adjuster between stops ── */}
+                    {idx > 0 && baseDriveMin > 0 && (
+                      <div className="flex items-center gap-1.5 py-0.5 pl-5 select-none">
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Clock className="w-3 h-3 shrink-0" />
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Decrease drive time by 5 minutes"
+                          disabled={effectiveDriveMin <= 5}
+                          className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed text-base leading-none"
+                          onClick={() => handleAdjustDriveTime(idx, -5)}
+                        >
+                          −
+                        </button>
+                        <span className="text-xs font-medium tabular-nums min-w-[52px] text-center text-foreground">
+                          {driveH}h {String(driveM).padStart(2, "0")}m
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Increase drive time by 5 minutes"
+                          className="w-5 h-5 rounded border border-border flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground text-base leading-none"
+                          onClick={() => handleAdjustDriveTime(idx, +5)}
+                        >
+                          +
+                        </button>
+                        {driveAdj !== 0 && (
+                          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <span className={driveAdj > 0 ? "text-amber-600" : "text-blue-500"}>
+                              {driveAdj > 0 ? "+" : ""}{driveAdj}m
+                            </span>
+                            <button
+                              type="button"
+                              aria-label="Reset drive time to Google estimate"
+                              className="text-muted-foreground hover:text-foreground underline text-[10px]"
+                              onClick={() => handleResetDriveTime(idx)}
+                            >
+                              reset
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div
-                      key={stop.id}
                       className={`space-y-1 rounded-md transition-all ${
                         isDragging ? "opacity-40" : ""
                       } ${isDragOver ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
@@ -2916,6 +3030,7 @@ export default function RouteBuilder() {
                         )}
                       </div>
                     </div>
+                    </Fragment>
                   );
                 })}
 

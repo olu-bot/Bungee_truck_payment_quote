@@ -5,6 +5,8 @@ export type FormStop = {
   id: string;
   location: string;
   dockMinutes: number;
+  /** User-applied offset (minutes) on top of the Google API drive time. Resets when the route is rebuilt. */
+  driveMinutesAdjustment?: number;
 };
 
 export type LegBreakdown = {
