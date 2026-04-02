@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import { registerStripeRoutes } from "./stripe";
+import { sendSubscriptionUpgradeEmail } from "./subscriptionEmail";
 import { storage } from "./storage";
 import { sendFeedbackEmail, sendReplyToUserEmail } from "./feedbackEmail";
 import { verifyBearerIsAdmin, getAdminFirestore } from "./firebaseAdmin";
@@ -1825,17 +1826,41 @@ export async function registerRoutes(
     }
 
     try {
+      // Read current doc before updating so we can detect upgrades + grab email/name
+      const prevSnap = await fs.doc(`users/${uid}`).get();
+      const prevData = prevSnap.data() ?? {};
+      const prevTier = String(prevData.subscriptionTier ?? "free");
+
+      const adminFb = (await import("firebase-admin")).default;
       await fs.doc(`users/${uid}`).set(
         {
           subscriptionTier: normalised,
           subscriptionStatus: normalised === "free" ? "canceled" : "active",
-          subscriptionUpdatedAt: require("firebase-admin").firestore.FieldValue.serverTimestamp(),
+          subscriptionUpdatedAt: adminFb.firestore.FieldValue.serverTimestamp(),
           manualTierOverride: true,
           manualTierSetBy: actor.uid,
         },
         { merge: true },
       );
       console.log(`[admin] ${actor.uid} set subscriptionTier=${normalised} for user ${uid}`);
+
+      // Send upgrade email when admin promotes to pro or fleet
+      const isUpgrade =
+        (prevTier === "free" && (normalised === "pro" || normalised === "fleet")) ||
+        (prevTier === "pro" && normalised === "fleet");
+
+      if (isUpgrade && (normalised === "pro" || normalised === "fleet")) {
+        const userEmail = String(prevData.email ?? "").trim();
+        const userName  = String(prevData.name  ?? "").trim();
+        if (userEmail) {
+          // Non-blocking — don't fail the request if email fails
+          sendSubscriptionUpgradeEmail({ to: userEmail, name: userName, tier: normalised })
+            .catch((e) => console.error("[admin] upgrade email error (non-fatal)", e));
+        } else {
+          console.warn("[admin] no email on file for uid", uid, "— skipping upgrade email");
+        }
+      }
+
       return res.json({ ok: true, uid, tier: normalised });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);

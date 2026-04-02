@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import admin from "firebase-admin";
 import Stripe from "stripe";
 import { getAdminFirestore } from "./firebaseAdmin";
+import { sendSubscriptionUpgradeEmail } from "./subscriptionEmail";
 
 type RequestWithRaw = Request & { rawBody?: Buffer };
 
@@ -130,6 +131,12 @@ async function syncSubscriptionToUser(uid: string, sub: Stripe.Subscription): Pr
     return;
   }
   const fields = deriveSubscriptionFields(sub);
+
+  // Read the previous tier so we only send an upgrade email when the tier
+  // actually improves (not on every renewal event).
+  const prevSnap = await db.doc(`users/${uid}`).get();
+  const prevTier = prevSnap.data()?.subscriptionTier ?? "free";
+
   await db.doc(`users/${uid}`).set(
     {
       ...fields,
@@ -138,6 +145,27 @@ async function syncSubscriptionToUser(uid: string, sub: Stripe.Subscription): Pr
     { merge: true },
   );
   console.log("[stripe] synced subscription to users/", uid, fields.subscriptionTier, fields.subscriptionStatus);
+
+  // Send upgrade email only when the tier genuinely improves
+  const newTier = fields.subscriptionTier;
+  const isUpgrade =
+    (prevTier === "free" && (newTier === "pro" || newTier === "fleet")) ||
+    (prevTier === "pro" && newTier === "fleet");
+
+  if (isUpgrade && (newTier === "pro" || newTier === "fleet")) {
+    try {
+      const userData = prevSnap.data() ?? {};
+      const email = String(userData.email ?? "").trim();
+      const name  = String(userData.name  ?? "").trim();
+      if (email) {
+        await sendSubscriptionUpgradeEmail({ to: email, name, tier: newTier });
+      } else {
+        console.warn("[stripe] no email on file for uid", uid, "— skipping upgrade email");
+      }
+    } catch (e) {
+      console.error("[stripe] upgrade email error (non-fatal)", e);
+    }
+  }
 }
 
 /**
